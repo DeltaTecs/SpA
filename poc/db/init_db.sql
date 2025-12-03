@@ -78,9 +78,16 @@ CREATE TABLE IF NOT EXISTS packet_header_information (
 );
 
 -- Processing tag table
-CREATE TABLE IF NOT EXISTS processing_tag (
-  processing_tag_id bigserial PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS packet_processing_tag (
+  packet_processing_tag_id bigserial PRIMARY KEY,
   packet_id bigint REFERENCES packet(packet_id) ON DELETE CASCADE,
+  step text
+);
+
+-- Recording processing tag table
+CREATE TABLE IF NOT EXISTS recording_processing_tag (
+  recording_processing_tag_id bigserial PRIMARY KEY,
+  recording_id bigint REFERENCES recording(recording_id) ON DELETE CASCADE,
   step text
 );
 

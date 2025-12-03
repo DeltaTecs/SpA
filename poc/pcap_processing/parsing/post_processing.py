@@ -12,6 +12,8 @@ import logging
 import re
 import gzip
 import zlib
+import math
+import collections
 from typing import List, Tuple, Optional, Dict
 
 try:
@@ -173,6 +175,14 @@ def decompress_http_payloads(conn, recording_id: int) -> int:
 
                 if new_payload:
                     decompressed_packets_count += 1
+
+                    enc_map = {"br": "Brotli", "gzip": "Gzip", "deflate": "Deflate"}
+                    enc_name = enc_map.get(processor.encoding, processor.encoding)
+
+                    update_cur.execute(
+                        "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
+                        (packet_id, f"decompressed payload with {enc_name}")
+                    )
         conn.commit()
     finally:
         cur.close()
@@ -210,6 +220,13 @@ def delete_encrypted_packets_without_payload(conn, recording_id: int) -> int:
             (recording_id, encrypted_proto_ids)
         )
         deleted_count = cur.rowcount
+
+        if deleted_count > 0:
+            cur.execute(
+                "INSERT INTO recording_processing_tag (recording_id, step) VALUES (%s, %s)",
+                (recording_id, f"removed {deleted_count} packets without payload")
+            )
+
         conn.commit()
         return deleted_count
     finally:
@@ -264,6 +281,12 @@ def prune_media_payload_packets(conn, recording_id: int) -> Tuple[int, int]:
                 cur.rowcount,
             )
 
+        if deleted_packets > 0:
+            cur.execute(
+                "INSERT INTO recording_processing_tag (recording_id, step) VALUES (%s, %s)",
+                (recording_id, f"removed {deleted_packets} HTTP Media packets")
+            )
+
         conn.commit()
     finally:
         cur.close()
@@ -295,6 +318,60 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def calculate_shannon_entropy(data: bytes) -> float:
+    """Calculate Shannon entropy of a byte array."""
+    if not data:
+        return 0.0
+    length = len(data)
+    counts = collections.Counter(data)
+    entropy = 0.0
+    for count in counts.values():
+        p = count / length
+        entropy -= p * math.log2(p)
+    return entropy
+
+
+def tag_packet_entropy(conn, recording_id: int) -> int:
+    """
+    For every packet with plain application payload, calculate the shannon entropy
+    of the entire plain payload byte array and write the value to packet_processing_tag.
+    """
+    cur = conn.cursor()
+    count = 0
+    try:
+        cur.execute(
+            """
+            SELECT packet_id, clear_application_payload
+            FROM packet
+            WHERE recording_id = %s
+              AND clear_application_payload IS NOT NULL
+              AND length(clear_application_payload) > 0
+            """,
+            (recording_id,)
+        )
+        rows = cur.fetchall()
+        
+        for packet_id, payload in rows:
+            # payload is memoryview or bytes in psycopg2
+            if isinstance(payload, memoryview):
+                payload = bytes(payload)
+                
+            entropy = calculate_shannon_entropy(payload)
+            msg = f"Entropy of complete payload is {entropy:.2f} ."
+            
+            cur.execute(
+                "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
+                (packet_id, msg)
+            )
+            count += 1
+            
+        conn.commit()
+        logging.info("Tagged %d packets with entropy values.", count)
+        return count
+    finally:
+        cur.close()
+
+
 def main():
     args = parse_args()
     logging.basicConfig(
@@ -324,12 +401,16 @@ def main():
         # 3. Prune media payloads
         media_header_count, deleted_packets = prune_media_payload_packets(conn, args.recording_id)
         
+        # 4. Tag entropy
+        entropy_tagged_count = tag_packet_entropy(conn, args.recording_id)
+        
         logging.info(
-            "Finished post-processing: %d packets decompressed, %d encrypted packets deleted, %d media headers inspected, %d media packets deleted",
+            "Finished post-processing: %d packets decompressed, %d encrypted packets deleted, %d media headers inspected, %d media packets deleted, %d packets tagged with entropy",
             decompress_count,
             deleted_encrypted,
             media_header_count,
             deleted_packets,
+            entropy_tagged_count,
         )
     finally:
         conn.close()
