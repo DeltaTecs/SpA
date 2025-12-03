@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres-container
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: appuser_password
+      POSTGRES_DB: main
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+    networks:
+      - app-network
+    healthcheck:
+      # pg_isready by default attempts to connect to a database with the same name as the user.
+      # The DB we create is `main`, so include `-d main` so the healthcheck targets the correct DB.
+      test: ["CMD-SHELL", "pg_isready -U appuser -d main"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgweb:
+    image: sosedoff/pgweb
+    container_name: pgweb
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgres://appuser:appuser_password@postgres:5432/main?sslmode=disable
+    networks:
+      - app-network
+    depends_on:
+      - postgres
+
+  pcap-processor:
+    build: ./pcap_processing
+    container_name: pcap-processor
+    volumes:
+      - ./pcap_processing/parsing:/app/parsing
+      - ./pcap_processing/util:/app/util
+      - ./pcap_processing/reset_db.py:/app/reset_db.py
+      - ./pcap_processing/run_pipeline.sh:/app/run_pipeline.sh
+      - ./db:/app/db
+    networks:
+      - app-network
+    depends_on:
+      - postgres
+    tty: true
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
