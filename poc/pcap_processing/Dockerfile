@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     python3-venv \
     libpq-dev \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up Python virtual environment
@@ -18,9 +19,11 @@ RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python libraries
-RUN pip install --no-cache-dir scapy psycopg2-binary cryptography
+RUN pip install --no-cache-dir scapy psycopg2-binary cryptography brotli
 
 WORKDIR /app
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # Keep container running
 CMD ["tail", "-f", "/dev/null"]
