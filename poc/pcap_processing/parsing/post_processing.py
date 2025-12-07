@@ -181,7 +181,7 @@ def decompress_http_payloads(conn, recording_id: int) -> int:
 
                     update_cur.execute(
                         "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
-                        (packet_id, f"decompressed payload with {enc_name}")
+                        (packet_id, f"Decompressed payload with {enc_name}.")
                     )
         conn.commit()
     finally:
@@ -224,7 +224,7 @@ def delete_encrypted_packets_without_payload(conn, recording_id: int) -> int:
         if deleted_count > 0:
             cur.execute(
                 "INSERT INTO recording_processing_tag (recording_id, step) VALUES (%s, %s)",
-                (recording_id, f"removed {deleted_count} packets without payload")
+                (recording_id, f"Removed {deleted_count} packets without payload.")
             )
 
         conn.commit()
@@ -331,10 +331,10 @@ def calculate_shannon_entropy(data: bytes) -> float:
     return entropy
 
 
-def tag_packet_entropy(conn, recording_id: int) -> int:
+def calculate_packet_entropy(conn, recording_id: int) -> int:
     """
     For every packet with plain application payload, calculate the shannon entropy
-    of the entire plain payload byte array and write the value to packet_processing_tag.
+    of the entire plain payload byte array and write the value to the packet table.
     """
     cur = conn.cursor()
     count = 0
@@ -357,16 +357,15 @@ def tag_packet_entropy(conn, recording_id: int) -> int:
                 payload = bytes(payload)
                 
             entropy = calculate_shannon_entropy(payload)
-            msg = f"Entropy of complete payload is {entropy:.2f} ."
             
             cur.execute(
-                "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
-                (packet_id, msg)
+                "UPDATE packet SET entropy = %s WHERE packet_id = %s",
+                (entropy, packet_id)
             )
             count += 1
             
         conn.commit()
-        logging.info("Tagged %d packets with entropy values.", count)
+        logging.info("Updated %d packets with entropy values.", count)
         return count
     finally:
         cur.close()
@@ -402,10 +401,10 @@ def main():
         media_header_count, deleted_packets = prune_media_payload_packets(conn, args.recording_id)
         
         # 4. Tag entropy
-        entropy_tagged_count = tag_packet_entropy(conn, args.recording_id)
+        entropy_tagged_count = calculate_packet_entropy(conn, args.recording_id)
         
         logging.info(
-            "Finished post-processing: %d packets decompressed, %d encrypted packets deleted, %d media headers inspected, %d media packets deleted, %d packets tagged with entropy",
+            "Finished post-processing: %d packets decompressed, %d encrypted packets deleted, %d media headers inspected, %d media packets deleted, %d packets updated with entropy",
             decompress_count,
             deleted_encrypted,
             media_header_count,

@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: mattermost-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - mattermost-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mattermost:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        MATTERMOST_VERSION: v9.5.1
+    container_name: mattermost-server
+    restart: unless-stopped
+    ports:
+      - "8065:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@postgres:5432/mattermost?sslmode=disable&connect_timeout=10
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+    volumes:
+      - mattermost_data:/mattermost/data
+      - mattermost_logs:/mattermost/logs
+      - mattermost_config:/mattermost/config
+      - mattermost_plugins:/mattermost/plugins
+    networks:
+      - mattermost-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  mattermost_data:
+  mattermost_logs:
+  mattermost_config:
+  mattermost_plugins:
+
+networks:
+  mattermost-network:
+    driver: bridge

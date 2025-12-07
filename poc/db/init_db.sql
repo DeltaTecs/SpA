@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS packet (
   number bigint,
   protocol_ids bigint[] NOT NULL,
   packet_bytes bytea,
-  clear_application_payload bytea
+  clear_application_payload bytea,
+  entropy float
 );
 
 -- Many-to-many between packet and header_information

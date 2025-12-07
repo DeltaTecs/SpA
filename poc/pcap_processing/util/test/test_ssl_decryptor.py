@@ -254,5 +254,18 @@ class TestSSLDecryptor(unittest.TestCase):
         
         self.assertTrue(found, f"Frame 43 should contain data bytes: {expected_bytes.hex()}")
 
+    def test_packet_153_is_dns(self):
+        pcap_file = os.path.abspath(os.path.join(self.resources_dir, '../../../parsing/resources/discord_room.pcapng'))
+        decryptor = SSLKeylogDecryptor(self.tshark_path, self.keylog_file)
+        
+        if not decryptor.tshark_available:
+            self.skipTest("tshark not found")
+
+        decryptor.decrypt_pcap(pcap_file)
+        
+        stack_info = decryptor.get_packet_stack(153)
+        self.assertIsNotNone(stack_info, "Packet 153 should be present")
+        self.assertIn('dns', stack_info['protocols'], "Packet 153 should be identified as DNS")
+
 if __name__ == '__main__':
     unittest.main()

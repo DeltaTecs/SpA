@@ -20,6 +20,8 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
         # We drop in an order that respects dependencies, or just use CASCADE.
         # Since we are resetting to init_db.sql, we want to wipe everything clean.
         tables_to_drop = [
+            "packet_processing_tag",
+            "recording_processing_tag",
             "packet_header_information",
             "packet",
             "ip_header_information",

@@ -33,7 +33,7 @@ echo "[1/4] Running Pre-processing..."
 #    echo "Error: PCAP file not found at $PCAP_FILE"
 #    exit 1
 #fi
-FILTERED_PCAP="$FILTERED_PCAP"
+FILTERED_PCAP="$PCAP_FILE"
 
 # 2. Reset DB
 echo "[2/4] Resetting Database..."
