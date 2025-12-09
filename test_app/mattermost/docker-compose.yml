@@ -21,7 +21,7 @@ services:
 
   mattermost:
     build:
-      context: .
+      context: ./server
       dockerfile: Dockerfile
       args:
         MATTERMOST_VERSION: v9.5.1
@@ -44,6 +44,22 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  desktop:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: mattermost-desktop
+    environment:
+      # For Windows with VcXsrv, use host.docker.internal:0.0
+      # For Linux, use :0 or similar
+      - DISPLAY=${DISPLAY:-host.docker.internal:0.0}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+    networks:
+      - mattermost-network
+    depends_on:
+      - mattermost
 
 volumes:
   postgres_data:
