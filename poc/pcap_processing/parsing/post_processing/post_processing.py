@@ -22,6 +22,7 @@ except ImportError:
     brotli = None
 
 import psycopg2
+from discord_zstd_decompression import decompress_discord_zstd
 
 
 MEDIA_PREFIXES = ("image/", "video/")
@@ -402,6 +403,10 @@ def main():
         
         # 4. Tag entropy
         entropy_tagged_count = calculate_packet_entropy(conn, args.recording_id)
+
+        # 5. Discord Zstd Decompression
+        logging.info("Running Discord Zstd Decompression...")
+        decompress_discord_zstd(conn, args.recording_id)
         
         logging.info(
             "Finished post-processing: %d packets decompressed, %d encrypted packets deleted, %d media headers inspected, %d media packets deleted, %d packets updated with entropy",

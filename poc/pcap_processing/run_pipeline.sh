@@ -73,7 +73,7 @@ fi
 
 # 4. Post-processing
 echo "[4/4] Running Post-processing..."
-python3 parsing/post_processing.py \
+python3 parsing/post_processing/post_processing.py \
     --recording-id 1 \
     --db-host "$DB_HOST" \
     --db-port "$DB_PORT" \

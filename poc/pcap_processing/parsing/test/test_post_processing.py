@@ -23,7 +23,7 @@ class TestPostProcessing(unittest.TestCase):
         cls.pcap_file = os.path.join(cls.base_dir, 'resources/discord_room.pcapng')
         cls.keylog_file = os.path.join(cls.base_dir, 'resources/tls-keys.log')
         cls.pcap_to_db_script = os.path.abspath(os.path.join(cls.base_dir, '../pcap_to_db.py'))
-        cls.post_processing_script = os.path.abspath(os.path.join(cls.base_dir, '../post_processing.py'))
+        cls.post_processing_script = os.path.abspath(os.path.join(cls.base_dir, '../post_processing/post_processing.py'))
         cls.init_sql_path = os.path.abspath(os.path.join(cls.base_dir, '../../db/init_db.sql'))
 
         # Reset DB
@@ -180,6 +180,26 @@ class TestPostProcessing(unittest.TestCase):
         target_bytes = bytes.fromhex('5b5d0a')
         
         self.assertEqual(bytes(payload), target_bytes, f"Payload of packet 1566 does not match expected bytes {target_bytes.hex()}")
+
+    def test_packet_624_content(self):
+        """
+        Check that the frame with packet number 624 results in a clear_application_payload 
+        after post processing that contains the string "gateway-prd-arm-us-east1-d-bzvc"
+        """
+        self.cur.execute("SELECT clear_application_payload FROM packet WHERE number = 624 AND recording_id = %s", (self.recording_id,))
+        row = self.cur.fetchone()
+        self.assertIsNotNone(row, "Packet 624 not found in database")
+        
+        payload = row[0]
+        self.assertIsNotNone(payload, "Packet 624 has no clear_application_payload")
+        
+        target_string = "gateway-prd-arm-us-east1-d-bzvc"
+        
+        try:
+            payload_str = bytes(payload).decode('utf-8', errors='ignore')
+            self.assertIn(target_string, payload_str, f"Target string '{target_string}' not found in payload of packet 624")
+        except Exception as e:
+            self.fail(f"Failed to decode payload: {e}")
 
 if __name__ == '__main__':
     unittest.main()
