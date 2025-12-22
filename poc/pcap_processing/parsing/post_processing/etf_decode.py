@@ -1,19 +1,19 @@
-import zstandard as zstd
-import io
+import struct
 import json
 
-with open('zstd.txt', 'r') as f:
-    hex_data = f.read().strip()
+def make_json_serializable(obj):
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode('utf-8')
+        except UnicodeDecodeError:
+            return repr(obj)
+    elif isinstance(obj, list):
+        return [make_json_serializable(i) for i in obj]
+    elif isinstance(obj, dict):
+        return {make_json_serializable(k): make_json_serializable(v) for k, v in obj.items()}
+    return obj
 
-data = bytes.fromhex(hex_data)
-
-dctx = zstd.ZstdDecompressor()
-with dctx.stream_reader(io.BytesIO(data)) as reader:
-    decompressed = reader.read()
-
-import struct
-
-def decode_etf(data):
+def etf_decode(data: bytes) -> str:
     pos = 0
     objs = []
     
@@ -84,32 +84,31 @@ def decode_etf(data):
             if sign == 1:
                 val = -val
             return val
+        elif tag == 115: # SMALL_ATOM_EXT
+            length = data[pos]
+            pos += 1
+            val = data[pos:pos+length].decode('latin-1')
+            pos += length
+            if val == "true": return True
+            if val == "false": return False
+            if val == "nil": return None
+            return val
         else:
             raise ValueError(f"Unknown tag: {tag} at pos {pos-1}")
 
     while pos < len(data):
         if data[pos] != 131:
+            # If it's not 131, it might not be ETF or we are misaligned.
+            # For now, raise error as in the reference implementation.
             raise ValueError(f"Not an ETF stream at pos {pos}")
         pos += 1
         objs.append(read_term())
 
-    return objs
-
-def make_json_serializable(obj):
-    if isinstance(obj, bytes):
-        try:
-            return obj.decode('utf-8')
-        except UnicodeDecodeError:
-            return repr(obj)
-    elif isinstance(obj, list):
-        return [make_json_serializable(i) for i in obj]
-    elif isinstance(obj, dict):
-        return {make_json_serializable(k): make_json_serializable(v) for k, v in obj.items()}
-    return obj
-
-decoded = decode_etf(decompressed)
-print(f"Decoded {len(decoded)} ETF objects.")
-for i, obj in enumerate(decoded):
-    print(f"Object {i+1}:")
-    print(json.dumps(make_json_serializable(obj), indent=2)) 
-
+    # Convert to JSON serializable structure
+    serializable_objs = make_json_serializable(objs)
+    
+    # Return as JSON string
+    # If there is only one object, maybe return just that? 
+    # The reference implementation printed all objects.
+    # I'll return the list of objects as a JSON array string.
+    return json.dumps(serializable_objs)
