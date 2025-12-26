@@ -19,7 +19,7 @@ RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python libraries
-RUN pip install --no-cache-dir scapy psycopg2-binary cryptography brotli zstandard
+RUN pip install --no-cache-dir scapy psycopg2-binary cryptography brotli zstandard erlpack
 
 WORKDIR /app
 

@@ -1,6 +1,5 @@
 import logging
 import zstandard as zstd
-from etf_decode import etf_decode
 
 def decompress_discord_zstd(conn, recording_id: int):
     """
@@ -90,34 +89,20 @@ def decompress_discord_zstd(conn, recording_id: int):
             dobj = streams[stream_key]
             
             payload_bytes = bytes(payload)
-            decompressed = None
-
-            if payload_bytes.startswith(b'\x28\xb5\x2f\xfd'):
-                try:
-                    # Warning for low entropy
-                    if entropy is not None and entropy < 6:
-                        logging.warning(f"Packet {pid} (number {num}) has low entropy ({entropy}) but is being uncompressed.")
-                    decompressed = dobj.decompress(payload_bytes)
-                except Exception as e:
-                    logging.warning(f"Decompression error for packet {pid} (number {num}): {e}")
-            else:
-                decompressed = payload_bytes
+            try:
+                decompressed = dobj.decompress(payload_bytes)
+            except Exception as e:
+                logging.debug(f"Discord zstd decompression failed for packet {num}: {e}")
+                continue
 
             if decompressed:
-                try:
-                    decoded_str = etf_decode(decompressed)
-                    payload_to_write = decoded_str.encode('utf-8')
-                    update_cur.execute(
-                        "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
-                        (pid, "websocket binary payload zstd decompressed and etf decoded")
-                    )
-                except Exception as decode_err:
-                    logging.warning(f"ETF decode failed for packet {pid}: {decode_err}")
-                    payload_to_write = decompressed
-
                 update_cur.execute(
                     "UPDATE packet SET clear_application_payload = %s WHERE packet_id = %s",
-                    (payload_to_write, pid)
+                    (decompressed, pid)
+                )
+                update_cur.execute(
+                    "INSERT INTO packet_processing_tag (packet_id, step) VALUES (%s, %s)",
+                    (pid, "websocket binary payload zstd decompressed")
                 )
                 
         conn.commit()
