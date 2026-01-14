@@ -10,7 +10,7 @@ from collections import defaultdict, namedtuple
 from scapy.all import PcapReader, TCP, IP, IPv6, Raw
 
 MEMORY_ALIGNMENT = 1
-ENTROPY_THRESHOLD = 1.0
+ENTROPY_THRESHOLD = 2.0
 TLS13_CIPHER_SUITES = {
     0x1301: "gcm_128_sha_256",  # TLS_AES_128_GCM_SHA256
     0x1302: "gcm_256_sha_384",  # TLS_AES_256_GCM_SHA384
@@ -366,7 +366,6 @@ def run_voses(voses_path, dump_path, app_data, seq_num, client_random, algorithm
         algorithm,
     ]
     args.append("--client" if role == "client" else "--server")
-    print(f"    Running voses: {' '.join(args)}")
     try:
         start_time = time.perf_counter()
         result = subprocess.run(args, capture_output=True, text=True)
@@ -405,7 +404,7 @@ def attempt_secret(flow, dir_key, dump_path, keylog_path, role, current_scan, to
     seq_num = candidate["sequence"]
 
     src, dst = dir_key
-    print(f"[*] [{current_scan}/{total_scans}] {role} scan: TLS 1.3 (TLS/TCP) | connection: {src.ip}:{src.port} -> {dst.ip}:{dst.port}")
+    print(f"[*] [{current_scan}/{total_scans}] {role} scan: TLS 1.3 (TLS/TCP) | connection: {src.ip}:{src.port} -> {dst.ip}:{dst.port} | algorithm: {flow['algorithm']}")
     print(f"    Selected record seq={seq_num}, len={len(candidate['data'])}, time_offset={candidate['timestamp'] - start_time if start_time else 'N/A'}")
     success, output, code, elapsed = run_voses(
         flow["voses_path"],
@@ -427,24 +426,81 @@ def attempt_secret(flow, dir_key, dump_path, keylog_path, role, current_scan, to
     return False
 
 
-def match_flow_by_hint(flows, hint):
-    candidates = []
-    for conn_key, flow in flows.items():
-        if not flow["tls13"]:
-            continue
-        endpoints = set(conn_key)
-        if hint["src"] in endpoints and hint["dst"] in endpoints:
-            candidates.append(flow)
+def get_session_time_range(flow):
+    """Get the start and end time of a TLS session."""
+    start_time = flow.get("client_hello_ts") or flow.get("server_hello_ts") or flow.get("first_seen")
+    
+    # Find the last timestamp across all records in both directions
+    end_time = start_time
+    for dir_key, records in flow["records"].items():
+        for record in records:
+            if record["timestamp"] is not None:
+                if end_time is None or record["timestamp"] > end_time:
+                    end_time = record["timestamp"]
+    
+    return start_time, end_time
 
-    if not candidates:
-        return None
 
-    hint_ts = hint["timestamp_ms"] / 1000.0
+def find_dumps_in_timeframe(hints, start_time, end_time, dumps_dir):
+    """Find all dump files whose timestamps fall within the given timeframe."""
+    matching_dumps = []
+    for hint in hints:
+        hint_ts = hint["timestamp_ms"] / 1000.0
+        if start_time is not None and end_time is not None:
+            if start_time <= hint_ts <= end_time:
+                dump_path = hint["file"]
+                if not os.path.isabs(dump_path):
+                    dump_path = os.path.join(dumps_dir, dump_path)
+                if os.path.exists(dump_path) and dump_path not in [d[0] for d in matching_dumps]:
+                    matching_dumps.append((dump_path, hint_ts))
+    # Sort by timestamp so we try earlier dumps first
+    matching_dumps.sort(key=lambda x: x[1])
+    return matching_dumps
 
-    def time_for(flow):
-        return flow["client_hello_ts"] or flow["server_hello_ts"] or flow["first_seen"] or hint_ts
 
-    return min(candidates, key=lambda flow: abs(time_for(flow) - hint_ts))
+def generate_adaptive_search_order(num_dumps):
+    """
+    Generate an adaptive search order that uses larger steps first, then fills gaps.
+    
+    This is similar to binary search: start with the first dump, then jump to middle,
+    then quarters, etc. This allows faster discovery if the secret is in a later dump.
+    
+    For example, with 8 dumps [0,1,2,3,4,5,6,7], the order would be:
+    Step 1 (stride 8): 0
+    Step 2 (stride 4): 4
+    Step 3 (stride 2): 2, 6
+    Step 4 (stride 1): 1, 3, 5, 7
+    Result: [0, 4, 2, 6, 1, 3, 5, 7]
+    """
+    if num_dumps == 0:
+        return []
+    if num_dumps == 1:
+        return [0]
+    
+    order = []
+    visited = set()
+    
+    # Start with the first element (index 0) - most likely to have the secret
+    order.append(0)
+    visited.add(0)
+    
+    # Binary search-like stepping: start with large strides, halve each round
+    stride = num_dumps // 2
+    while stride >= 1:
+        idx = stride
+        while idx < num_dumps:
+            if idx not in visited:
+                order.append(idx)
+                visited.add(idx)
+            idx += stride * 2 if stride > 1 else stride
+        stride //= 2
+    
+    # Ensure all indices are covered (shouldn't be needed, but safety check)
+    for i in range(num_dumps):
+        if i not in visited:
+            order.append(i)
+    
+    return order
 
 
 def get_args():
@@ -496,72 +552,101 @@ def main():
         return 0
 
     print(f"Found {len(tls13_flows)} TLS 1.3 sessions in capture.")
+    print()
+
+    # Collect session info with time ranges
+    sessions = []
+    for flow in tls13_flows:
+        if flow["client_random"] is None:
+            print(f"[!] Skipping session without client random")
+            continue
+        algorithm = TLS13_CIPHER_SUITES.get(flow["cipher_suite"])
+        if not algorithm:
+            print(f"[!] Skipping session with unsupported cipher suite: {flow['cipher_suite']}")
+            continue
+        if not flow.get("client_dir") or not flow.get("server_dir"):
+            print(f"[!] Skipping session without direction info")
+            continue
+        
+        start_time, end_time = get_session_time_range(flow)
+        client_src, client_dst = flow["client_dir"]
+        conn_str = f"{client_src.ip}:{client_src.port} -> {client_dst.ip}:{client_dst.port}"
+        
+        sessions.append({
+            "flow": flow,
+            "start_time": start_time,
+            "end_time": end_time,
+            "conn_str": conn_str,
+            "algorithm": algorithm,
+        })
+        print(f"[*] Session: {conn_str}")
+        print(f"    Time range: {start_time:.3f} - {end_time:.3f} ({end_time - start_time:.3f}s duration)")
+
+    if not sessions:
+        print("\nNo valid TLS 1.3 sessions to process.")
+        return 0
+
+    print(f"\n{'='*60}")
+    print(f"Processing {len(sessions)} TLS 1.3 sessions")
+    print(f"{'='*60}\n")
 
     successful_extractions = []
     failed_extractions = []
-
-    # Count valid hints to calculate total scans (2 per valid hint: client + server)
-    valid_hints = []
-    for hint in hints:
-        if hint["proto"].upper() != "TCP":
-            continue
-        flow = match_flow_by_hint(flows, hint)
-        if not flow:
-            print(f"[!] No TLS 1.3 flow matches hint: {hint['raw']}")
-            continue
-        if flow["client_random"] is None:
-            print(f"[!] Missing client random for hint: {hint['raw']}")
-            continue
-        algorithm = TLS13_CIPHER_SUITES.get(flow["cipher_suite"])
-        if not algorithm:
-            print(f"[!] Unsupported TLS 1.3 cipher suite for hint: {hint['raw']}")
-            continue
-        dump_path = hint["file"]
-        if not os.path.isabs(dump_path):
-            dump_path = os.path.join(args.dumps, dump_path)
-        if not os.path.exists(dump_path):
-            print(f"[!] Dump file missing: {dump_path}")
-            continue
-        if not flow.get("client_dir") or not flow.get("server_dir"):
-            print(f"[!] Missing direction info, skipping hint: {hint['raw']}")
-            continue
-        valid_hints.append((hint, flow, dump_path, algorithm))
-    
-    total_scans = len(valid_hints) * 2
+    skipped_sessions = []
     current_scan = 0
+    total_scans = 0
 
-    for hint, flow, dump_path, algorithm in valid_hints:
-        if hint["proto"].upper() != "TCP":
-            continue
-        flow = match_flow_by_hint(flows, hint)
-        if not flow:
-            print(f"[!] No TLS 1.3 flow matches hint: {hint['raw']}")
-            continue
-        if flow["client_random"] is None:
-            print(f"[!] Missing client random for hint: {hint['raw']}")
-            continue
-        algorithm = TLS13_CIPHER_SUITES.get(flow["cipher_suite"])
-        if not algorithm:
-            print(f"[!] Unsupported TLS 1.3 cipher suite for hint: {hint['raw']}")
-            continue
+    # Pre-calculate total scans by checking dumps for each session
+    session_dumps = []
+    for session in sessions:
+        dumps = find_dumps_in_timeframe(hints, session["start_time"], session["end_time"], args.dumps)
+        session_dumps.append(dumps)
+        if dumps:
+            # Worst case: 2 scans per dump (client + server), but we stop when both found
+            total_scans += len(dumps) * 2
 
-        dump_path = hint["file"]
-        if not os.path.isabs(dump_path):
-            dump_path = os.path.join(args.dumps, dump_path)
-        if not os.path.exists(dump_path):
-            print(f"[!] Dump file missing: {dump_path}")
+    for idx, session in enumerate(sessions):
+        flow = session["flow"]
+        conn_str = session["conn_str"]
+        dumps = session_dumps[idx]
+        
+        print(f"\n[Session {idx+1}/{len(sessions)}] {conn_str}")
+        print(f"  Time range: {session['start_time']:.3f} - {session['end_time']:.3f}")
+        
+        if not dumps:
+            print(f"  [WARNING] No dumps found within session timeframe - skipping session")
+            skipped_sessions.append(conn_str)
             continue
+        
+        print(f"  Found {len(dumps)} dump(s) in timeframe:")
+        for dump_path, dump_ts in dumps:
+            print(f"    - {os.path.basename(dump_path)} (ts: {dump_ts:.3f})")
 
-        flow["algorithm"] = algorithm
+        flow["algorithm"] = session["algorithm"]
         flow["voses_path"] = args.voses
 
-        client_src, client_dst = flow["client_dir"]
-        conn_str = f"{client_src.ip}:{client_src.port} -> {client_dst.ip}:{client_dst.port}"
+        client_ok = False
+        server_ok = False
 
-        current_scan += 1
-        client_ok = attempt_secret(flow, flow["client_dir"], dump_path, args.keylog, "client", current_scan, total_scans)
-        current_scan += 1
-        server_ok = attempt_secret(flow, flow["server_dir"], dump_path, args.keylog, "server", current_scan, total_scans)
+        # Generate adaptive search order: larger steps first, then fill gaps
+        search_order = generate_adaptive_search_order(len(dumps))
+        print(f"  Search order (adaptive): {[os.path.basename(dumps[i][0]) for i in search_order[:5]]}{'...' if len(search_order) > 5 else ''}")
+
+        # Try dumps in adaptive order until both secrets are found
+        for dump_idx in search_order:
+            if client_ok and server_ok:
+                break
+            
+            dump_path, dump_ts = dumps[dump_idx]
+            print(f"\n  Trying dump [{dump_idx+1}/{len(dumps)}]: {os.path.basename(dump_path)}")
+            
+            if not client_ok:
+                current_scan += 1
+                client_ok = attempt_secret(flow, flow["client_dir"], dump_path, args.keylog, "client", current_scan, total_scans)
+            
+            if not server_ok:
+                current_scan += 1
+                server_ok = attempt_secret(flow, flow["server_dir"], dump_path, args.keylog, "server", current_scan, total_scans)
 
         if client_ok and server_ok:
             successful_extractions.append((conn_str, "client+server"))
@@ -591,6 +676,11 @@ def main():
             print(f"    {conn} [{roles}]")
     else:
         print("\n[+] No failed extractions.")
+
+    if skipped_sessions:
+        print(f"\n[!] Skipped sessions (no dumps in timeframe) ({len(skipped_sessions)}):")
+        for conn in skipped_sessions:
+            print(f"    {conn}")
 
     print("=" * 60)
 
