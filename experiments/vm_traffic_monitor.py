@@ -187,15 +187,27 @@ def analyze_packet(pkt, args):
             
             offset += record_len
 
-    # QUIC Detection (UDP)
+    # DTLS/QUIC Detection (UDP)
     elif proto == "UDP":
         if len(payload) > 0:
             first_byte = payload[0]
-            is_long_header = (first_byte & 0x80) != 0
             
-            if not is_long_header:
-                # Short Header (1-RTT) -> Application Data
-                has_app_data = True
+            # DTLS Detection
+            # DTLS Record Layer: Content Type (1), Version (2), Epoch (2), Sequence (6), Length (2) = 13 bytes header
+            # Content Types: 20=ChangeCipherSpec, 21=Alert, 22=Handshake, 23=ApplicationData, 24=Heartbeat, 25=ack
+            # DTLS versions: 0xFEFF (1.0), 0xFEFD (1.2), 0xFEFC (1.3)
+            if 20 <= first_byte <= 25 and len(payload) >= 13:
+                version = int.from_bytes(payload[1:3], byteorder='big')
+                if version in (0xFEFF, 0xFEFD, 0xFEFC):
+                    if first_byte == 23:  # Application Data
+                        has_app_data = True
+            
+            # QUIC Detection (only if not detected as DTLS)
+            if not has_app_data:
+                is_long_header = (first_byte & 0x80) != 0
+                if not is_long_header:
+                    # Short Header (1-RTT) -> Application Data
+                    has_app_data = True
 
     if has_app_data:
         count = flow_app_data_packet_counts.get(flow_key, 0) + 1
