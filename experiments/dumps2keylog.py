@@ -1,4 +1,50 @@
 #!/usr/bin/env python3
+"""
+dumps2keylog_seq.py - TLS 1.3 Traffic Secret Extractor (Sequential Sequence Number Search)
+
+This script extracts TLS 1.3 traffic secrets (encryption keys) from memory dumps
+by correlating network packet captures with process memory snapshots.
+
+This variant differs from dumps2keylog.py in its search strategy:
+    - Instead of using binary search across memory dumps, it uses a single dump
+      and increments the sequence number on each failed search attempt.
+    - For record selection, it picks the smallest application data record but
+      never selects one of the first 6 records. If fewer than 7 records exist,
+      it picks the last record regardless of size.
+
+Workflow:
+    1. Parses a pcapng file to identify TLS 1.3 sessions, extracting client randoms,
+       cipher suites, and application data records from the TCP stream.
+    2. Reads a hints file containing timestamps and filenames of memory dumps taken
+       during the TLS sessions.
+    3. For each TLS 1.3 session, finds memory dumps that fall within the session's
+       time range (from ClientHello to last application data).
+    4. Selects a single dump and repeatedly invokes voses, incrementing the sequence
+       number on each failed attempt until the secret is found or max attempts reached.
+    5. Outputs discovered secrets to a key log file (NSS Key Log format), which can
+       be used by Wireshark to decrypt the captured TLS traffic.
+
+Supported cipher suites:
+    - TLS_AES_128_GCM_SHA256 (0x1301)
+    - TLS_AES_256_GCM_SHA384 (0x1302)
+
+Usage:
+    python dumps2keylog_seq.py --pcap <capture.pcapng> --hints <dump-hints.txt> \\
+                               --dumps <dumps_dir> --keylog <output.keylog> \\
+                               [--voses <path_to_voses>] [--max-seq-attempts-up <N>]
+
+Arguments:
+    --pcap              Path to the pcapng network capture file
+    --hints             Path to the dump-hints.txt file with memory dump timestamps
+    --dumps             Directory containing the memory dump files
+    --keylog            Output path for the NSS key log file
+    --voses             Path to the voses binary (default: ./voses)
+    --max-seq-attempts-up    Maximum sequence number increment attempts (default: 10)
+
+Requirements:
+    - scapy: For parsing pcap files and reassembling TCP streams
+    - voses: External binary tool for searching memory dumps for TLS secrets
+"""
 import argparse
 import os
 import subprocess
@@ -68,10 +114,43 @@ def reassemble_tcp_stream(segments):
     markers = []
     start_seq = None
     expected_seq = None
+    # Track all seen sequence ranges to detect retransmissions across gaps
+    seen_ranges = []  # List of (start_seq, end_seq) tuples
+
+    def is_retransmission(seq, payload_len):
+        """Check if this segment is entirely within already-seen data."""
+        end_seq = seq + payload_len
+        for seen_start, seen_end in seen_ranges:
+            if seq >= seen_start and end_seq <= seen_end:
+                return True
+        return False
+
+    def mark_seen(seq, payload_len):
+        """Mark a sequence range as seen, merging with existing ranges."""
+        nonlocal seen_ranges
+        new_start = seq
+        new_end = seq + payload_len
+        # Merge with overlapping/adjacent ranges
+        merged = []
+        for seen_start, seen_end in seen_ranges:
+            if new_end < seen_start or new_start > seen_end:
+                # No overlap, keep separate
+                merged.append((seen_start, seen_end))
+            else:
+                # Overlap or adjacent, merge
+                new_start = min(new_start, seen_start)
+                new_end = max(new_end, seen_end)
+        merged.append((new_start, new_end))
+        seen_ranges = merged
 
     for seq, ts, payload in segments:
         if not payload:
             continue
+        
+        # Skip if this is a retransmission (entirely within seen data)
+        if is_retransmission(seq, len(payload)):
+            continue
+        
         if start_seq is None:
             start_seq = seq
             expected_seq = seq
@@ -88,8 +167,10 @@ def reassemble_tcp_stream(segments):
                 continue
             payload = payload[overlap:]
             seq = expected_seq
+        
         markers.append((len(current), ts))
         current.extend(payload)
+        mark_seen(seq, len(payload))
         expected_seq = seq + len(payload)
 
     if current:
@@ -319,6 +400,7 @@ def extract_handshake_info(flow):
 
 
 def list_app_records(records):
+    """List application data records with epoch and sequence numbering."""
     app_records = []
     filtered_records = [r for r in records if r["type"] == 23]
     for i, record in enumerate(filtered_records):
@@ -334,9 +416,46 @@ def list_app_records(records):
                 "timestamp": record["timestamp"],
                 "epoch": epoch,
                 "sequence": sequence,
+                "index": i,
             }
         )
     return app_records
+
+
+def select_best_record(app_records):
+    """
+    Select the best application data record for searching.
+    
+    Strategy:
+        - Never pick one of the first 6 records (indices 0-5)
+        - If there are fewer than 7 records, pick the last one regardless of size
+        - Otherwise, pick the smallest record from index 6 onwards
+    
+    Returns the selected record or None if no valid records exist.
+    """
+    if not app_records:
+        return None
+    
+    # Filter to only epoch 1 records (skip the first record which is epoch 0)
+    epoch1_records = [r for r in app_records if r["epoch"] == 1]
+    
+    if not epoch1_records:
+        return None
+    
+    # If fewer than 7 total app records, pick the last one
+    if len(app_records) < 7:
+        return app_records[-1]
+    
+    # Otherwise, consider only records from index 6 onwards (0-indexed)
+    # Index 6 means the 7th record overall
+    eligible_records = [r for r in epoch1_records if r["index"] >= 6]
+    
+    if not eligible_records:
+        # Fallback to last record if somehow none are eligible
+        return app_records[-1]
+    
+    # Pick the smallest record by data length
+    return min(eligible_records, key=lambda r: len(r["data"]))
 
 
 def run_voses(voses_path, dump_path, app_data, seq_num, client_random, algorithm, keylog_path, role):
@@ -379,50 +498,98 @@ def run_voses(voses_path, dump_path, app_data, seq_num, client_random, algorithm
     return success, output, result.returncode, elapsed
 
 
-def attempt_secret(flow, dir_key, dump_path, keylog_path, role, current_scan, total_scans):
+def attempt_secret_with_seq_increment(flow, dir_key, dump_path, keylog_path, role, max_attempts_down, max_attempts_up):
+    """
+    Attempt to find a secret by adjusting the sequence number on each failed attempt.
+    
+    Instead of trying different memory dumps, this function uses a single dump and
+    first decrements the sequence number (up to max_attempts_down), then increments
+    it (up to max_attempts_up) starting from the selected record's sequence.
+    """
     records = flow["records"].get(dir_key, [])
     app_records = list_app_records(records)
+    
     if len(app_records) < 2:
         print(f"[!] Not enough TLS application data records for {role} direction.")
         return False
 
-    start_time = flow.get("client_hello_ts") or flow.get("first_seen")
-    candidates = []
-    for record in app_records:
-        if record["epoch"] != 1:
-            continue
-        if start_time is not None and record["timestamp"] is not None:
-            if record["timestamp"] - start_time > 8.0:
-                continue
-        candidates.append(record)
-
-    if not candidates:
-        print(f"[!] No suitable application data records found (within 8s) for {role} direction.")
+    # Select the best record according to our criteria
+    selected = select_best_record(app_records)
+    if selected is None:
+        print(f"[!] No suitable application data record found for {role} direction.")
         return False
 
-    candidate = min(candidates, key=lambda r: len(r["data"]))
-    seq_num = candidate["sequence"]
-
+    start_time = flow.get("client_hello_ts") or flow.get("first_seen")
+    base_seq_num = selected["sequence"]
+    
     src, dst = dir_key
-    print(f"[*] [{current_scan}/{total_scans}] {role} scan: TLS 1.3 (TLS/TCP) | connection: {src.ip}:{src.port} -> {dst.ip}:{dst.port} | algorithm: {flow['algorithm']}")
-    print(f"    Selected record seq={seq_num}, len={len(candidate['data'])}, time_offset={candidate['timestamp'] - start_time if start_time else 'N/A'}")
-    success, output, code, elapsed = run_voses(
-        flow["voses_path"],
-        dump_path,
-        candidate["data"],
-        seq_num,
-        flow["client_random"],
-        flow["algorithm"],
-        keylog_path,
-        role,
-    )
-    if code != 0:
-        print(output.strip())
-        print(f"[!] voses exited with code {code} for {role} scan.")
-    if success:
-        print(f"[+] {role} traffic secret found. (took {elapsed:.2f}s)")
-        return True
-    print(f"[!] Failed to find {role} traffic secret.")
+    print(f"[*] {role} scan: TLS 1.3 (TLS/TCP) | connection: {src.ip}:{src.port} -> {dst.ip}:{dst.port} | algorithm: {flow['algorithm']}")
+    print(f"    Selected record index={selected['index']}, base_seq={base_seq_num}, len={len(selected['data'])}")
+    print(f"    Total app records: {len(app_records)}, using dump: {os.path.basename(dump_path)}")
+
+    # Limit max_attempts_down to ensure sequence number never goes below 0
+    effective_max_down = min(max_attempts_down, base_seq_num + 1)
+    total_attempts = effective_max_down + max_attempts_up
+    first_error_printed = False
+
+    # Phase 1: Search with decreasing sequence numbers
+    if effective_max_down > 0:
+        print(f"    Phase 1: Searching with decreasing seq_num ({base_seq_num} down to {max(0, base_seq_num - effective_max_down + 1)})")
+    for attempt in range(effective_max_down):
+        current_seq = base_seq_num - attempt
+        
+        if attempt > 0 and attempt % 10 == 0:
+            print(f"    Attempt {attempt}/{effective_max_down} (down), trying seq_num={current_seq}...")
+        
+        success, output, code, elapsed = run_voses(
+            flow["voses_path"],
+            dump_path,
+            selected["data"],
+            current_seq,
+            flow["client_random"],
+            flow["algorithm"],
+            keylog_path,
+            role,
+        )
+        
+        if success:
+            print(f"[+] {role} traffic secret found at seq_num={current_seq} (attempt {attempt + 1}, phase down). (took {elapsed:.2f}s)")
+            return True
+        
+        if code != 0 and not first_error_printed:
+            print(f"    voses exited with code {code}")
+            first_error_printed = True
+
+    # Phase 2: Search with increasing sequence numbers (skip base_seq_num if already tried)
+    start_offset = 1 if effective_max_down > 0 else 0
+    if max_attempts_up > 0:
+        print(f"    Phase 2: Searching with increasing seq_num ({base_seq_num + start_offset} up to {base_seq_num + max_attempts_up - 1 + start_offset})")
+    for attempt in range(max_attempts_up):
+        current_seq = base_seq_num + attempt + start_offset
+        
+        if attempt > 0 and attempt % 10 == 0:
+            print(f"    Attempt {attempt}/{max_attempts_up} (up), trying seq_num={current_seq}...")
+        
+        success, output, code, elapsed = run_voses(
+            flow["voses_path"],
+            dump_path,
+            selected["data"],
+            current_seq,
+            flow["client_random"],
+            flow["algorithm"],
+            keylog_path,
+            role,
+        )
+        
+        if success:
+            print(f"[+] {role} traffic secret found at seq_num={current_seq} (attempt {attempt + 1}, phase up). (took {elapsed:.2f}s)")
+            return True
+        
+        if code != 0 and not first_error_printed:
+            print(f"    voses exited with code {code}")
+            first_error_printed = True
+
+    print(f"[!] Failed to find {role} traffic secret after {total_attempts} attempts.")
     return False
 
 
@@ -453,59 +620,14 @@ def find_dumps_in_timeframe(hints, start_time, end_time, dumps_dir):
                     dump_path = os.path.join(dumps_dir, dump_path)
                 if os.path.exists(dump_path) and dump_path not in [d[0] for d in matching_dumps]:
                     matching_dumps.append((dump_path, hint_ts))
-    # Sort by timestamp so we try earlier dumps first
-    matching_dumps.sort(key=lambda x: x[1])
+    # Sort by timestamp descending so we use the latest dump
+    matching_dumps.sort(key=lambda x: x[1], reverse=True)
     return matching_dumps
-
-
-def generate_adaptive_search_order(num_dumps):
-    """
-    Generate an adaptive search order that uses larger steps first, then fills gaps.
-    
-    This is similar to binary search: start with the first dump, then jump to middle,
-    then quarters, etc. This allows faster discovery if the secret is in a later dump.
-    
-    For example, with 8 dumps [0,1,2,3,4,5,6,7], the order would be:
-    Step 1 (stride 8): 0
-    Step 2 (stride 4): 4
-    Step 3 (stride 2): 2, 6
-    Step 4 (stride 1): 1, 3, 5, 7
-    Result: [0, 4, 2, 6, 1, 3, 5, 7]
-    """
-    if num_dumps == 0:
-        return []
-    if num_dumps == 1:
-        return [0]
-    
-    order = []
-    visited = set()
-    
-    # Start with the first element (index 0) - most likely to have the secret
-    order.append(0)
-    visited.add(0)
-    
-    # Binary search-like stepping: start with large strides, halve each round
-    stride = num_dumps // 2
-    while stride >= 1:
-        idx = stride
-        while idx < num_dumps:
-            if idx not in visited:
-                order.append(idx)
-                visited.add(idx)
-            idx += stride * 2 if stride > 1 else stride
-        stride //= 2
-    
-    # Ensure all indices are covered (shouldn't be needed, but safety check)
-    for i in range(num_dumps):
-        if i not in visited:
-            order.append(i)
-    
-    return order
 
 
 def get_args():
     parser = argparse.ArgumentParser(
-        description="Extract TLS 1.3 traffic secrets from memory dumps using voses."
+        description="Extract TLS 1.3 traffic secrets from memory dumps using voses (sequential sequence number search)."
     )
     parser.add_argument("--pcap", required=True, help="Path to pcapng capture file.")
     parser.add_argument("--hints", required=True, help="Path to dump-hints.txt file.")
@@ -515,6 +637,18 @@ def get_args():
         "--voses",
         default=os.path.join(os.getcwd(), "voses"),
         help="Path to voses binary (default: ./voses).",
+    )
+    parser.add_argument(
+        "--max-seq-attempts-up",
+        type=int,
+        default=10,
+        help="Maximum sequence number increment (up) attempts (default: 10).",
+    )
+    parser.add_argument(
+        "--max-seq-attempts-down",
+        type=int,
+        default=5,
+        help="Maximum sequence number decrement (down) attempts (default: 5).",
     )
     return parser.parse_args()
 
@@ -536,6 +670,8 @@ def main():
     keylog_dir = os.path.dirname(args.keylog)
     if keylog_dir and not os.path.exists(keylog_dir):
         os.makedirs(keylog_dir)
+
+    start_time = time.time()
 
     hints = parse_hints(args.hints)
     if not hints:
@@ -588,65 +724,42 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"Processing {len(sessions)} TLS 1.3 sessions")
+    print(f"Strategy: Sequential sequence number search (down: {args.max_seq_attempts_down}, up: {args.max_seq_attempts_up})")
     print(f"{'='*60}\n")
 
     successful_extractions = []
     failed_extractions = []
     skipped_sessions = []
-    current_scan = 0
-    total_scans = 0
-
-    # Pre-calculate total scans by checking dumps for each session
-    session_dumps = []
-    for session in sessions:
-        dumps = find_dumps_in_timeframe(hints, session["start_time"], session["end_time"], args.dumps)
-        session_dumps.append(dumps)
-        if dumps:
-            # Worst case: 2 scans per dump (client + server), but we stop when both found
-            total_scans += len(dumps) * 2
 
     for idx, session in enumerate(sessions):
         flow = session["flow"]
         conn_str = session["conn_str"]
-        dumps = session_dumps[idx]
         
         print(f"\n[Session {idx+1}/{len(sessions)}] {conn_str}")
         print(f"  Time range: {session['start_time']:.3f} - {session['end_time']:.3f}")
+        
+        dumps = find_dumps_in_timeframe(hints, session["start_time"], session["end_time"], args.dumps)
         
         if not dumps:
             print(f"  [WARNING] No dumps found within session timeframe - skipping session")
             skipped_sessions.append(conn_str)
             continue
         
-        print(f"  Found {len(dumps)} dump(s) in timeframe:")
-        for dump_path, dump_ts in dumps:
-            print(f"    - {os.path.basename(dump_path)} (ts: {dump_ts:.3f})")
+        # Use the first (earliest) dump for sequential search
+        dump_path, dump_ts = dumps[0]
+        print(f"  Using dump: {os.path.basename(dump_path)} (ts: {dump_ts:.3f})")
+        print(f"  ({len(dumps)} dump(s) available in timeframe)")
 
         flow["algorithm"] = session["algorithm"]
         flow["voses_path"] = args.voses
 
-        client_ok = False
-        server_ok = False
-
-        # Generate adaptive search order: larger steps first, then fill gaps
-        search_order = generate_adaptive_search_order(len(dumps))
-        print(f"  Search order (adaptive): {[os.path.basename(dumps[i][0]) for i in search_order[:5]]}{'...' if len(search_order) > 5 else ''}")
-
-        # Try dumps in adaptive order until both secrets are found
-        for dump_idx in search_order:
-            if client_ok and server_ok:
-                break
-            
-            dump_path, dump_ts = dumps[dump_idx]
-            print(f"\n  Trying dump [{dump_idx+1}/{len(dumps)}]: {os.path.basename(dump_path)}")
-            
-            if not client_ok:
-                current_scan += 1
-                client_ok = attempt_secret(flow, flow["client_dir"], dump_path, args.keylog, "client", current_scan, total_scans)
-            
-            if not server_ok:
-                current_scan += 1
-                server_ok = attempt_secret(flow, flow["server_dir"], dump_path, args.keylog, "server", current_scan, total_scans)
+        client_ok = attempt_secret_with_seq_increment(
+            flow, flow["client_dir"], dump_path, args.keylog, "client", args.max_seq_attempts_down, args.max_seq_attempts_up
+        )
+        
+        server_ok = attempt_secret_with_seq_increment(
+            flow, flow["server_dir"], dump_path, args.keylog, "server", args.max_seq_attempts_down, args.max_seq_attempts_up
+        )
 
         if client_ok and server_ok:
             successful_extractions.append((conn_str, "client+server"))
@@ -682,6 +795,8 @@ def main():
         for conn in skipped_sessions:
             print(f"    {conn}")
 
+    elapsed_time = time.time() - start_time
+    print(f"\nTotal runtime: {elapsed_time:.2f} seconds")
     print("=" * 60)
 
     return 0
