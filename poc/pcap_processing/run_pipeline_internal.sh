@@ -1,8 +1,15 @@
 #!/bin/bash
 
-# Hardcoded variables
-PCAP_FILE="/app/parsing/resources/discord_room.pcapng"
-KEYLOG_FILE="/app/parsing/resources/discord-room_keys.log"
+# Check for required arguments
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <PCAP_FILE> [KEYLOG_FILE]"
+    echo "  PCAP_FILE   - Path to the pcap file (required)"
+    echo "  KEYLOG_FILE - Path to the SSL keylog file (optional)"
+    exit 1
+fi
+
+PCAP_FILE="$1"
+KEYLOG_FILE="${2:-}"
 FILTERED_PCAP="/tmp/filtered.pcap"
 
 # DB Settings

@@ -168,13 +168,11 @@ def decompress_http_payloads(conn, recording_id: int) -> int:
             processor = processors.get(hid)
             if processor:
                 decompressed_data = processor.process(chunk)
-                new_payload = decompressed_data if decompressed_data else None
-                update_cur.execute(
-                    "UPDATE packet SET clear_application_payload = %s WHERE packet_id = %s",
-                    (new_payload, packet_id)
-                )
-
-                if new_payload:
+                if decompressed_data:
+                    update_cur.execute(
+                        "UPDATE packet SET clear_application_payload = %s WHERE packet_id = %s",
+                        (decompressed_data, packet_id)
+                    )
                     decompressed_packets_count += 1
 
                     enc_map = {"br": "Brotli", "gzip": "Gzip", "deflate": "Deflate"}

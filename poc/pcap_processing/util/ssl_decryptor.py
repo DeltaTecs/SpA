@@ -391,9 +391,6 @@ class SSLKeylogDecryptor:
         
         if http1_parts:
             payload = http1_parts[1]
-            if payload and self._calculate_entropy(payload) < 6:
-                payload = None
-
             results.append({
                 'header': http1_parts[0],
                 'payload': payload,
@@ -405,10 +402,7 @@ class SSLKeylogDecryptor:
 
         # Combine headers and body if present
         if http_bodies:
-            for payload, stream_id, version in http_bodies:
-                if version == 2 and payload and self._calculate_entropy(payload) < 6:
-                    payload = None
-                
+            for payload, stream_id, version in http_bodies:               
                 if payload is None and reconstructed_headers is None:
                     continue
 

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -12,7 +10,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql:ro
+      - ./db:/docker-entrypoint-initdb.d:ro
     networks:
       - app-network
     healthcheck:
@@ -30,7 +28,7 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - DATABASE_URL=postgres://appuser:appuser_password@postgres:5432/main?sslmode=disable
+      - PGWEB_DATABASE_URL=postgres://appuser:appuser_password@postgres:5432/main?sslmode=disable
     networks:
       - app-network
     depends_on:
@@ -43,7 +41,7 @@ services:
       - ./pcap_processing/parsing:/app/parsing
       - ./pcap_processing/util:/app/util
       - ./pcap_processing/reset_db.py:/app/reset_db.py
-      - ./pcap_processing/run_pipeline.sh:/app/run_pipeline.sh
+      - ./pcap_processing/run_pipeline_internal.sh:/app/run_pipeline_internal.sh
       - ./db:/app/db
     networks:
       - app-network
