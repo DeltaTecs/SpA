@@ -25,6 +25,14 @@ CREATE TABLE IF NOT EXISTS conversation (
   conversation_id bigserial PRIMARY KEY
 );
 
+-- Event table
+CREATE TABLE IF NOT EXISTS event (
+  event_id bigserial PRIMARY KEY,
+  description text,
+  start_timestamp bigint NOT NULL,
+  end_timestamp bigint NOT NULL
+);
+
 -- Header information (parent)
 CREATE TABLE IF NOT EXISTS header_information (
   header_information_id bigserial PRIMARY KEY,
@@ -71,6 +79,13 @@ CREATE TABLE IF NOT EXISTS packet (
   entropy float
 );
 
+-- Many-to-many between packet and event
+CREATE TABLE IF NOT EXISTS packet_event (
+  packet_id bigint NOT NULL REFERENCES packet(packet_id) ON DELETE CASCADE,
+  event_id bigint NOT NULL REFERENCES event(event_id) ON DELETE CASCADE,
+  PRIMARY KEY (packet_id, event_id)
+);
+
 -- Many-to-many between packet and header_information
 CREATE TABLE IF NOT EXISTS packet_header_information (
   packet_id bigint NOT NULL REFERENCES packet(packet_id) ON DELETE CASCADE,
@@ -107,3 +122,7 @@ CREATE INDEX IF NOT EXISTS idx_packet_recording ON packet(recording_id);
 CREATE INDEX IF NOT EXISTS idx_packet_protocol_ids ON packet USING GIN (protocol_ids);
 -- Index for conversation lookup
 CREATE INDEX IF NOT EXISTS idx_packet_conversation ON packet(conversation_id);
+
+-- Indexes for event + packet_event lookups
+CREATE INDEX IF NOT EXISTS idx_event_time_range ON event(start_timestamp, end_timestamp);
+CREATE INDEX IF NOT EXISTS idx_packet_event_event_id ON packet_event(event_id);
