@@ -1,16 +1,64 @@
 param(
-  [Parameter(Mandatory = $true, Position = 0)]
-  [ValidateSet('dump', 'load')]
+  [Parameter(Mandatory = $false)]
+  [switch]$Help,
+
+  [Parameter(Mandatory = $false, Position = 0)]
   [string]$Action,
 
-  [Parameter(Mandatory = $true, Position = 1)]
+  [Parameter(Mandatory = $false, Position = 1)]
   [string]$File,
 
   [Parameter(Mandatory = $false)]
-  [string]$EnvFile
+  [string]$EnvFile,
+
+  # Optional overrides (otherwise read from .env)
+  [Parameter(Mandatory = $false)]
+  [string]$ContainerName,
+
+  [Parameter(Mandatory = $false)]
+  [string]$Database,
+
+  [Parameter(Mandatory = $false)]
+  [string]$DbUser,
+
+  [Parameter(Mandatory = $false)]
+  [string]$DbPassword
 )
 
 $ErrorActionPreference = 'Stop'
+
+function Print-Usage {
+  Write-Host "Usage:" -ForegroundColor Cyan
+  Write-Host "  ./db/dump_load_db.ps1 dump <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
+  Write-Host "  ./db/dump_load_db.ps1 load <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
+  Write-Host "  ./db/dump_load_db.ps1 --help"
+  Write-Host ""
+  Write-Host "Defaults:" -ForegroundColor Cyan
+  Write-Host "  Reads missing connection/container settings from ../.env (poc/.env)."
+  Write-Host ""
+  Write-Host "Examples:" -ForegroundColor Cyan
+  Write-Host "  ./db/dump_load_db.ps1 dump ./db/dumps/main.dump"
+  Write-Host "  ./db/dump_load_db.ps1 load ./db/dumps/main.dump"
+}
+
+$helpTokens = @('--help', '-h', '/?', 'help', '?')
+
+if ($Help -or ($Action -and ($helpTokens -contains $Action.ToLowerInvariant()))) {
+  Print-Usage
+  exit 0
+}
+
+if (-not $Action -or -not $File) {
+  Print-Usage
+  exit 2
+}
+
+$actionNormalized = $Action.ToLowerInvariant()
+if ($actionNormalized -ne 'dump' -and $actionNormalized -ne 'load') {
+  throw "Invalid Action '$Action'. Expected: dump | load. Use --help for usage."
+}
+
+$Action = $actionNormalized
 
 if (-not $EnvFile) {
   # Default: ../.env (poc/.env)
@@ -35,18 +83,26 @@ function Read-DotEnv([string]$path) {
   return $map
 }
 
-$envMap = Read-DotEnv $EnvFile
+$User = $null
+$Password = $null
 
-foreach ($requiredKey in @('DB_CONTAINER_NAME','DB_NAME','DB_USER','DB_PASSWORD','DB_HOST','DB_PORT')) {
-  if (-not $envMap.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace($envMap[$requiredKey])) {
-    throw "Missing required key '$requiredKey' in $EnvFile"
+if (-not $ContainerName -or -not $Database -or -not $DbUser -or -not $DbPassword) {
+  $envMap = Read-DotEnv $EnvFile
+
+  foreach ($requiredKey in @('DB_CONTAINER_NAME','DB_NAME','DB_USER','DB_PASSWORD','DB_HOST','DB_PORT')) {
+    if (-not $envMap.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace($envMap[$requiredKey])) {
+      throw "Missing required key '$requiredKey' in $EnvFile"
+    }
   }
+
+  if (-not $ContainerName) { $ContainerName = $envMap['DB_CONTAINER_NAME'] }
+  if (-not $Database) { $Database = $envMap['DB_NAME'] }
+  if (-not $DbUser) { $DbUser = $envMap['DB_USER'] }
+  if (-not $DbPassword) { $DbPassword = $envMap['DB_PASSWORD'] }
 }
 
-$ContainerName = $envMap['DB_CONTAINER_NAME']
-$Database = $envMap['DB_NAME']
-$User = $envMap['DB_USER']
-$Password = $envMap['DB_PASSWORD']
+$User = $DbUser
+$Password = $DbPassword
 
 $PocRoot = Split-Path -Parent $PSScriptRoot
 
