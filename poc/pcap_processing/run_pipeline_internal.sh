@@ -12,12 +12,21 @@ PCAP_FILE="$1"
 KEYLOG_FILE="${2:-}"
 FILTERED_PCAP="/tmp/filtered.pcap"
 
-# DB Settings
-DB_HOST="postgres"
-DB_PORT="5432"
-DB_NAME="main"
-DB_USER="appuser"
-DB_PASSWORD="appuser_password"
+# DB Settings (from /app/.env, mounted by docker-compose)
+if [ -f "/app/.env" ]; then
+    ENV_TMP="/tmp/dotenv.$$"
+    tr -d '\r' < "/app/.env" > "$ENV_TMP"
+    set -a
+    . "$ENV_TMP"
+    set +a
+    rm -f "$ENV_TMP"
+fi
+
+: "${DB_HOST:?Missing DB_HOST (set in /app/.env)}"
+: "${DB_PORT:?Missing DB_PORT (set in /app/.env)}"
+: "${DB_NAME:?Missing DB_NAME (set in /app/.env)}"
+: "${DB_USER:?Missing DB_USER (set in /app/.env)}"
+: "${DB_PASSWORD:?Missing DB_PASSWORD (set in /app/.env)}"
 
 # Ensure we are in /app
 cd /app

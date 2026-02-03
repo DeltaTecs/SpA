@@ -1,6 +1,6 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36" version="29.1.1">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36" version="29.3.4">
   <diagram name="Seite-1" id="_ug-v6oRBY1tLkdeWZuh">
-    <mxGraphModel dx="3945" dy="1255" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="3487" dy="1004" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -587,10 +587,10 @@
           <mxGeometry height="80" width="70" x="-920" y="350.25" as="geometry" />
         </mxCell>
         <mxCell id="KnVyNpSDRX9BgEK5GJ3X-2" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
-          <mxGeometry height="150" width="190" x="-710" y="340.75" as="geometry" />
+          <mxGeometry height="170.75" width="190" x="-710" y="320" as="geometry" />
         </mxCell>
-        <mxCell id="KnVyNpSDRX9BgEK5GJ3X-3" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;" value="&lt;b style=&quot;&quot;&gt;Packet&lt;/b&gt;&lt;div&gt;- &lt;u&gt;packet_id : long&lt;/u&gt;&lt;/div&gt;&lt;div&gt;- recording_id: long&lt;/div&gt;&lt;div&gt;- conversation_id : long&lt;/div&gt;&lt;div&gt;- timestamp: long&lt;/div&gt;&lt;div&gt;- number: long&lt;/div&gt;&lt;div&gt;-&amp;nbsp;protocol_name_id&lt;u&gt;[]&lt;/u&gt;: long[]&lt;/div&gt;&lt;div&gt;- packet_bytes : byte[]&lt;br&gt;&lt;/div&gt;&lt;div&gt;- clear_application_payload : byte[]&lt;/div&gt;&lt;div&gt;- entropy : float&lt;/div&gt;" vertex="1">
-          <mxGeometry height="150" width="190" x="-710" y="339.25" as="geometry" />
+        <mxCell id="KnVyNpSDRX9BgEK5GJ3X-3" parent="1" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;rounded=0;" value="&lt;b style=&quot;&quot;&gt;Packet&lt;/b&gt;&lt;div&gt;- &lt;u&gt;packet_id : long&lt;/u&gt;&lt;/div&gt;&lt;div&gt;- recording_id: long&lt;/div&gt;&lt;div&gt;- conversation_id : long&lt;/div&gt;&lt;div&gt;- from_local: boolean&lt;/div&gt;&lt;div&gt;- timestamp: long&lt;/div&gt;&lt;div&gt;- number: long&lt;/div&gt;&lt;div&gt;-&amp;nbsp;protocol_name_id&lt;u&gt;[]&lt;/u&gt;: long[]&lt;/div&gt;&lt;div&gt;- packet_bytes : byte[]&lt;br&gt;&lt;/div&gt;&lt;div&gt;- clear_application_payload : byte[]&lt;/div&gt;&lt;div&gt;- entropy : float&lt;/div&gt;" vertex="1">
+          <mxGeometry height="159.25" width="190" x="-710" y="325" as="geometry" />
         </mxCell>
         <mxCell id="KnVyNpSDRX9BgEK5GJ3X-7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;" value="" vertex="1">
           <mxGeometry height="67" width="190" x="-680" y="605.75" as="geometry" />

@@ -15,9 +15,30 @@ Verify the DB was initialized (example using `psql` from the host or another con
 ```powershell
 # connect from host if psql is installed
 psql -h localhost -U appuser -d main -W
-SELECT * FROM protocol_name;
-SELECT * FROM protocol_stack;
+SELECT * FROM protocol;
 ```
+
+Dump / load (overwrite)
+
+PowerShell (Windows):
+
+```powershell
+# From the `poc` directory
+./db/dump_load_db.ps1 dump ./db/dumps/main.dump
+./db/dump_load_db.ps1 load ./db/dumps/main.dump
+```
+
+Bash (Linux/WSL/macOS):
+
+```bash
+# From the `poc` directory
+./db/dump_load_db.sh dump ./db/dumps/main.dump
+./db/dump_load_db.sh load ./db/dumps/main.dump
+```
+
+Notes:
+- `load` always overwrites existing schema objects.
+- The scripts read DB/container settings from `poc/.env` by default.
 
 Notes:
 - `init_db.sql` is mounted into `/docker-entrypoint-initdb.d/` so it runs only on first container initialization.
