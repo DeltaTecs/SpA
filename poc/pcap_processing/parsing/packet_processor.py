@@ -37,15 +37,16 @@ def is_local_ip(ip_addr: str) -> bool:
 class PacketProcessor:
     """Process packets from PCAP and extract relevant information."""
     
-    def __init__(self, tshark_path: str, keylog_file: Optional[str] = None):
+    def __init__(self, tshark_path: str, keylog_file: Optional[str] = None, parse_segments: bool = False):
         """
         Initialize the PacketProcessor.
 
         Args:
             tshark_path (str): Path to the tshark executable.
             keylog_file (Optional[str]): Path to the SSLKEYLOGFILE for decryption.
+            parse_segments (bool): Prefer tls.segment.data over tls.reassembled.data when available.
         """
-        self.decryptor = SSLKeylogDecryptor(tshark_path, keylog_file)
+        self.decryptor = SSLKeylogDecryptor(tshark_path, keylog_file, parse_segments=parse_segments)
         self.conversations = {}  # (proto, src_ip, src_port, dst_ip, dst_port) -> conversation_id
         self.packet_payload_map = {}  # packet_id -> decrypted_payload
         self.next_conversation_id = 1

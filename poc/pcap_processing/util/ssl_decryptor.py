@@ -12,15 +12,17 @@ class SSLKeylogDecryptor:
     Handles decryption of TLS/QUIC traffic using tshark with SSLKEYLOGFILE format.
     Uses tshark to decrypt and decompress TLS/QUIC payloads.
     """
-    def __init__(self, tshark_path: str, keylog_file: Optional[str] = None):
+    def __init__(self, tshark_path: str, keylog_file: Optional[str] = None, parse_segments: bool = False):
         """
         Initialize the decryptor with tshark path and optional keylog file.
         
         :param tshark_path: Path to the tshark executable.
         :param keylog_file: Path to the SSL keylog file.
+        :param parse_segments: Prefer tls.segment.data over tls.reassembled.data when available.
         """
         self.tshark_path = tshark_path
         self.keylog_file = keylog_file
+        self.parse_segments = parse_segments
         self.decrypted_payloads = {}  # frame_number -> decrypted_payload
         self.packet_stack_info = {}   # frame_number -> stack info
         self.tshark_available = self._check_tshark()
@@ -296,16 +298,40 @@ class SSLKeylogDecryptor:
              results.append((payload, 'websocket', None))
              return results
 
+        # Check TLS record content type - only include Application Data (type 23)
+        # Content type 22 = Handshake, 23 = Application Data
+        tls_content_types = layers.get('tls.record.content_type', [])
+        if tls_content_types and not isinstance(tls_content_types, list):
+            tls_content_types = [tls_content_types]
+        
+        # Convert to integers for comparison
+        tls_content_types = [int(ct) if isinstance(ct, (int, str)) and str(ct).isdigit() else 0 
+                            for ct in tls_content_types]
+
+        tls_fields = [
+            ('tls.segment.data', 'tls'),  # TLS segment data (single segment, decrypted)
+            ('tls.reassembled.data', 'tls'),  # TLS reassembled data (multiple segments, decrypted)
+        ]
+        if not self.parse_segments:
+            tls_fields.reverse()
+
         preference_order = [
             ('http3.frame_payload', 'http3'),  # HTTP/3 frame payload (decrypted)
             ('quic.stream_data', 'quic'),  # QUIC stream data
             ('websocket.payload', 'websocket'), # WebSocket payload
-            ('tls.app_data', 'tls'),  # TLS Application Data
+            *tls_fields,
+            # Note: tls.app_data is intentionally excluded - it contains ENCRYPTED data
+            # Only tls.segment.data and tls.reassembled.data contain decrypted payloads
             ('data.data', 'data'), # Generic data (especially DTLS Application Data)
         ]
 
         for field_name, protocol in preference_order:
             if field_name in layers:
+                # Skip TLS data if no content type indicates Application Data (23)
+                # This filters out Handshake data (type 22) from clear_application_payload
+                if protocol == 'tls' and 23 not in tls_content_types:
+                    continue
+                    
                 field_val = layers[field_name]
                 
                 # WebSocket special handling for "1" flag
@@ -337,13 +363,23 @@ class SSLKeylogDecryptor:
                     if (protocol == 'quic' or protocol == 'http3') and len(field_val) == len(stream_ids):
                         for i, v in enumerate(field_val):
                             results.append((to_bytes(v), protocol, str(stream_ids[i])))
+                    elif protocol == 'quic' or protocol == 'http3':
+                        for v in field_val:
+                            results.append((to_bytes(v), protocol, None))
+                    elif protocol == 'tls':
+                        # For TLS, return each segment as a separate result
+                        # Only include segments that correspond to Application Data (content type 23)
+                        for i, v in enumerate(field_val):
+                            # Check if this segment corresponds to Application Data
+                            if i < len(tls_content_types):
+                                if tls_content_types[i] == 23:
+                                    results.append((to_bytes(v), protocol, None))
+                            else:
+                                # If no content type info, include it
+                                results.append((to_bytes(v), protocol, None))
                     else:
-                        if protocol == 'quic' or protocol == 'http3':
-                             for v in field_val:
-                                 results.append((to_bytes(v), protocol, None))
-                        else:
-                             # For others, maybe concatenate?
-                             results.append((b"".join(to_bytes(v) for v in field_val), protocol, None))
+                        # For others (data.data, websocket), concatenate as before
+                        results.append((b"".join(to_bytes(v) for v in field_val), protocol, None))
                     return results
                 else:
                     sid = str(stream_ids[0]) if stream_ids and (protocol == 'quic' or protocol == 'http3') else None
@@ -391,6 +427,8 @@ class SSLKeylogDecryptor:
         
         if http1_parts:
             payload = http1_parts[1]
+
+
             results.append({
                 'header': http1_parts[0],
                 'payload': payload,
@@ -402,7 +440,9 @@ class SSLKeylogDecryptor:
 
         # Combine headers and body if present
         if http_bodies:
-            for payload, stream_id, version in http_bodies:               
+            for payload, stream_id, version in http_bodies:
+
+                
                 if payload is None and reconstructed_headers is None:
                     continue
 
@@ -494,6 +534,12 @@ class SSLKeylogDecryptor:
                 'udp.srcport', 'udp.dstport', 'udp.length',
                 # TLS/DTLS decrypted application data (unparsed)
                 'data.data',
+                # TLS record content type: 22=Handshake, 23=Application Data
+                # Used to filter out handshake data from clear_application_payload
+                'tls.record.content_type',
+                # Note: tls.app_data is intentionally excluded - it contains ENCRYPTED data
+                'tls.segment.data',  # TLS segment data (single segment, decrypted payload)
+                'tls.reassembled.data',  # TLS reassembled data (multiple segments, decrypted)
                 'http3.frame_payload',  # HTTP/3 decrypted payload
                 # QUIC decrypted stream/application payload candidates (newer Wireshark builds)
                 'quic.stream_data',

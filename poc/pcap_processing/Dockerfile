@@ -3,8 +3,12 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install tshark, python3, pip and dependencies
-# Ubuntu 24.04 repositories contain tshark 4.2.x
+# Add Wireshark PPA for latest version (4.4+) with TLS 1.3 decryption fixes
 RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    gnupg \
+    && add-apt-repository -y ppa:wireshark-dev/stable \
+    && apt-get update && apt-get install -y \
     tshark \
     python3 \
     python3-pip \

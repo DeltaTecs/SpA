@@ -451,7 +451,8 @@ class DatabaseManager:
 
 
 def process_pcap_to_db(pcap_file: str, recording_name: str, db_manager: DatabaseManager,
-                      keylog_file: Optional[str] = None, batch_size: int = 2000):
+                      keylog_file: Optional[str] = None, batch_size: int = 2000,
+                      parse_segments: bool = False):
     """
     Read PCAP file and populate database.
 
@@ -461,13 +462,14 @@ def process_pcap_to_db(pcap_file: str, recording_name: str, db_manager: Database
         db_manager (DatabaseManager): Database manager instance.
         keylog_file (Optional[str]): Path to the SSLKEYLOGFILE for decryption.
         batch_size (int): Number of packets to process before inserting into DB.
+        parse_segments (bool): Prefer tls.segment.data over tls.reassembled.data when available.
     """
     if not os.path.exists(pcap_file):
         logger.error(f"PCAP file not found: {pcap_file}")
         return
     
     logger.info(f"Processing PCAP file: {pcap_file}")
-    processor = PacketProcessor(PATH_TO_TSHARK, keylog_file)
+    processor = PacketProcessor(PATH_TO_TSHARK, keylog_file, parse_segments=parse_segments)
     
     # Analyze PCAP with tshark (extracts stack info and decrypts if keylog provided)
     if processor.decryptor.can_process():
@@ -785,6 +787,11 @@ def main():
     parser.add_argument("--db-user", default="appuser", help="Database user")
     parser.add_argument("--db-password", default="appuser_password", help="Database password")
     parser.add_argument("--sslkeylog", help="SSLKEYLOGFILE for TLS/QUIC decryption")
+    parser.add_argument(
+        "--parse-segments",
+        action="store_true",
+        help="Prefer tls.segment.data over tls.reassembled.data when available",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase verbosity (-v for DEBUG, -vv for TRACE)")
     
     args = parser.parse_args()
@@ -821,7 +828,13 @@ def main():
     
     try:
         db_manager.connect()
-        process_pcap_to_db(args.input, args.name, db_manager, args.sslkeylog)
+        process_pcap_to_db(
+            args.input,
+            args.name,
+            db_manager,
+            args.sslkeylog,
+            parse_segments=args.parse_segments,
+        )
     except Exception as e:
         logger.error(f"Failed to process PCAP: {e}")
         sys.exit(1)
