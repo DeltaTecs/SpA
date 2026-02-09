@@ -16,11 +16,14 @@ sys.path.insert(0, str(SRC_DIR))
 from packet_db_server.server import packet_info, packet_payload_hexdump  # noqa: E402
 
 
-def _print_json(title: str, obj) -> None:
+def _print_output(title: str, obj) -> None:
     print("=" * 80)
     print(title)
     print("=" * 80)
-    print(json.dumps(obj, indent=2, sort_keys=False))
+    if isinstance(obj, (dict, list)):
+        print(json.dumps(obj, indent=2, sort_keys=False))
+    else:
+        print(str(obj))
     print()
 
 
@@ -75,11 +78,11 @@ def main() -> int:
         os.environ["DB_PASSWORD"] = str(args.db_password)
 
     info = packet_info(args.packet_id)
-    _print_json(f"packet_info(packet_id={args.packet_id})", info)
+    _print_output(f"packet_info(packet_id={args.packet_id})", info)
 
     if args.full_payload:
         payload = packet_payload_hexdump(args.packet_id)
-        _print_json(f"packet_payload_hexdump(packet_id={args.packet_id})", payload)
+        _print_output(f"packet_payload_hexdump(packet_id={args.packet_id})", payload)
 
     return 0
 

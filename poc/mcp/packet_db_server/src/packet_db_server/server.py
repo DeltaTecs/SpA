@@ -200,12 +200,88 @@ def _guess_app_protocol(protocol_layers: Sequence[str], http_headers: Sequence[D
     return "unknown"
 
 
+def _format_endpoint(ip: Optional[str], port: Optional[Any]) -> str:
+    if ip is None and port is None:
+        return "?"
+    if port is None or port == "?":
+        return str(ip) if ip is not None else "?"
+    return f"{ip}:{port}"
+
+
+def _format_packet_info_text(
+    *,
+    packet_id: int,
+    timestamp: Optional[int],
+    conversation_id: Optional[int],
+    headers: Dict[str, Any],
+    app_protocol: str,
+    payload_bytes: Optional[bytes],
+    payload_preview_bytes: int = 256,
+) -> str:
+    ip = headers.get("ip") or {}
+    tcp = headers.get("tcp")
+    udp = headers.get("udp")
+    http_headers = headers.get("http") or []
+
+    src_ip = ip.get("src_addr")
+    dst_ip = ip.get("dst_addr")
+    src_port = (tcp or udp or {}).get("src_port")
+    dst_port = (tcp or udp or {}).get("dst_port")
+
+    transport = "unknown"
+    if tcp:
+        transport = "TCP"
+    elif udp:
+        transport = "UDP"
+
+    lines: List[str] = []
+    lines.append(f"{_format_endpoint(src_ip, src_port)} -> {_format_endpoint(dst_ip, dst_port)} {transport}")
+    if timestamp is not None:
+        lines.append(f"timestamp: {timestamp} ms since epoch")
+    if conversation_id is not None:
+        lines.append(f"conversation_id: {conversation_id}")
+
+    app_protocol_disp = {
+        "http": "HTTP",
+        "websocket": "WebSocket",
+        "unknown": "unknown",
+    }.get(app_protocol.lower(), app_protocol)
+    lines.append(f"app protocol: {app_protocol_disp}")
+
+    if http_headers:
+        # Always include HTTP header text(s) if associated.
+        rendered_headers: List[str] = []
+        for h in http_headers:
+            text = h.get("text_header")
+            if text is None:
+                rendered_headers.append("(null)")
+            else:
+                rendered_headers.append(str(text))
+
+        lines.append("http header: {")
+        if len(rendered_headers) == 1:
+            lines.append(rendered_headers[0])
+        else:
+            lines.append("\n---\n".join(rendered_headers))
+        lines.append("}")
+
+    if payload_bytes:
+        preview = hexdump(payload_bytes, max_bytes=payload_preview_bytes)
+        lines.append(f"app payload (first {payload_preview_bytes} bytes): {{")
+        lines.append(preview)
+        lines.append("}")
+    else:
+        lines.append("app payload (first 256 bytes): (empty)")
+
+    return "\n".join(lines)
+
+
 mcp = FastMCP("packet-db")
 
 
 @mcp.tool()
-def packet_info(packet_id: int) -> Dict[str, Any]:
-    """Return flow + protocol + (preview) payload info for a packet."""
+def packet_info(packet_id: int) -> str:
+    """Return flow + protocol + (preview) payload info for a packet (human-readable text)."""
 
     with _retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -227,70 +303,30 @@ def packet_info(packet_id: int) -> Dict[str, Any]:
             )
             pkt = cursor.fetchone()
             if not pkt:
-                return {"ok": False, "error": f"packet_id {packet_id} not found"}
+                return f"packet_id {packet_id} not found"
 
             protocol_ids = pkt.get("protocol_ids") or []
             protocol_layers = _protocol_names_for_ids(cursor, protocol_ids)
             headers = _get_headers(cursor, packet_id)
 
             payload_bytes = _bytes_from_bytea(pkt.get("clear_application_payload"))
-            payload_len = len(payload_bytes) if payload_bytes else 0
-            payload_preview = hexdump(payload_bytes, max_bytes=256) if payload_bytes else None
-
-            ip = headers.get("ip") or {}
-            tcp = headers.get("tcp")
-            udp = headers.get("udp")
-
-            transport: Dict[str, Any] = {"protocol": "unknown"}
-            if tcp:
-                transport = {"protocol": "tcp", **tcp}
-            elif udp:
-                transport = {"protocol": "udp", **udp}
-
-            flow: Dict[str, Any] = {
-                "src_ip": ip.get("src_addr"),
-                "dst_ip": ip.get("dst_addr"),
-                "src_port": (tcp or udp or {}).get("src_port"),
-                "dst_port": (tcp or udp or {}).get("dst_port"),
-                "transport": transport.get("protocol"),
-            }
-
             http_headers = headers.get("http") or []
             app_protocol = _guess_app_protocol(protocol_layers, http_headers)
 
-            return {
-                "ok": True,
-                "packet": {
-                    "packet_id": pkt.get("packet_id"),
-                    "recording_id": pkt.get("recording_id"),
-                    "conversation_id": pkt.get("conversation_id"),
-                    "number": pkt.get("number"),
-                    "timestamp": pkt.get("timestamp"),
-                    "from_local": pkt.get("from_local"),
-                },
-                "layers": protocol_layers,
-                "flow": flow,
-                "headers": {
-                    "ip": headers.get("ip"),
-                    "tcp": headers.get("tcp"),
-                    "udp": headers.get("udp"),
-                    # Always include HTTP header text(s) if associated.
-                    "http": http_headers,
-                },
-                "application": {
-                    "protocol": app_protocol,
-                },
-                "clear_payload": {
-                    "present": payload_bytes is not None,
-                    "length": payload_len,
-                    "preview_hexdump_256": payload_preview,
-                },
-            }
+            return _format_packet_info_text(
+                packet_id=packet_id,
+                timestamp=pkt.get("timestamp"),
+                conversation_id=pkt.get("conversation_id"),
+                headers=headers,
+                app_protocol=app_protocol,
+                payload_bytes=payload_bytes,
+                payload_preview_bytes=256,
+            )
 
 
 @mcp.tool()
-def packet_payload_hexdump(packet_id: int) -> Dict[str, Any]:
-    """Return full cleartext application payload as hex+ASCII hexdump for a packet."""
+def packet_payload_hexdump(packet_id: int) -> str:
+    """Return full cleartext application payload as hex+ASCII hexdump (human-readable text)."""
 
     with _retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -304,18 +340,13 @@ def packet_payload_hexdump(packet_id: int) -> Dict[str, Any]:
             )
             row = cursor.fetchone()
             if not row:
-                return {"ok": False, "error": f"packet_id {packet_id} not found"}
+                return f"packet_id {packet_id} not found"
 
             payload_bytes = _bytes_from_bytea(row.get("clear_application_payload"))
             if not payload_bytes:
-                return {"ok": True, "packet_id": packet_id, "length": 0, "hexdump": "(empty)"}
+                return "(empty)"
 
-            return {
-                "ok": True,
-                "packet_id": packet_id,
-                "length": len(payload_bytes),
-                "hexdump": hexdump(payload_bytes),
-            }
+            return hexdump(payload_bytes)
 
 
 def main() -> None:
