@@ -6,6 +6,13 @@ param(
     [string]$Model = "",
 
     [Parameter(Mandatory=$false)]
+    [ValidateSet("ollama", "gemini", "openai")]
+    [string]$Provider = "",
+
+    [Parameter(Mandatory=$false)]
+    [string]$ApiKey = "",
+
+    [Parameter(Mandatory=$false)]
     [string]$AppDetails = "",
 
     [Parameter(Mandatory=$false)]
@@ -57,6 +64,14 @@ if ($UserIntend) {
     docker cp $UserIntend "${GroupingContainer}:${ContainerPath}"
     $EnvFlags += @("-e", "USER_INTEND=$ContainerPath")
     Write-Host "  User intend: $UserIntend -> $ContainerPath"
+}
+if ($Provider) {
+    $EnvFlags += @("-e", "PROVIDER=$Provider")
+    Write-Host "  Provider: $Provider"
+}
+if ($ApiKey) {
+    $EnvFlags += @("-e", "API_KEY=$ApiKey")
+    Write-Host "  API key: (set)"
 }
 
 # Build command

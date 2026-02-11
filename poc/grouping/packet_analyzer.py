@@ -3,15 +3,33 @@
 """
 packet_analyzer.py
 
-Analyze network packets using LangChain (Ollama) with tool-calling.
+Analyze network packets using LangChain with tool-calling.
 The LLM accesses packet data exclusively through MCP server tools exposed
 via an HTTP/SSE bridge -- no direct database access from this module.
 
+Supports three providers:
+  - Ollama (local, default)
+  - Google Gemini (requires API key)
+  - OpenAI (requires API key)
+
 Usage:
+    # Local Ollama model (default)
     python packet_analyzer.py --recording-id 1 \
         --mcp-url http://mcp-packet-db:8765 \
         [--model qwen3:8b] \
         [--ollama-host http://localhost:11434]
+
+    # Google Gemini
+    python packet_analyzer.py --recording-id 1 \
+        --mcp-url http://mcp-packet-db:8765 \
+        --provider gemini --api-key YOUR_KEY \
+        [--model gemini-2.0-flash]
+
+    # OpenAI
+    python packet_analyzer.py --recording-id 1 \
+        --mcp-url http://mcp-packet-db:8765 \
+        --provider openai --api-key YOUR_KEY \
+        [--model gpt-4o-mini]
 """
 from __future__ import annotations
 
@@ -32,6 +50,16 @@ except ImportError:
         "Install with: pip install langchain langchain-ollama langchain-community"
     )
 
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None  # optional; only needed when --provider gemini
+
+try:
+    from langchain_openai import ChatOpenAI
+except ImportError:
+    ChatOpenAI = None  # optional; only needed when --provider openai
+
 from mcp_client import MCPClient
 
 # ---------------------------------------------------------------------------
@@ -43,9 +71,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Suppress noisy HTTP client logs from httpx/httpcore
+# Suppress noisy HTTP client logs from httpx/httpcore/openai
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
 
 # ============================================================================
@@ -304,18 +333,51 @@ class PacketAnalyzer:
         self,
         model: str = "qwen3:8b",
         ollama_host: str = "http://localhost:11434",
+        provider: str = "ollama",
+        api_key: Optional[str] = None,
     ):
         self.model_name = model
         self.ollama_host = ollama_host
+        self.provider = provider
+        self.api_key = api_key
         self.llm = None
 
     def initialize(self):
-        logger.info("Initializing ChatOllama with model: %s", self.model_name)
-        self.llm = ChatOllama(
-            model=self.model_name,
-            base_url=self.ollama_host,
-            temperature=0.1,
-        )
+        if self.provider == "gemini":
+            if ChatGoogleGenerativeAI is None:
+                raise ImportError(
+                    "langchain-google-genai is required for Gemini. "
+                    "Install with: pip install langchain-google-genai"
+                )
+            if not self.api_key:
+                raise ValueError("--api-key is required when using --provider gemini")
+            logger.info("Initializing Gemini with model: %s", self.model_name)
+            self.llm = ChatGoogleGenerativeAI(
+                model=self.model_name,
+                google_api_key=self.api_key,
+                temperature=0.1,
+            )
+        elif self.provider == "openai":
+            if ChatOpenAI is None:
+                raise ImportError(
+                    "langchain-openai is required for OpenAI. "
+                    "Install with: pip install langchain-openai"
+                )
+            if not self.api_key:
+                raise ValueError("--api-key is required when using --provider openai")
+            logger.info("Initializing OpenAI with model: %s", self.model_name)
+            self.llm = ChatOpenAI(
+                model=self.model_name,
+                api_key=self.api_key,
+                temperature=0.1,
+            )
+        else:
+            logger.info("Initializing ChatOllama with model: %s", self.model_name)
+            self.llm = ChatOllama(
+                model=self.model_name,
+                base_url=self.ollama_host,
+                temperature=0.1,
+            )
         logger.info("LLM initialized successfully")
 
     # ------------------------------------------------------------------
@@ -541,14 +603,22 @@ def main():
         help="MCP packet-db server URL (default: http://localhost:8765)",
     )
 
-    # LLM
+    # LLM provider
     parser.add_argument(
-        "--model", default="qwen3:8b",
-        help="Ollama model to use",
+        "--provider", choices=["ollama", "gemini", "openai"], default="ollama",
+        help="LLM provider to use (default: ollama)",
+    )
+    parser.add_argument(
+        "--api-key", default=None,
+        help="API key for the chosen provider (required for gemini)",
+    )
+    parser.add_argument(
+        "--model", default=None,
+        help="Model name (default: qwen3:8b for ollama, gemini-2.0-flash for gemini, gpt-4o-mini for openai)",
     )
     parser.add_argument(
         "--ollama-host", default="http://localhost:11434",
-        help="Ollama server URL",
+        help="Ollama server URL (only used with --provider ollama)",
     )
 
     parser.add_argument(
@@ -579,11 +649,18 @@ def main():
     if args.user_intend:
         user_actions = parse_intend_file(args.user_intend)
 
+    # Resolve default model name based on provider
+    if args.model is None:
+        defaults = {"gemini": "gemini-2.0-flash", "openai": "gpt-4o-mini", "ollama": "qwen3:8b"}
+        args.model = defaults.get(args.provider, "qwen3:8b")
+
     mcp_client = MCPClient(base_url=args.mcp_url)
 
     analyzer = PacketAnalyzer(
         model=args.model,
         ollama_host=args.ollama_host,
+        provider=args.provider,
+        api_key=args.api_key,
     )
 
     try:
