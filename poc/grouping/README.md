@@ -108,28 +108,3 @@ At the end of analysis, a summary is printed:
 │    events)      │     │                 │     │                 │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
-
-## Prompt Template
-
-The LLM receives prompts like:
-
-```
-Given the network packet payload below, assign the packet to an 
-application-specific data exchange (here 'event'). For instance, 
-assign HTTP request and response that feature username and password 
-to a login event. If no event fits, exclaim the creation of a new one.
-
-Answer ONLY with one of these formats:
-- If assigning to an existing event: EVENT_ID:<id>
-- If creating a new event: NEW_EVENT:<short description>
-
-Packet Information:
-- Payload (hex): 48 54 54 50 2f 31 2e 31 20 32 30 30 20 4f 4b ...
-- Protocol Layers: IP|TCP|HTTP
-- Stream (connection): 192.168.1.100:54321 -> 93.184.216.34:443 (TCP)
-- Entropy (0-1): 0.625
-
-Existing Events:
-- ID: 1, Description: Login authentication
-- ID: 2, Description: API data fetch
-```

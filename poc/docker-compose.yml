@@ -84,6 +84,7 @@ services:
       - MCP_URL=http://mcp-packet-db:8765
     volumes:
       - ./grouping/packet_analyzer.py:/app/packet_analyzer.py
+      - ./grouping/mcp_client.py:/app/mcp_client.py
       - ./grouping/run_grouping_internal.sh:/app/run_grouping_internal.sh
       - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama

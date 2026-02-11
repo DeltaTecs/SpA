@@ -19,7 +19,8 @@ import argparse
 import logging
 import re
 import sys
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 try:
     from langchain_ollama import ChatOllama
@@ -45,6 +46,103 @@ logger = logging.getLogger(__name__)
 # Suppress noisy HTTP client logs from httpx/httpcore
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
+# ============================================================================
+# User-intend / app-details helpers
+# ============================================================================
+
+@dataclass
+class UserAction:
+    """A single user action parsed from the intend file."""
+    offset_ms: int          # milliseconds since pcap start
+    description: str        # human-readable action text
+
+
+def parse_intend_file(path: str) -> List[UserAction]:
+    """
+    Parse a user-intend file.
+
+    Expected format (one action per line)::
+
+        MM:SS description text
+
+    Returns a list of UserAction sorted by offset_ms.
+    """
+    actions: List[UserAction] = []
+    with open(path, encoding="utf-8") as fh:
+        for raw_line in fh:
+            line = raw_line.strip()
+            if not line:
+                continue
+            m = re.match(r"^(\d+):(\d{2})\s+(.+)$", line)
+            if not m:
+                logger.debug("Skipping unparseable intend line: %s", line)
+                continue
+            minutes, seconds = int(m.group(1)), int(m.group(2))
+            offset_ms = (minutes * 60 + seconds) * 1000
+            actions.append(UserAction(offset_ms=offset_ms, description=m.group(3)))
+    actions.sort(key=lambda a: a.offset_ms)
+    logger.info("Parsed %d user actions from %s", len(actions), path)
+    return actions
+
+
+def load_app_details(path: str) -> str:
+    """Read app_details.txt and return its content as a string."""
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read().strip()
+    logger.info("Loaded app details from %s (%d chars)", path, len(text))
+    return text
+
+
+def recent_user_actions(
+    actions: List[UserAction],
+    packet_offset_ms: int,
+    n: int = 5,
+) -> List[Tuple[UserAction, int]]:
+    """
+    Return up to *n* user actions whose offset is <= packet_offset_ms,
+    most-recent first.  Each entry is (action, delta_ms) where delta_ms
+    is ``packet_offset_ms - action.offset_ms`` (always >= 0).
+    """
+    preceding = [
+        (a, packet_offset_ms - a.offset_ms)
+        for a in actions
+        if a.offset_ms <= packet_offset_ms
+    ]
+    # most-recent first (smallest delta first)
+    preceding.sort(key=lambda t: t[1])
+    return preceding[:n]
+
+
+def format_user_context(
+    app_details: Optional[str],
+    actions: Optional[List[UserAction]],
+    packet_offset_ms: Optional[int],
+) -> str:
+    """
+    Build a text block with app details and recent user actions that can
+    be prepended to the per-packet prompt.
+    """
+    parts: List[str] = []
+
+    if app_details:
+        parts.append(
+            "=== Application Details ===\n"
+            f"{app_details}\n"
+            "=== End Application Details ==="
+        )
+
+    if actions and packet_offset_ms is not None:
+        recent = recent_user_actions(actions, packet_offset_ms)
+        if recent:
+            lines = ["=== Recent User Actions (most recent first) ==="]
+            for action, delta_ms in recent:
+                lines.append(f"  [{delta_ms:+d} ms]  {action.description}")
+            lines.append("=== End User Actions ===")
+            parts.append("\n".join(lines))
+
+    return "\n\n".join(parts)
 
 
 # ============================================================================
@@ -160,7 +258,7 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 # Packet Analyzer -- orchestrates the LLM tool-calling loop
 # ============================================================================
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT_BASE = """\
 You are a network traffic analyst.  Your job is to classify network packets
 into application-level events (e.g. "Login request/response", "File upload", "API call -- /users").
 
@@ -220,6 +318,34 @@ class PacketAnalyzer:
 
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _build_system_prompt(
+        has_app_details: bool = False,
+        has_user_actions: bool = False,
+    ) -> str:
+        """Assemble the system prompt, adding context-awareness paragraphs
+        only when the corresponding data is actually provided."""
+        parts = [SYSTEM_PROMPT_BASE]
+        if has_app_details or has_user_actions:
+            hints: List[str] = []
+            if has_app_details:
+                hints.append(
+                    "a description of the application that generated the traffic"
+                )
+            if has_user_actions:
+                hints.append(
+                    "recent user actions with millisecond offsets relative to "
+                    "the packet under analysis"
+                )
+            parts.insert(
+                1,
+                "You will receive additional context: "
+                + " and ".join(hints)
+                + ".  Use this information to better understand the purpose of "
+                "each packet and to create more meaningful event descriptions.",
+            )
+        return "\n\n".join(parts)
+
     def analyze_packet(
         self,
         packet_id: int,
@@ -227,6 +353,9 @@ class PacketAnalyzer:
         tools: list,
         *,
         max_rounds: int = 10,
+        user_context: str = "",
+        has_app_details: bool = False,
+        has_user_actions: bool = False,
     ) -> Optional[str]:
         """
         Run one tool-calling conversation for a single packet.
@@ -240,17 +369,25 @@ class PacketAnalyzer:
             packet_id,
         )
 
+        system_prompt = self._build_system_prompt(
+            has_app_details=has_app_details,
+            has_user_actions=has_user_actions,
+        )
+
+        user_prompt_parts = []
+        if user_context:
+            user_prompt_parts.append(user_context)
+        user_prompt_parts.append(
+            f"Classify the following packet (packet_id={packet_id}).\n\n"
+            f"{packet_info_text}\n\n"
+            "Use the tools to inspect surrounding packets or retrieve "
+            "full payloads if you need more context. Then assign the "
+            "packet to an existing or new event."
+        )
+
         messages = [
-            SystemMessage(content=SYSTEM_PROMPT),
-            HumanMessage(
-                content=(
-                    f"Classify the following packet (packet_id={packet_id}).\n\n"
-                    f"{packet_info_text}\n\n"
-                    "Use the tools to inspect surrounding packets or retrieve "
-                    "full payloads if you need more context. Then assign the "
-                    "packet to an existing or new event."
-                )
-            ),
+            SystemMessage(content=system_prompt),
+            HumanMessage(content="\n\n".join(user_prompt_parts)),
         ]
 
         for round_num in range(max_rounds):
@@ -298,25 +435,35 @@ def run_analysis(
     mcp_client: MCPClient,
     analyzer: PacketAnalyzer,
     recording_id: int,
+    app_details: Optional[str] = None,
+    user_actions: Optional[List[UserAction]] = None,
 ):
     """Iterate over all packets in a recording, asking the LLM to classify each."""
     logger.info("Starting analysis for recording %d", recording_id)
 
-    # Fetch ordered packet IDs from MCP
+    # Fetch ordered packet IDs (with timestamps) from MCP
     raw = mcp_client.list_packet_ids(recording_id)
     logger.debug("list_packet_ids response:\n%s", raw)
 
     packet_ids: List[int] = []
+    packet_timestamps: dict[int, int] = {}   # packet_id -> epoch ms
     for line in raw.splitlines():
-        m = re.search(r"packet_id:(\d+)", line)
+        m = re.search(r"packet_id:(\d+)\s+number:\d+\s+timestamp:(\d+)", line)
         if m:
-            packet_ids.append(int(m.group(1)))
+            pid_val = int(m.group(1))
+            ts_val = int(m.group(2))
+            packet_ids.append(pid_val)
+            packet_timestamps[pid_val] = ts_val
 
     if not packet_ids:
         logger.warning("No packets found for recording %d", recording_id)
         return
 
     logger.info("Found %d packets for recording %d", len(packet_ids), recording_id)
+
+    # Determine the recording start time (epoch ms of the first packet)
+    # so we can convert user-action offsets to absolute timestamps.
+    pcap_start_ms = packet_timestamps[packet_ids[0]] if packet_ids else 0
 
     # Build LangChain tools once
     tools, tracker = build_langchain_tools(mcp_client, recording_id, packet_ids)
@@ -339,8 +486,20 @@ def run_analysis(
             logger.debug("  Skipping packet_id %d (no payload, not HTTP)", pid)
             continue
 
+        # Build user context (app details + recent user actions)
+        pkt_offset_ms: Optional[int] = None
+        if pid in packet_timestamps:
+            pkt_offset_ms = packet_timestamps[pid] - pcap_start_ms
+
+        user_context = format_user_context(app_details, user_actions, pkt_offset_ms)
+
         tracker.reset()
-        analyzer.analyze_packet(pid, pkt_info, tools)
+        analyzer.analyze_packet(
+            pid, pkt_info, tools,
+            user_context=user_context,
+            has_app_details=app_details is not None,
+            has_user_actions=user_actions is not None,
+        )
 
         if tracker.assigned:
             stats["classified"] += 1
@@ -391,6 +550,15 @@ def main():
     )
 
     parser.add_argument(
+        "--app-details", default=None,
+        help="Path to app_details.txt describing the application and its behaviour",
+    )
+    parser.add_argument(
+        "--user-intend", default=None,
+        help="Path to user_intend.txt with timestamped user actions (MM:SS description)",
+    )
+
+    parser.add_argument(
         "-v", "--verbose", action="count", default=0,
         help="Increase verbosity (-v for DEBUG)",
     )
@@ -399,6 +567,15 @@ def main():
 
     if args.verbose >= 1:
         logging.getLogger().setLevel(logging.DEBUG)
+
+    # Load optional context files
+    app_details: Optional[str] = None
+    user_actions: Optional[List[UserAction]] = None
+
+    if args.app_details:
+        app_details = load_app_details(args.app_details)
+    if args.user_intend:
+        user_actions = parse_intend_file(args.user_intend)
 
     mcp_client = MCPClient(base_url=args.mcp_url)
 
@@ -409,7 +586,11 @@ def main():
 
     try:
         analyzer.initialize()
-        run_analysis(mcp_client, analyzer, args.recording_id)
+        run_analysis(
+            mcp_client, analyzer, args.recording_id,
+            app_details=app_details,
+            user_actions=user_actions,
+        )
     except Exception as e:
         logger.error("Analysis failed: %s", e)
         sys.exit(1)

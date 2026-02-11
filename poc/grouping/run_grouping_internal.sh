@@ -8,6 +8,8 @@ set -e
 MCP_URL="${MCP_URL:-http://mcp-packet-db:8765}"
 MODEL="${MODEL:-qwen3:8b}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
+APP_DETAILS="${APP_DETAILS:-}"
+USER_INTEND="${USER_INTEND:-}"
 
 # Recording ID is required
 if [ -z "$1" ]; then
@@ -29,6 +31,12 @@ echo "Recording ID: $RECORDING_ID"
 echo "MCP Server: $MCP_URL"
 echo "Model: $MODEL"
 echo "Ollama Host: $OLLAMA_HOST"
+if [ -n "$APP_DETAILS" ]; then
+    echo "App Details: $APP_DETAILS"
+fi
+if [ -n "$USER_INTEND" ]; then
+    echo "User Intend: $USER_INTEND"
+fi
 echo "=========================================="
 
 # Ensure Ollama is running
@@ -66,11 +74,23 @@ fi
 
 # Run the analysis
 echo "Starting packet grouping..."
-python3 /app/packet_analyzer.py \
-    --recording-id "$RECORDING_ID" \
-    --mcp-url "$MCP_URL" \
-    --model "$MODEL" \
-    --ollama-host "$OLLAMA_HOST" \
+CMD_ARGS=(
+    --recording-id "$RECORDING_ID"
+    --mcp-url "$MCP_URL"
+    --model "$MODEL"
+    --ollama-host "$OLLAMA_HOST"
     -v
+)
+
+if [ -n "$APP_DETAILS" ]; then
+    CMD_ARGS+=(--app-details "$APP_DETAILS")
+    echo "App details: $APP_DETAILS"
+fi
+if [ -n "$USER_INTEND" ]; then
+    CMD_ARGS+=(--user-intend "$USER_INTEND")
+    echo "User intend: $USER_INTEND"
+fi
+
+python3 /app/packet_analyzer.py "${CMD_ARGS[@]}"
 
 echo "Grouping complete!"

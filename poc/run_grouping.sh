@@ -4,18 +4,44 @@
 
 # Check for required arguments
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <recording_id> [model_name]"
-    echo "  recording_id  - The recording ID to analyze (required)"
-    echo "  model_name    - Ollama model to use (optional, default: qwen3:8b)"
+    echo "Usage: $0 <recording_id> [model_name] [--app-details <path>] [--user-intend <path>]"
+    echo "  recording_id   - The recording ID to analyze (required)"
+    echo "  model_name     - Ollama model to use (optional, default: qwen3:8b)"
+    echo "  --app-details  - Path to app_details.txt (optional)"
+    echo "  --user-intend  - Path to user_intend.txt (optional)"
     echo ""
     echo "Example:"
     echo "  $0 1"
     echo "  $0 1 qwen3:8b"
+    echo "  $0 1 qwen3:8b --app-details /data/app_details.txt --user-intend /data/user_intend.txt"
     exit 1
 fi
 
 RECORDING_ID="$1"
 MODEL="${2:-}"
+APP_DETAILS=""
+USER_INTEND=""
+
+# Parse optional named arguments
+shift
+if [ -n "$1" ] && ! echo "$1" | grep -q '^--'; then
+    shift  # skip model positional arg
+fi
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --app-details)
+            APP_DETAILS="$2"
+            shift 2
+            ;;
+        --user-intend)
+            USER_INTEND="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
+done
 
 # Container name
 GROUPING_CONTAINER="grouping"
@@ -32,6 +58,27 @@ fi
 
 echo "Running packet grouping for recording $RECORDING_ID..."
 
+# Container-internal directory for context files
+CONTAINER_DATA_DIR="/app/data"
+
+# Ensure data directory exists in container
+docker exec "$GROUPING_CONTAINER" mkdir -p "$CONTAINER_DATA_DIR"
+
+# Copy context files into the container and build env var flags
+ENV_FLAGS=""
+if [ -n "$APP_DETAILS" ]; then
+    CONTAINER_PATH="$CONTAINER_DATA_DIR/app_details.txt"
+    docker cp "$APP_DETAILS" "${GROUPING_CONTAINER}:${CONTAINER_PATH}"
+    ENV_FLAGS="$ENV_FLAGS -e APP_DETAILS=$CONTAINER_PATH"
+    echo "  App details: $APP_DETAILS -> $CONTAINER_PATH"
+fi
+if [ -n "$USER_INTEND" ]; then
+    CONTAINER_PATH="$CONTAINER_DATA_DIR/user_intend.txt"
+    docker cp "$USER_INTEND" "${GROUPING_CONTAINER}:${CONTAINER_PATH}"
+    ENV_FLAGS="$ENV_FLAGS -e USER_INTEND=$CONTAINER_PATH"
+    echo "  User intend: $USER_INTEND -> $CONTAINER_PATH"
+fi
+
 # Build the command
 CMD="/app/run_grouping_internal.sh $RECORDING_ID"
 if [ -n "$MODEL" ]; then
@@ -39,7 +86,7 @@ if [ -n "$MODEL" ]; then
 fi
 
 # Execute in container
-docker exec -it "$GROUPING_CONTAINER" bash -c "$CMD"
+docker exec -it $ENV_FLAGS "$GROUPING_CONTAINER" bash -c "$CMD"
 
 if [ $? -ne 0 ]; then
     echo "Error: Grouping failed."
