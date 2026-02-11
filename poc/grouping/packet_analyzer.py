@@ -194,12 +194,12 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         return mcp.call_tool("packet_payload_hexdump", {"packet_id": packet_id})
 
     @langchain_tool
-    def get_surrounding_packet_ids(packet_id: int, window: int = 5) -> str:
-        """Return the IDs of packets around the given packet_id (up to
-        *window* packets before and after).  This lets you examine
-        neighbouring traffic in the same recording to better understand
-        the context of the current packet (e.g. a request followed by
-        its response)."""
+    def get_surrounding_packets(packet_id: int, window: int = 2) -> str:
+        """Return flow, protocol, header, and payload-preview info for
+        packets surrounding the given packet_id (up to *window* packets
+        before and after).  This lets you examine neighbouring traffic
+        in the same recording to better understand the context of the
+        current packet (e.g. a request followed by its response)."""
         try:
             idx = packet_ids.index(packet_id)
         except ValueError:
@@ -208,11 +208,13 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         start = max(0, idx - window)
         end = min(len(packet_ids), idx + window + 1)
         neighbours = packet_ids[start:end]
-        lines = [f"Packets around packet_id {packet_id} (window={window}):"]
+        parts: list[str] = []
         for pid in neighbours:
-            marker = " <-- current" if pid == packet_id else ""
-            lines.append(f"  packet_id:{pid}{marker}")
-        return "\n".join(lines)
+            marker = "  <-- current" if pid == packet_id else ""
+            header = f"=== packet_id:{pid}{marker} ==="
+            info = mcp.packet_info(pid)
+            parts.append(f"{header}\n{info}")
+        return "\n\n".join(parts)
 
     @langchain_tool
     def get_events(recording_id_unused: int = 0) -> str:
@@ -223,12 +225,12 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         return mcp.events_for_recording(recording_id)
 
     @langchain_tool
-    def create_new_event(description: str, timestamp: int) -> str:
+    def create_new_event(description: str) -> str:
         """Create a brand-new event.
         Provide a short, descriptive label (e.g. 'TLS handshake',
-        'User login request/response') and the packet timestamp.
+        'User login request/response').
         Returns the new event_id."""
-        result = mcp.create_event(description, timestamp)
+        result = mcp.create_event(description)
         tracker.created_description = description
         return result
 
@@ -246,7 +248,7 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
     tools = [
         get_packet_info,
         get_full_payload,
-        get_surrounding_packet_ids,
+        get_surrounding_packets,
         get_events,
         create_new_event,
         assign_to_event,
@@ -260,7 +262,7 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 
 SYSTEM_PROMPT_BASE = """\
 You are a network traffic analyst.  Your job is to classify network packets
-into application-level events (e.g. "Login request/response", "File upload", "API call -- /users").
+into application-level events. An event is a group of data exchanges that serve a common purpose, such as "User Login", "File upload", "Software Update", "API exchange", or "Telemetry".
 
 You have the following tools at your disposal:
 
@@ -268,19 +270,19 @@ You have the following tools at your disposal:
   HTTP headers, and a 256-byte payload preview for ANY packet.
 * **get_full_payload(packet_id)** -- get the COMPLETE cleartext payload
   when the 256-byte preview is not enough.
-* **get_surrounding_packet_ids(packet_id, window)** -- discover nearby
-  packet IDs so you can inspect preceding/following packets for context
-  (e.g. request <-> response pairs).
+* **get_surrounding_packets(packet_id, window)** -- retrieve info for
+  nearby packets so you can inspect preceding/following traffic for
+  context (e.g. request <-> response pairs).
 * **get_events()** -- list all events that exist so far for this recording.
-* **create_new_event(description, timestamp)** -- create a new event.
+* **create_new_event(description)** -- create a new event.
   Returns the event_id.
 * **assign_to_event(packet_id, event_id)** -- assign the current packet
   to an event and adjust the event time range.
 
 **Workflow for each packet you are given:**
 1. You will receive the packet_id and basic info. Study it.
-2. If you need more context, call get_surrounding_packet_ids and/or
-   get_packet_info on neighbours, or get_full_payload.
+2. If you need more context, call get_surrounding_packets and/or
+   get_packet_info on specific neighbours, or get_full_payload.
 3. Call get_events() to see existing events.
 4. Decide: does this packet belong to an existing event, or should a new
    one be created?
@@ -290,7 +292,7 @@ You have the following tools at your disposal:
 Important:
 - Always end with an assign_to_event call so the packet is persisted.
 - You may call multiple tools before deciding.
-- Investigate atleast 5 packets around the current packet for better context. Do so by using get_packet_info with an incremented or decremented packet_id.
+- Investigate atleast 2 packets around the current packet for better context.
 - Group related packets (e.g. HTTP request + response) into the same event. Prefer assigning the packet to an existing event if it fits, rather than creating a new one.
 """
 

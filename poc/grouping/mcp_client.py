@@ -148,8 +148,8 @@ class MCPClient:
     def events_for_recording(self, recording_id: int) -> str:
         return self.call_tool("events_for_recording", {"recording_id": recording_id})
 
-    def create_event(self, description: str, timestamp: int) -> str:
-        return self.call_tool("create_event", {"description": description, "timestamp": timestamp})
+    def create_event(self, description: str) -> str:
+        return self.call_tool("create_event", {"description": description})
 
     def assign_packet_to_event(self, packet_id: int, event_id: int) -> str:
         return self.call_tool("assign_packet_to_event", {"packet_id": packet_id, "event_id": event_id})

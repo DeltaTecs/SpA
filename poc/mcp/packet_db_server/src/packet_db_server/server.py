@@ -445,13 +445,12 @@ def events_for_recording(recording_id: int) -> str:
 
 
 @mcp.tool()
-def create_event(description: str, timestamp: int) -> str:
+def create_event(description: str) -> str:
     """Create a new event and return its ID.
 
     Args:
         description: Short human-readable description of the event
                      (e.g. \"TLS handshake\", \"Login request\").
-        timestamp: Epoch-millisecond timestamp for the event start/end.
 
     Returns a single line: ``event_id:<id>``
     """
@@ -460,11 +459,11 @@ def create_event(description: str, timestamp: int) -> str:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO event (description, start_timestamp, end_timestamp)
-                VALUES (%s, %s, %s)
+                INSERT INTO event (description)
+                VALUES (%s)
                 RETURNING event_id
                 """,
-                (description, timestamp, timestamp),
+                (description,),
             )
             event_id = cursor.fetchone()[0]
             return f"event_id:{event_id}"
@@ -512,11 +511,11 @@ def assign_packet_to_event(packet_id: int, event_id: int) -> str:
                 cursor.execute(
                     """
                     UPDATE event
-                    SET start_timestamp = LEAST(start_timestamp, %s),
-                        end_timestamp   = GREATEST(end_timestamp, %s)
+                    SET start_timestamp = LEAST(COALESCE(start_timestamp, %s), %s),
+                        end_timestamp   = GREATEST(COALESCE(end_timestamp, %s), %s)
                     WHERE event_id = %s
                     """,
-                    (ts, ts, event_id),
+                    (ts, ts, ts, ts, event_id),
                 )
 
             return "ok"
