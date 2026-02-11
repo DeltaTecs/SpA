@@ -10,7 +10,7 @@ via an HTTP/SSE bridge -- no direct database access from this module.
 Usage:
     python packet_analyzer.py --recording-id 1 \
         --mcp-url http://mcp-packet-db:8765 \
-        [--model llama3.2:3b-instruct-q4_K_M] \
+        [--model qwen3:8b] \
         [--ollama-host http://localhost:11434]
 """
 from __future__ import annotations
@@ -44,39 +44,105 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress noisy HTTP client logs from httpx/httpcore
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 
 # ============================================================================
 # MCP Client -- thin HTTP wrapper around the MCP SSE server
 # ============================================================================
 
 class MCPClient:
-    """Call MCP tools exposed by the packet-db server over HTTP."""
+    """
+    Call MCP tools exposed by the packet-db server over HTTP (streamable-http transport).
+    
+    The streamable-http protocol is simpler than SSE:
+    1. POST /mcp with 'initialize' → get session ID from response header
+    2. POST /mcp with session ID header for all subsequent requests
+    3. Responses come as SSE events in the response body (synchronous)
+    """
 
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
-        self._ensure_connection()
+        self._session_id: Optional[str] = None
+        self._endpoint = f"{self.base_url}/mcp"
+        self._connect()
 
     # ------------------------------------------------------------------
     # low-level helpers
     # ------------------------------------------------------------------
 
-    def _ensure_connection(self):
-        """Wait until the MCP server is reachable."""
+    def _connect(self):
+        """Initialize MCP session."""
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+        }
+        
         for attempt in range(30):
             try:
-                r = self.session.get(f"{self.base_url}/sse", stream=True, timeout=3)
-                r.close()
-                logger.info("MCP server reachable at %s", self.base_url)
+                # Send initialize request
+                init_payload = {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {"name": "packet-analyzer", "version": "1.0"},
+                    },
+                }
+                resp = self.session.post(
+                    self._endpoint, json=init_payload, headers=headers, timeout=10
+                )
+                if resp.status_code != 200:
+                    raise RuntimeError(f"Initialize failed: {resp.status_code}")
+                
+                self._session_id = resp.headers.get("mcp-session-id")
+                if not self._session_id:
+                    raise RuntimeError("No session ID in response")
+                
+                logger.info("MCP connected: session=%s", self._session_id)
+                
+                # Send initialized notification
+                headers["Mcp-Session-Id"] = self._session_id
+                notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+                self.session.post(self._endpoint, json=notif, headers=headers, timeout=5)
                 return
-            except Exception:
+                
+            except requests.ConnectionError:
                 if attempt % 5 == 0:
                     logger.info("Waiting for MCP server at %s ...", self.base_url)
-                time.sleep(1)
+            except Exception as e:
+                logger.warning("MCP connection error (attempt %d): %s", attempt + 1, e)
+            time.sleep(1)
+
         raise RuntimeError(f"MCP server not reachable at {self.base_url}")
 
-    def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+    def _parse_sse_response(self, text: str) -> dict:
+        """Parse SSE event stream and extract JSON-RPC result."""
+        for line in text.splitlines():
+            if line.startswith("data:"):
+                data = line[5:].strip()
+                if data.startswith("{"):
+                    return json.loads(data)
+        raise RuntimeError(f"No JSON data in response: {text[:200]}")
+
+    def call_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: float = 30) -> str:
         """Invoke an MCP tool via JSON-RPC over HTTP and return the text result."""
+        if not self._session_id:
+            raise RuntimeError("MCP client not connected")
+
+        logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream",
+            "Mcp-Session-Id": self._session_id,
+        }
+        
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -86,25 +152,26 @@ class MCPClient:
                 "arguments": arguments,
             },
         }
-        # The MCP SSE transport exposes a /messages/ (or /messages) endpoint
-        # for JSON-RPC requests.  Try the most common paths.
-        for path in ("/messages/", "/messages", "/rpc"):
-            url = f"{self.base_url}{path}"
-            try:
-                resp = self.session.post(url, json=payload, timeout=30)
-                if resp.status_code < 400:
-                    data = resp.json()
-                    result = data.get("result", data)
-                    # MCP tool results are wrapped in {"content": [{"text": "..."}]}
-                    if isinstance(result, dict) and "content" in result:
-                        parts = result["content"]
-                        return "\n".join(
-                            p.get("text", str(p)) for p in parts if isinstance(p, dict)
-                        )
-                    return str(result)
-            except requests.RequestException:
-                continue
-        raise RuntimeError(f"MCP tool call failed: {tool_name}({arguments})")
+
+        resp = self.session.post(self._endpoint, json=payload, headers=headers, timeout=timeout)
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"MCP tool call failed ({resp.status_code}): {resp.text[:200]}"
+            )
+
+        data = self._parse_sse_response(resp.text)
+        
+        if "error" in data:
+            raise RuntimeError(f"MCP error: {data['error']}")
+
+        result = data.get("result", data)
+        # MCP tool results are wrapped in {"content": [{"text": "..."}]}
+        if isinstance(result, dict) and "content" in result:
+            parts = result["content"]
+            return "\n".join(
+                p.get("text", str(p)) for p in parts if isinstance(p, dict)
+            )
+        return str(result)
 
     # ------------------------------------------------------------------
     # convenience wrappers (used by orchestrator, NOT by the LLM)
@@ -241,8 +308,7 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 
 SYSTEM_PROMPT = """\
 You are a network traffic analyst.  Your job is to classify network packets
-into application-level events (e.g. "Login request/response",
-"TLS handshake", "File upload", "API call -- /users").
+into application-level events (e.g. "Login request/response", "File upload", "API call -- /users").
 
 You have the following tools at your disposal:
 
@@ -267,15 +333,13 @@ You have the following tools at your disposal:
 4. Decide: does this packet belong to an existing event, or should a new
    one be created?
 5. Either call assign_to_event OR call create_new_event followed by
-   assign_to_event.
-6. After the assignment is done, respond with a short summary line:
-   ASSIGNED:<event_id> or CREATED:<event_id>:<description>
+   assign_to_event. When creating an event, be as specific as possible but concise. Do not label events 'HTTP request', instead describe what purpose the request serves if possible.
 
 Important:
 - Always end with an assign_to_event call so the packet is persisted.
 - You may call multiple tools before deciding.
-- Prefer grouping related packets (e.g. HTTP request + response,
-  TLS Client Hello + Server Hello) into the same event.
+- Investigate atleast 5 packets around the current packet for better context. Do so by using get_packet_info with an incremented or decremented packet_id.
+- Group related packets (e.g. HTTP request + response) into the same event. Prefer assigning the packet to an existing event if it fits, rather than creating a new one.
 """
 
 
@@ -284,7 +348,7 @@ class PacketAnalyzer:
 
     def __init__(
         self,
-        model: str = "llama3.2:3b-instruct-q4_K_M",
+        model: str = "qwen3:8b",
         ollama_host: str = "http://localhost:11434",
     ):
         self.model_name = model
@@ -316,6 +380,11 @@ class PacketAnalyzer:
         Returns a short summary string or None on error.
         """
         llm_with_tools = self.llm.bind_tools(tools)
+
+        logger.info(
+            ">>> Inspecting packet_id=%d – sending to LLM for classification",
+            packet_id,
+        )
 
         messages = [
             SystemMessage(content=SYSTEM_PROMPT),
@@ -459,7 +528,7 @@ def main():
 
     # LLM
     parser.add_argument(
-        "--model", default="llama3.2:3b-instruct-q4_K_M",
+        "--model", default="qwen3:8b",
         help="Ollama model to use",
     )
     parser.add_argument(

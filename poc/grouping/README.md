@@ -23,7 +23,7 @@ The packet analyzer uses LangChain with Ollama to:
 
 ## Default Model
 
-The default model is `llama3.2:3b-instruct-q4_K_M` (Llama 3.2 3B Instruct, quantized).
+The default model is `qwen3:8b` (Qwen3 8B with reasoning/thinking mode, ~5.5GB).
 This can be changed via the `--model` argument or environment variable.
 
 ## Usage
@@ -45,7 +45,7 @@ This can be changed via the `--model` argument or environment variable.
 ./run_analysis.sh 1
 
 # Analyze recording 2 with a specific model
-./run_analysis.sh 2 llama3.2:3b-instruct-q4_K_M
+./run_analysis.sh 2 qwen3:8b
 ```
 
 ### Direct Python execution (inside container):
@@ -58,7 +58,7 @@ python3 /app/packet_analyzer.py \
     --db-name main \
     --db-user appuser \
     --db-password appuser_password \
-    --model llama3.2:3b-instruct-q4_K_M \
+    --model qwen3:8b \
     --ollama-host http://localhost:11434 \
     -v
 ```
@@ -73,7 +73,7 @@ python3 /app/packet_analyzer.py \
 | `--db-name` | No | main | Database name |
 | `--db-user` | No | appuser | Database user |
 | `--db-password` | No | appuser_password | Database password |
-| `--model` | No | llama3.2:3b-instruct-q4_K_M | Ollama model name |
+| `--model` | No | qwen3:8b | Ollama model name |
 | `--ollama-host` | No | http://localhost:11434 | Ollama server URL |
 | `-v, --verbose` | No | - | Enable debug logging |
 
@@ -81,10 +81,10 @@ python3 /app/packet_analyzer.py \
 
 You can use any Ollama-compatible model. Some suggestions:
 
-- `llama3.2:3b-instruct-q4_K_M` (default, ~2GB) - Good balance of speed and quality
-- `llama3.2:1b-instruct-q4_K_M` (~700MB) - Faster, less accurate
-- `llama3.1:8b-instruct-q4_K_M` (~4.7GB) - Better quality, slower
-- `mistral:7b-instruct-q4_K_M` (~4.1GB) - Alternative model
+- `qwen3:8b` (default, ~5.5GB) - Strong reasoning with built-in thinking mode
+- `deepseek-r1:8b` (~5.5GB) - Dedicated reasoning model, distilled from DeepSeek R1
+- `qwen3:4b` (~2.8GB) - Lighter Qwen3 variant, faster but less accurate
+- `llama3.1:8b-instruct-q4_K_M` (~4.7GB) - Good general-purpose alternative
 
 ## Output
 

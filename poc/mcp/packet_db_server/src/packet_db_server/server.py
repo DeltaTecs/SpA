@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ except ImportError as e:  # pragma: no cover
 
 try:
     from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp.server import TransportSecuritySettings
 except ImportError as e:  # pragma: no cover
     raise RuntimeError("mcp package is required") from e
 
@@ -276,7 +278,20 @@ def _format_packet_info_text(
     return "\n".join(lines)
 
 
-mcp = FastMCP("packet-db")
+_mcp_host = os.environ.get("MCP_HOST", "0.0.0.0")
+_mcp_port = int(os.environ.get("MCP_PORT", "8765"))
+
+mcp = FastMCP(
+    "packet-db",
+    host=_mcp_host,
+    port=_mcp_port,
+    # In Docker, other containers connect via container name (e.g.
+    # mcp-packet-db:8765) which would be blocked by the default DNS
+    # rebinding protection that only allows localhost.
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False
+    ),
+)
 
 
 @mcp.tool()
@@ -509,42 +524,12 @@ def assign_packet_to_event(packet_id: int, event_id: int) -> str:
 
 def main() -> None:
     transport = os.environ.get("MCP_TRANSPORT", "sse").lower()
-    host = os.environ.get("MCP_HOST", "0.0.0.0")
-    port = int(os.environ.get("MCP_PORT", "8765"))
-
-    # FastMCP supports multiple transports depending on the installed mcp version.
-    # Prefer SSE for dockerized usage.
-    if transport == "stdio":
-        mcp.run()
-        return
-
-    # Start SSE in a version-tolerant way.
-    # Different `mcp` versions expose different `FastMCP.run()` signatures.
-    import inspect
-
-    run_sig = inspect.signature(mcp.run)
-    run_params = run_sig.parameters
-
-    kwargs: Dict[str, Any] = {}
-    if "transport" in run_params:
-        kwargs["transport"] = "sse"
-    if "host" in run_params:
-        kwargs["host"] = host
-    if "port" in run_params:
-        kwargs["port"] = port
-
-    if kwargs:
-        mcp.run(**kwargs)
-        return
-
-    # Fallback for very old versions.
-    run_sse = getattr(mcp, "run_sse", None)
-    if run_sse:
-        run_sse(host=host, port=port)
-        return
-
-    # As a last resort, run stdio (works for clients that spawn the process).
-    mcp.run()
+    logger_srv = logging.getLogger(__name__)
+    logger_srv.info(
+        "Starting MCP server (transport=%s, host=%s, port=%d)",
+        transport, _mcp_host, _mcp_port,
+    )
+    mcp.run(transport=transport)
 
 
 if __name__ == "__main__":

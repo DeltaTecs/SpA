@@ -6,11 +6,11 @@
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <recording_id> [model_name]"
     echo "  recording_id  - The recording ID to analyze (required)"
-    echo "  model_name    - Ollama model to use (optional, default: llama3.2:3b-instruct-q4_K_M)"
+    echo "  model_name    - Ollama model to use (optional, default: qwen3:8b)"
     echo ""
     echo "Example:"
     echo "  $0 1"
-    echo "  $0 1 llama3.2:3b-instruct-q4_K_M"
+    echo "  $0 1 qwen3:8b"
     exit 1
 fi
 

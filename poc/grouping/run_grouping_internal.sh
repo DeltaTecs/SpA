@@ -6,7 +6,7 @@ set -e
 
 # Default values (can be overridden by environment variables)
 MCP_URL="${MCP_URL:-http://mcp-packet-db:8765}"
-MODEL="${MODEL:-llama3.2:3b-instruct-q4_K_M}"
+MODEL="${MODEL:-qwen3:8b}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
 # Recording ID is required
