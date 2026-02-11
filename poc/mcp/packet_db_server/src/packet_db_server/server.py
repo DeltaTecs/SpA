@@ -326,7 +326,11 @@ def packet_info(packet_id: int) -> str:
 
 @mcp.tool()
 def packet_payload_hexdump(packet_id: int) -> str:
-    """Return full cleartext application payload as hex+ASCII hexdump (human-readable text)."""
+    """Return full cleartext application payload as hex+ASCII hexdump (human-readable text).
+
+    Use this tool when the payload preview returned by packet_info is not
+    sufficient and you need to see the complete cleartext application payload.
+    """
 
     with _retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
@@ -347,6 +351,160 @@ def packet_payload_hexdump(packet_id: int) -> str:
                 return "(empty)"
 
             return hexdump(payload_bytes)
+
+
+# -------------------------------------------------------------------
+# Tools for listing packets in a recording
+# -------------------------------------------------------------------
+
+
+@mcp.tool()
+def list_packet_ids(recording_id: int) -> str:
+    """Return all packet IDs for a recording, ordered by packet number.
+
+    Each line is: ``packet_id:<id>  number:<num>  timestamp:<ts>``
+    Use the returned packet_ids with packet_info or packet_payload_hexdump
+    to inspect individual packets.
+    """
+
+    with _retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT packet_id, number, timestamp
+                FROM packet
+                WHERE recording_id = %s
+                ORDER BY number ASC
+                """,
+                (recording_id,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return f"No packets found for recording_id {recording_id}"
+
+            lines: List[str] = [f"total: {len(rows)} packets"]
+            for r in rows:
+                lines.append(
+                    f"packet_id:{r['packet_id']}  number:{r['number']}  timestamp:{r['timestamp']}"
+                )
+            return "\n".join(lines)
+
+
+# -------------------------------------------------------------------
+# Tools for event management
+# -------------------------------------------------------------------
+
+
+@mcp.tool()
+def events_for_recording(recording_id: int) -> str:
+    """Return all events currently associated with packets in this recording.
+
+    Each line is: ``event_id:<id>  description:<desc>  start:<ts>  end:<ts>``
+    """
+
+    with _retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT DISTINCT e.event_id, e.description,
+                       e.start_timestamp, e.end_timestamp
+                FROM event e
+                JOIN packet_event pe ON e.event_id = pe.event_id
+                JOIN packet p ON pe.packet_id = p.packet_id
+                WHERE p.recording_id = %s
+                ORDER BY e.event_id
+                """,
+                (recording_id,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return "(no events yet)"
+
+            lines: List[str] = []
+            for r in rows:
+                lines.append(
+                    f"event_id:{r['event_id']}  description:{r['description']}  "
+                    f"start:{r['start_timestamp']}  end:{r['end_timestamp']}"
+                )
+            return "\n".join(lines)
+
+
+@mcp.tool()
+def create_event(description: str, timestamp: int) -> str:
+    """Create a new event and return its ID.
+
+    Args:
+        description: Short human-readable description of the event
+                     (e.g. \"TLS handshake\", \"Login request\").
+        timestamp: Epoch-millisecond timestamp for the event start/end.
+
+    Returns a single line: ``event_id:<id>``
+    """
+
+    with _retry_connect_db() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO event (description, start_timestamp, end_timestamp)
+                VALUES (%s, %s, %s)
+                RETURNING event_id
+                """,
+                (description, timestamp, timestamp),
+            )
+            event_id = cursor.fetchone()[0]
+            return f"event_id:{event_id}"
+
+
+@mcp.tool()
+def assign_packet_to_event(packet_id: int, event_id: int) -> str:
+    """Assign a packet to an event (and widen the event time range).
+
+    This also updates the event's start_timestamp / end_timestamp so
+    the event spans the full range of its assigned packets.
+
+    Args:
+        packet_id: The packet to assign.
+        event_id:  The target event.
+
+    Returns \"ok\" on success.
+    """
+
+    with _retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            # Look up the packet timestamp
+            cursor.execute(
+                "SELECT timestamp FROM packet WHERE packet_id = %s",
+                (packet_id,),
+            )
+            pkt = cursor.fetchone()
+            if not pkt:
+                return f"packet_id {packet_id} not found"
+
+            ts = pkt["timestamp"]
+
+            # Insert mapping (idempotent)
+            cursor.execute(
+                """
+                INSERT INTO packet_event (packet_id, event_id)
+                VALUES (%s, %s)
+                ON CONFLICT (packet_id, event_id) DO NOTHING
+                """,
+                (packet_id, event_id),
+            )
+
+            # Widen event time range
+            if ts is not None:
+                cursor.execute(
+                    """
+                    UPDATE event
+                    SET start_timestamp = LEAST(start_timestamp, %s),
+                        end_timestamp   = GREATEST(end_timestamp, %s)
+                    WHERE event_id = %s
+                    """,
+                    (ts, ts, event_id),
+                )
+
+            return "ok"
 
 
 def main() -> None:

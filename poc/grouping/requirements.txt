@@ -3,8 +3,8 @@ langchain>=0.2.0
 langchain-community>=0.2.0
 langchain-ollama>=0.1.0
 
-# Database
-psycopg2-binary>=2.9.9
+# HTTP client (for MCP server calls)
+requests>=2.31.0
 
 # Ollama client
 ollama>=0.2.0

@@ -5,11 +5,7 @@
 set -e
 
 # Default values (can be overridden by environment variables)
-DB_HOST="${DB_HOST:-postgres}"
-DB_PORT="${DB_PORT:-5432}"
-DB_NAME="${DB_NAME:-main}"
-DB_USER="${DB_USER:-appuser}"
-DB_PASSWORD="${DB_PASSWORD:-appuser_password}"
+MCP_URL="${MCP_URL:-http://mcp-packet-db:8765}"
 MODEL="${MODEL:-llama3.2:3b-instruct-q4_K_M}"
 OLLAMA_HOST="${OLLAMA_HOST:-http://localhost:11434}"
 
@@ -30,7 +26,7 @@ echo "=========================================="
 echo "Packet Grouping Configuration"
 echo "=========================================="
 echo "Recording ID: $RECORDING_ID"
-echo "Database: $DB_HOST:$DB_PORT/$DB_NAME"
+echo "MCP Server: $MCP_URL"
 echo "Model: $MODEL"
 echo "Ollama Host: $OLLAMA_HOST"
 echo "=========================================="
@@ -72,11 +68,7 @@ fi
 echo "Starting packet grouping..."
 python3 /app/packet_analyzer.py \
     --recording-id "$RECORDING_ID" \
-    --db-host "$DB_HOST" \
-    --db-port "$DB_PORT" \
-    --db-name "$DB_NAME" \
-    --db-user "$DB_USER" \
-    --db-password "$DB_PASSWORD" \
+    --mcp-url "$MCP_URL" \
     --model "$MODEL" \
     --ollama-host "$OLLAMA_HOST" \
     -v

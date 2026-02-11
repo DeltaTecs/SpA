@@ -81,11 +81,7 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
+      - MCP_URL=http://mcp-packet-db:8765
     volumes:
       - ./grouping/packet_analyzer.py:/app/packet_analyzer.py
       - ./grouping/run_grouping_internal.sh:/app/run_grouping_internal.sh
@@ -94,7 +90,7 @@ services:
     networks:
       - app-network
     depends_on:
-      - postgres
+      - mcp-packet-db
     tty: true
     stdin_open: true
 
