@@ -29,8 +29,8 @@ CREATE TABLE IF NOT EXISTS conversation (
 CREATE TABLE IF NOT EXISTS event (
   event_id bigserial PRIMARY KEY,
   description text,
-  start_timestamp bigint NOT NULL,
-  end_timestamp bigint NOT NULL
+  start_timestamp bigint DEFAULT NULL,
+  end_timestamp bigint DEFAULT NULL
 );
 
 -- Header information (parent)

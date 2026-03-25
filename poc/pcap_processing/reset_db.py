@@ -22,8 +22,10 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
         tables_to_drop = [
             "packet_processing_tag",
             "recording_processing_tag",
+            "packet_event",
             "packet_header_information",
             "packet",
+            "event",
             "ip_header_information",
             "http_header_information",
             "tcp_header_information",

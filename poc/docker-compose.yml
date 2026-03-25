@@ -50,8 +50,55 @@ services:
       - postgres
     tty: true
 
+  mcp-packet-db:
+    build: ./mcp/packet_db_server
+    container_name: mcp-packet-db
+    env_file:
+      - ./.env
+    environment:
+      - MCP_TRANSPORT=streamable-http
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8765
+    ports:
+      - "8765:8765"
+    networks:
+      - app-network
+    depends_on:
+      - postgres
+
+  grouping:
+    build: ./grouping
+    container_name: grouping
+    command: ["bash", "-lc", "sleep infinity"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - MCP_URL=http://mcp-packet-db:8765
+    volumes:
+      - ./grouping/packet_analyzer.py:/app/packet_analyzer.py
+      - ./grouping/mcp_client.py:/app/mcp_client.py
+      - ./grouping/run_grouping_internal.sh:/app/run_grouping_internal.sh
+      - ./.env:/app/.env:ro
+      - ollama_models:/root/.ollama
+    networks:
+      - app-network
+    depends_on:
+      - mcp-packet-db
+    tty: true
+    stdin_open: true
+
 volumes:
   postgres_data:
+    driver: local
+  ollama_models:
     driver: local
 
 networks:
