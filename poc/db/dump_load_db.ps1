@@ -192,14 +192,13 @@ switch ($Action) {
 
     Copy-ToContainer $hostFile $tmp
 
+    Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+
     if ($ext -eq '.sql') {
-      # Full overwrite for SQL dumps.
-      Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -c \"DROP SCHEMA public CASCADE; CREATE SCHEMA public;\""
       Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -f '$tmp'"
     }
     else {
-      # Overwrite objects using restore flags for custom-format archives.
-      Exec-InPostgres "pg_restore -U '$User' -d '$Database' --clean --if-exists --no-owner --no-privileges --exit-on-error '$tmp'"
+      Exec-InPostgres "pg_restore -U '$User' -d '$Database' --no-owner --no-privileges --exit-on-error '$tmp'"
     }
 
     Exec-InPostgres "rm -f '$tmp'"
