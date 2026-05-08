@@ -26,14 +26,12 @@ logger = logging.getLogger(__name__)
 
 _LAZY_EXPORTS = {
     "PacketAnalyzer": ("llm_analyzer", "PacketAnalyzer"),
-    "ToolTracker": ("packet_tools", "ToolTracker"),
     "build_langchain_tools": ("packet_tools", "build_langchain_tools"),
     "run_analysis": ("analysis_runner", "run_analysis"),
 }
 
 __all__ = [
     "PacketAnalyzer",
-    "ToolTracker",
     "UserAction",
     "build_langchain_tools",
     "format_user_context",

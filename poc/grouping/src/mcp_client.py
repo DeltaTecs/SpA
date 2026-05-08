@@ -151,6 +151,13 @@ class MCPClient:
     def create_event(self, description: str) -> str:
         return self.call_tool("create_event", {"description": description})
 
+    def create_event_and_assign_packet(self, packet_id: int, description: str) -> str:
+        """Create a new event and attach the packet in one MCP/DB operation."""
+        return self.call_tool(
+            "create_event_and_assign_packet",
+            {"packet_id": packet_id, "description": description},
+        )
+
     def assign_packet_to_event(self, packet_id: int, event_id: int) -> str:
         return self.call_tool("assign_packet_to_event", {"packet_id": packet_id, "event_id": event_id})
 

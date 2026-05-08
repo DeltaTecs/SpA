@@ -1,6 +1,6 @@
 # Packet DB MCP Server
 
-MCP server that provides read-only access to packet metadata and decrypted payloads stored in the PoC PostgreSQL database.
+MCP server that provides packet metadata/payload lookup tools and event persistence tools for the PoC PostgreSQL database.
 
 ## Tools
 
@@ -12,7 +12,7 @@ MCP server that provides read-only access to packet metadata and decrypted paylo
   - Protocol layers (resolved from `protocol_ids`)
   - Entropy, clear payload length, TCP payload length, and UDP length when present
   - Application protocol guess (`http`, `websocket`, `unknown`)
-  - If HTTP header(s) are associated, includes the `text_header` fields
+  - If HTTP header(s) are associated, includes stream/version metadata and the `text_header` fields
   - If cleartext payload exists, includes a **preview** hexdump of the first 256 bytes (hex + ASCII)
 
 - `packet_payload_hexdump(packet_id: int)`
@@ -26,6 +26,10 @@ MCP server that provides read-only access to packet metadata and decrypted paylo
 - `packets_in_time_window(recording_id: int, start_ms: int, end_ms: int, max_packets: int = 40)`
   - Returns rich `packet_info` output for packets in a time window
   - `start_ms` and `end_ms` are recording-relative offsets; epoch millisecond values are also accepted
+
+- `create_event_and_assign_packet(packet_id: int, description: str)`
+  - Atomically creates a new event and assigns the packet to it
+  - Intended for orchestrators after validating an LLM decision
 
 ## Configuration
 

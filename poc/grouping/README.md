@@ -6,19 +6,21 @@ This module analyzes network packets using a local LLM (via Ollama) and groups t
 
 The packet analyzer uses LangChain with Ollama to:
 1. Load packets from the database for a specific recording
-2. For each packet with payload (or HTTP headers), prepare a prompt with:
-   - Packet payload in hex format
-   - Protocol layers (e.g., IP|TCP|TLS|HTTP)
-   - Connection stream (source/destination IP:port)
-   - Packet number, direction, `from_local`, conversation ID, timestamp offset, payload length, transport length, and entropy
-   - List of existing events
-3. Use the LLM to determine if the packet belongs to an existing event or requires a new one
-4. Update the database with event assignments
+2. Summarize conversations, HTTP streams, and recording-relative time windows
+3. Use those summaries to create event candidates
+4. Ask the LLM for a structured packet decision:
+   `{packet_id, event_id | new_event, confidence, rationale}`
+5. Validate the decision in the orchestrator and persist it to the database
 
-The analyzer can request additional context through MCP tools. Surrounding-packet
-lookups prefer packets from the same conversation to avoid unrelated interleaved
-traffic, and the model can also inspect a specific conversation slice or a
-recording-relative time window around a user action.
+The LLM only receives read-only MCP tools. It can request packet details,
+conversation-local neighbors, conversation slices, and recording-relative time
+windows around user actions. HTTP stream summaries are used only when the
+database exposes enough `stream_id` metadata to connect multiple packets; HTTP
+packets without a stream ID are still covered by conversation and time-window
+summaries. The LLM cannot create events or assign packets directly. New event
+creation and packet assignment are performed by the orchestrator after
+validation. New event creation uses an atomic create-and-assign MCP operation so
+a failed packet assignment does not leave a newly-created orphan event.
 
 ## Requirements
 
@@ -93,7 +95,9 @@ You can use any Ollama-compatible model. Some suggestions:
 
 ## Output
 
-The analyzer creates events in the database and assigns packets to them. Events are stored in the `event` table and packet-event relationships in `packet_event` table.
+The analyzer creates events in the database and assigns packets to them after
+validating LLM decisions. Events are stored in the `event` table and packet-event
+relationships in the `packet_event` table.
 
 ### Statistics
 
