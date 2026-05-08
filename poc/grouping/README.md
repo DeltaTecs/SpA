@@ -10,10 +10,15 @@ The packet analyzer uses LangChain with Ollama to:
    - Packet payload in hex format
    - Protocol layers (e.g., IP|TCP|TLS|HTTP)
    - Connection stream (source/destination IP:port)
-   - Entropy value (normalized 0-1)
+   - Packet number, direction, `from_local`, conversation ID, timestamp offset, payload length, transport length, and entropy
    - List of existing events
 3. Use the LLM to determine if the packet belongs to an existing event or requires a new one
 4. Update the database with event assignments
+
+The analyzer can request additional context through MCP tools. Surrounding-packet
+lookups prefer packets from the same conversation to avoid unrelated interleaved
+traffic, and the model can also inspect a specific conversation slice or a
+recording-relative time window around a user action.
 
 ## Requirements
 

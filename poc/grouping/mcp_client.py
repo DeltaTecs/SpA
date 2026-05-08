@@ -156,3 +156,37 @@ class MCPClient:
 
     def packet_info(self, packet_id: int) -> str:
         return self.call_tool("packet_info", {"packet_id": packet_id})
+
+    def conversation_packets(
+        self,
+        conversation_id: int,
+        packet_id: int = 0,
+        before: int = 5,
+        after: int = 5,
+    ) -> str:
+        return self.call_tool(
+            "conversation_packets",
+            {
+                "conversation_id": conversation_id,
+                "packet_id": packet_id,
+                "before": before,
+                "after": after,
+            },
+        )
+
+    def packets_in_time_window(
+        self,
+        recording_id: int,
+        start_ms: int,
+        end_ms: int,
+        max_packets: int = 40,
+    ) -> str:
+        return self.call_tool(
+            "packets_in_time_window",
+            {
+                "recording_id": recording_id,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "max_packets": max_packets,
+            },
+        )

@@ -208,10 +208,10 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 
     @langchain_tool
     def get_packet_info(packet_id: int) -> str:
-        """Retrieve flow, protocol layers, HTTP headers, and a 256-byte
-        payload preview for a packet.  Use this to inspect ANY packet --
-        not just the current one.  You may inspect surrounding packets
-        (nearby packet IDs) for additional context when classifying."""
+        """Retrieve rich packet facts: packet number, timestamps, offset,
+        direction, from_local, conversation ID, protocol stack, entropy,
+        payload lengths, HTTP headers, and a 256-byte payload preview.
+        Use this to inspect ANY packet, not just the current one."""
         return mcp.packet_info(packet_id)
 
     @langchain_tool
@@ -224,11 +224,21 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 
     @langchain_tool
     def get_surrounding_packets(packet_id: int, window: int = 2) -> str:
-        """Return flow, protocol, header, and payload-preview info for
-        packets surrounding the given packet_id (up to *window* packets
-        before and after).  This lets you examine neighbouring traffic
-        in the same recording to better understand the context of the
-        current packet (e.g. a request followed by its response)."""
+        """Return rich packet facts for packets surrounding packet_id.
+        This prefers packets from the same conversation, so interleaved
+        traffic from unrelated flows does not pollute the context. If the
+        packet has no conversation_id, it falls back to global packet order."""
+        window = max(0, min(window, 50))
+        pkt_info = mcp.packet_info(packet_id)
+        m = re.search(r"^conversation_id:\s*(\d+)\s*$", pkt_info, re.MULTILINE)
+        if m:
+            return mcp.conversation_packets(
+                int(m.group(1)),
+                packet_id=packet_id,
+                before=window,
+                after=window,
+            )
+
         try:
             idx = packet_ids.index(packet_id)
         except ValueError:
@@ -243,7 +253,42 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
             header = f"=== packet_id:{pid}{marker} ==="
             info = mcp.packet_info(pid)
             parts.append(f"{header}\n{info}")
-        return "\n\n".join(parts)
+        return "Fallback: packet has no conversation_id; using global packet order.\n\n" + "\n\n".join(parts)
+
+    @langchain_tool
+    def get_conversation_packets(
+        conversation_id: int,
+        packet_id: int = 0,
+        before: int = 5,
+        after: int = 5,
+    ) -> str:
+        """Return rich packet facts for packets in a single conversation.
+        If packet_id is provided, returns up to before packets before it
+        and after packets after it within that conversation. Use this for
+        request/response context and to avoid unrelated interleaved traffic."""
+        return mcp.conversation_packets(
+            conversation_id,
+            packet_id=packet_id,
+            before=before,
+            after=after,
+        )
+
+    @langchain_tool
+    def get_packets_in_time_window(
+        start_ms: int,
+        end_ms: int,
+        max_packets: int = 40,
+    ) -> str:
+        """Return rich packet facts for packets in this recording whose
+        timestamps fall between start_ms and end_ms. Prefer offsets in
+        milliseconds since recording start; epoch millisecond timestamps
+        are also accepted. Use this to inspect traffic around a user action."""
+        return mcp.packets_in_time_window(
+            recording_id,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            max_packets=max_packets,
+        )
 
     @langchain_tool
     def get_events(recording_id_unused: int = 0) -> str:
@@ -278,6 +323,8 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         get_packet_info,
         get_full_payload,
         get_surrounding_packets,
+        get_conversation_packets,
+        get_packets_in_time_window,
         get_events,
         create_new_event,
         assign_to_event,
@@ -295,13 +342,18 @@ into application-level events. An event is a group of data exchanges that serve 
 
 You have the following tools at your disposal:
 
-* **get_packet_info(packet_id)** -- get flow info, protocol layers,
-  HTTP headers, and a 256-byte payload preview for ANY packet.
+* **get_packet_info(packet_id)** -- get rich packet facts including packet
+  number, timestamps, recording offset, direction/from_local, conversation,
+  protocol stack, entropy, payload lengths, HTTP headers, and preview payload.
 * **get_full_payload(packet_id)** -- get the COMPLETE cleartext payload
   when the 256-byte preview is not enough.
 * **get_surrounding_packets(packet_id, window)** -- retrieve info for
-  nearby packets so you can inspect preceding/following traffic for
-  context (e.g. request <-> response pairs).
+  nearby packets in the same conversation when possible, so you can inspect
+  preceding/following request/response traffic without unrelated interleaving.
+* **get_conversation_packets(conversation_id, packet_id, before, after)** --
+  retrieve packets in a single conversation around a specific packet.
+* **get_packets_in_time_window(start_ms, end_ms, max_packets)** -- retrieve
+  packets in a recording-relative time window; use this around user actions.
 * **get_events()** -- list all events that exist so far for this recording.
 * **create_new_event(description)** -- create a new event.
   Returns the event_id.
@@ -321,7 +373,8 @@ You have the following tools at your disposal:
 Important:
 - Always end with an assign_to_event call so the packet is persisted.
 - You may call multiple tools before deciding.
-- Investigate atleast 2 packets around the current packet for better context.
+- Investigate at least 2 packets around the current packet for better context.
+  Prefer conversation-local context when the packet has a conversation_id.
 - Group related packets (e.g. HTTP request + response) into the same event. Prefer assigning the packet to an existing event if it fits, rather than creating a new one.
 """
 
