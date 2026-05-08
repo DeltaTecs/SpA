@@ -116,6 +116,6 @@ if [ -n "$USER_INTEND" ]; then
     echo "User intend: $USER_INTEND"
 fi
 
-python3 /app/packet_analyzer.py "${CMD_ARGS[@]}"
+python3 /app/src/packet_analyzer.py "${CMD_ARGS[@]}"
 
 echo "Grouping complete!"

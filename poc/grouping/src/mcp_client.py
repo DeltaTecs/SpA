@@ -23,7 +23,7 @@ class MCPClient:
     Call MCP tools exposed by the packet-db server over HTTP (streamable-http transport).
     
     The streamable-http protocol is simpler than SSE:
-    1. POST /mcp with 'initialize' → get session ID from response header
+    1. POST /mcp with 'initialize' -> get session ID from response header
     2. POST /mcp with session ID header for all subsequent requests
     3. Responses come as SSE events in the response body (synchronous)
     """

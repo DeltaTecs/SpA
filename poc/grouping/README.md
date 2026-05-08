@@ -56,7 +56,7 @@ This can be changed via the `--model` argument or environment variable.
 ### Direct Python execution (inside container):
 
 ```bash
-python3 /app/packet_analyzer.py \
+python3 /app/src/packet_analyzer.py \
     --recording-id 1 \
     --db-host postgres \
     --db-port 5432 \

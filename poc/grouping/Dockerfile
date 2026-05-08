@@ -25,11 +25,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Application code is mounted via docker-compose volumes, not copied
-# This means changes to packet_analyzer.py don't trigger rebuild
+# Application code is mounted via docker-compose volumes, not copied.
+# This means grouping module changes do not trigger rebuilds.
 
 # Set Python path
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app/src
 
 # Default command - sleep infinity to keep container running
 CMD ["bash", "-lc", "sleep infinity"]
