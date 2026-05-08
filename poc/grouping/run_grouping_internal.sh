@@ -12,6 +12,7 @@ APP_DETAILS="${APP_DETAILS:-}"
 USER_INTEND="${USER_INTEND:-}"
 PROVIDER="${PROVIDER:-ollama}"
 API_KEY="${API_KEY:-}"
+GROUPING_VERBOSE="${GROUPING_VERBOSE:-0}"
 
 # Recording ID is required
 if [ -z "$1" ]; then
@@ -98,8 +99,11 @@ CMD_ARGS=(
     --mcp-url "$MCP_URL"
     --model "$MODEL"
     --provider "$PROVIDER"
-    -v
 )
+
+if [ "$GROUPING_VERBOSE" != "0" ]; then
+    CMD_ARGS+=(-v)
+fi
 
 if [ "$PROVIDER" = "ollama" ]; then
     CMD_ARGS+=(--ollama-host "$OLLAMA_HOST")

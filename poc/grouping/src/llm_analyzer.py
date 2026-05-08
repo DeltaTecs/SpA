@@ -178,7 +178,10 @@ class PacketAnalyzer:
             response = self.llm.invoke(messages)
             raw_candidates = _parse_json_list(_content_to_text(response.content))
         except Exception as e:
-            logger.error("LLM event candidate generation failed: %s", e)
+            logger.warning(
+                "LLM event candidate generation failed; using fallback candidates: %s",
+                e,
+            )
             raw_candidates = []
 
         candidates: List[EventCandidate] = []
@@ -186,7 +189,13 @@ class PacketAnalyzer:
         for raw in raw_candidates:
             if not isinstance(raw, dict):
                 continue
-            description = str(raw.get("description") or "").strip()
+            description = str(
+                raw.get("description")
+                or raw.get("event")
+                or raw.get("name")
+                or raw.get("title")
+                or ""
+            ).strip()
             if not description:
                 continue
             normalized = description.casefold()
@@ -194,13 +203,20 @@ class PacketAnalyzer:
                 continue
             seen_descriptions.add(normalized)
 
-            source_summary_ids = [
-                str(item)
-                for item in raw.get("source_summary_ids", [])
-                if str(item).strip()
-            ]
-            packet_ids = _int_list(raw.get("packet_ids", []))
-            rationale = str(raw.get("rationale") or "").strip()
+            source_summary_ids = _string_list(
+                raw.get("source_summary_ids")
+                or raw.get("sources")
+                or raw.get("source")
+                or []
+            )
+            packet_ids = _int_list(raw.get("packet_ids") or raw.get("packets") or [])
+            rationale = str(
+                raw.get("rationale")
+                or raw.get("reason")
+                or raw.get("packet_match")
+                or raw.get("description")
+                or ""
+            ).strip()
             candidates.append(
                 EventCandidate(
                     candidate_id=f"candidate_{len(candidates) + 1}",
@@ -261,10 +277,11 @@ class PacketAnalyzer:
                 "=== Existing Persisted Events ===\n" + existing_events_text,
                 "=== Pass 1 Summaries ===\n"
                 + "\n\n".join(summary.compact() for summary in summaries),
-                "=== Pass 2 Event Candidates ===\n"
-                + "\n\n".join(candidate.compact() for candidate in candidates),
-                "Return the JSON decision object now. You may call read-only "
-                "tools first if more evidence is needed.",
+                "=== Allowed new_event values ===\n"
+                + _format_assignment_targets(candidates),
+                "Return one assignment for the current packet only. Do not "
+                "return candidate lists, summaries, arrays, or nested objects. "
+                "You may call read-only tools first if more evidence is needed.",
             ]
         )
 
@@ -289,7 +306,7 @@ class PacketAnalyzer:
             return None
 
         try:
-            return PacketDecision.from_dict(_parse_json_object(response_text))
+            return _parse_packet_decision(response_text, packet_id)
         except Exception as e:
             logger.error(
                 "Could not parse structured decision for packet %d: %s; raw=%r",
@@ -396,9 +413,29 @@ def _content_to_text(content: Any) -> str:
     return str(content)
 
 
+def _format_assignment_targets(candidates: Sequence[EventCandidate]) -> str:
+    """Render candidates as selectable new_event values, not a generation task."""
+    if not candidates:
+        return "(none; use a concise new_event description if needed)"
+
+    lines: List[str] = []
+    for candidate in candidates:
+        packet_text = ", ".join(str(packet_id) for packet_id in candidate.packet_ids[:20])
+        if len(candidate.packet_ids) > 20:
+            packet_text += ", ..."
+        lines.append(
+            "new_event value: "
+            f"{candidate.candidate_id}\n"
+            f"description: {candidate.description}\n"
+            f"related packets: {packet_text if packet_text else '(not specified)'}\n"
+            f"rationale: {candidate.rationale or '(none)'}"
+        )
+    return "\n\n".join(lines)
+
+
 def _parse_json_object(text: str) -> dict:
     """Parse the assignment decision JSON object from model output."""
-    value = _parse_json_value(text, "{", "}")
+    value = _parse_json_value(text)
     if not isinstance(value, dict):
         raise ValueError("expected JSON object")
     return value
@@ -406,14 +443,37 @@ def _parse_json_object(text: str) -> dict:
 
 def _parse_json_list(text: str) -> list:
     """Parse the candidate JSON array from model output."""
-    value = _parse_json_value(text, "[", "]")
-    if not isinstance(value, list):
-        raise ValueError("expected JSON array")
-    return value
+    value = _parse_json_value(text)
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        candidates = _candidate_items(value)
+        if candidates:
+            return candidates
+    raise ValueError("expected JSON array or object containing candidates")
 
 
-def _parse_json_value(text: str, start_char: str, end_char: str) -> Any:
-    """Accept raw JSON or a single fenced/explained JSON payload."""
+def _parse_packet_decision(text: str, expected_packet_id: int) -> PacketDecision:
+    """Parse only the exact pass-3 decision schema; malformed output is skipped."""
+    raw = _parse_json_object(text)
+    required = {"packet_id", "event_id", "new_event", "confidence", "rationale"}
+    missing = required - set(raw)
+    if missing:
+        raise ValueError(f"decision missing required keys: {sorted(missing)}")
+
+    decision = PacketDecision.from_dict(raw)
+    if decision.packet_id != expected_packet_id:
+        raise ValueError(
+            f"decision packet_id {decision.packet_id} does not match {expected_packet_id}"
+        )
+    if (decision.event_id is None) == (decision.new_event is None):
+        raise ValueError("exactly one of event_id or new_event must be non-null")
+
+    return decision
+
+
+def _parse_json_value(text: str) -> Any:
+    """Accept raw JSON, fenced JSON, or JSON embedded in model text."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.strip("`")
@@ -425,11 +485,35 @@ def _parse_json_value(text: str, start_char: str, end_char: str) -> Any:
     except json.JSONDecodeError:
         pass
 
-    start = cleaned.find(start_char)
-    end = cleaned.rfind(end_char)
-    if start == -1 or end == -1 or end <= start:
-        raise ValueError("no JSON payload found")
-    return json.loads(cleaned[start : end + 1])
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(cleaned):
+        if char not in "{[":
+            continue
+        try:
+            value, _ = decoder.raw_decode(cleaned[idx:])
+        except json.JSONDecodeError:
+            continue
+        return value
+    raise ValueError("no JSON payload found")
+
+
+def _candidate_items(value: Any) -> List[dict]:
+    """Find candidate arrays in common model-generated wrapper objects."""
+    if isinstance(value, list):
+        return [item for item in value if isinstance(item, dict)]
+    if not isinstance(value, dict):
+        return []
+
+    for key in ("candidates", "event_candidates", "events", "eventCandidates"):
+        items = value.get(key)
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+
+    nested = value.get("decision")
+    if isinstance(nested, (dict, list)):
+        return _candidate_items(nested)
+
+    return []
 
 
 def _int_list(raw: Any) -> List[int]:
@@ -443,3 +527,12 @@ def _int_list(raw: Any) -> List[int]:
         except (TypeError, ValueError):
             continue
     return values
+
+
+def _string_list(raw: Any) -> List[str]:
+    """Best-effort string list coercion for model-supplied source IDs."""
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else []
+    if not isinstance(raw, list):
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]

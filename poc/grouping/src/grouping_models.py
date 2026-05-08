@@ -109,10 +109,14 @@ class PacketDecision:
             new_event = str(new_event_raw)
 
         confidence_raw = raw.get("confidence", 0)
-        try:
-            confidence = float(confidence_raw)
-        except (TypeError, ValueError):
-            confidence = 0.0
+        if isinstance(confidence_raw, str):
+            confidence_labels = {"high": 0.85, "medium": 0.55, "low": 0.25}
+            confidence = confidence_labels.get(confidence_raw.strip().lower(), 0.0)
+        else:
+            try:
+                confidence = float(confidence_raw)
+            except (TypeError, ValueError):
+                confidence = 0.0
         confidence = max(0.0, min(confidence, 1.0))
 
         rationale = str(raw.get("rationale") or "").strip()

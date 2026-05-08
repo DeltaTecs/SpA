@@ -33,6 +33,50 @@ TIME_WINDOW_PACKET_LIMIT = 50
 # conversation and time-window summaries.
 MIN_HTTP_STREAM_PACKETS = 2
 
+# Log progress at durable 5% increments. This works better than carriage-return
+# progress bars when output is captured by Docker or log collectors.
+PROGRESS_STEP_PERCENT = 5
+
+
+class PercentProgressLogger:
+    """Emit compact progress logs at fixed percentage increments."""
+
+    def __init__(self, label: str, total: int, step_percent: int = PROGRESS_STEP_PERCENT):
+        self.label = label
+        self.total = total
+        self.step_percent = max(1, step_percent)
+        self._last_bucket = -1
+
+        if total <= 0:
+            logger.info("%s progress: no work", self.label)
+        else:
+            self._log(0, 0)
+
+    def advance(self, current: int) -> None:
+        """Log when current work crosses the next percentage bucket."""
+        if self.total <= 0:
+            return
+
+        percent = min(100, int((current / self.total) * 100))
+        bucket = (percent // self.step_percent) * self.step_percent
+        if bucket > self._last_bucket:
+            self._log(bucket, current)
+
+    def done(self) -> None:
+        """Force a final 100% log for non-empty work."""
+        if self.total > 0 and self._last_bucket < 100:
+            self._log(100, self.total)
+
+    def _log(self, percent: int, current: int) -> None:
+        self._last_bucket = percent
+        logger.info(
+            "%s progress: %d%% (%d/%d)",
+            self.label,
+            percent,
+            current,
+            self.total,
+        )
+
 
 def run_analysis(
     mcp_client: MCPClient,
@@ -47,13 +91,17 @@ def run_analysis(
 
     # The packet ID listing is the stable global iteration order for pass 3.
     raw = mcp_client.list_packet_ids(recording_id)
-    logger.debug("list_packet_ids response:\n%s", raw)
 
     packet_ids, packet_timestamps = _parse_packet_id_listing(raw)
     if not packet_ids:
         logger.warning("No packets found for recording %d", recording_id)
         return
 
+    logger.debug(
+        "list_packet_ids returned %d packet IDs for recording %d",
+        len(packet_ids),
+        recording_id,
+    )
     logger.info("Found %d packets for recording %d", len(packet_ids), recording_id)
 
     pcap_start_ms = packet_timestamps[packet_ids[0]] if packet_ids else 0
@@ -62,12 +110,14 @@ def run_analysis(
 
     # Cache packet_info once so summary construction and assignment prompts use
     # the same facts and avoid repeated MCP calls for every pass.
-    for packet_id in packet_ids:
+    load_progress = PercentProgressLogger("Loading packet facts", len(packet_ids))
+    for index, packet_id in enumerate(packet_ids, start=1):
         try:
             packet_info_text = mcp_client.packet_info(packet_id)
         except Exception as e:
             logger.error("Failed to fetch packet_info for %d: %s", packet_id, e)
             fetch_errors += 1
+            load_progress.advance(index)
             continue
         facts[packet_id] = _parse_packet_fact(
             packet_id=packet_id,
@@ -75,6 +125,8 @@ def run_analysis(
             recording_start_ms=pcap_start_ms,
             text=packet_info_text,
         )
+        load_progress.advance(index)
+    load_progress.done()
 
     # Empty non-HTTP packets are kept out of LLM grouping; they usually do not
     # carry enough semantic signal for application-level events.
@@ -113,12 +165,15 @@ def run_analysis(
     logger.info("Pass 1 complete: %d summaries", len(summaries))
 
     logger.info("Pass 2: creating event candidates")
+    pass2_progress = PercentProgressLogger("Pass 2 candidates", 1)
     candidates = analyzer.propose_event_candidates(
         summaries=summaries,
         user_context=recording_context,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
     )
+    pass2_progress.advance(1)
+    pass2_progress.done()
     logger.info("Pass 2 complete: %d event candidates", len(candidates))
 
     logger.info("Pass 3: assigning packets from structured decisions")
@@ -132,13 +187,14 @@ def run_analysis(
         "skipped": skipped,
     }
     event_state = EventPersistenceState(candidates)
+    pass3_progress = PercentProgressLogger("Pass 3 assignments", len(groupable_ids))
 
-    for index, packet_id in enumerate(groupable_ids):
+    for index, packet_id in enumerate(groupable_ids, start=1):
         fact = facts[packet_id]
-        logger.info(
+        logger.debug(
             "Assigning packet_id %d  (%d / %d)",
             packet_id,
-            index + 1,
+            index,
             len(groupable_ids),
         )
 
@@ -171,6 +227,7 @@ def run_analysis(
         if decision is None:
             stats["errors"] += 1
             logger.warning("  -> No parseable decision for packet %d", packet_id)
+            pass3_progress.advance(index)
             continue
 
         persisted, created = _validate_and_persist_decision(
@@ -187,6 +244,8 @@ def run_analysis(
                 stats["assigned_existing"] += 1
         else:
             stats["errors"] += 1
+        pass3_progress.advance(index)
+    pass3_progress.done()
 
     logger.info("=" * 60)
     logger.info("Analysis Complete")
@@ -271,10 +330,20 @@ def _build_context_summaries(
 ) -> List[ContextSummary]:
     """Build pass-1 summaries from complementary grouping perspectives."""
     summaries: List[ContextSummary] = []
+    conversation_groups = _conversation_groups(facts, groupable_ids)
+    http_stream_groups = _http_stream_groups(facts, groupable_ids)
+    time_windows = _time_windows(facts, groupable_ids, user_actions)
+    total_summaries = (
+        len(conversation_groups)
+        + len(http_stream_groups)
+        + len(time_windows)
+    )
+    progress = PercentProgressLogger("Pass 1 summaries", total_summaries)
+    completed = 0
 
     # Conversation summaries are the primary way to avoid interleaved traffic
     # from unrelated flows.
-    for conversation_id, packet_ids in _conversation_groups(facts, groupable_ids).items():
+    for conversation_id, packet_ids in conversation_groups.items():
         label = f"Conversation {conversation_id}"
         try:
             context_text = mcp_client.conversation_packets(
@@ -297,11 +366,13 @@ def _build_context_summaries(
                 has_user_actions=bool(user_actions),
             )
         )
+        completed += 1
+        progress.advance(completed)
 
     # HTTP stream summaries are optional hints. Missing stream_id metadata is
     # normal, so unstreamed HTTP packets rely on conversation/time-window
     # summaries instead.
-    for stream_key, packet_ids in _http_stream_groups(facts, groupable_ids).items():
+    for stream_key, packet_ids in http_stream_groups.items():
         conversation_id, stream_id = stream_key
         label = f"HTTP stream {stream_id}"
         if conversation_id is not None:
@@ -318,13 +389,12 @@ def _build_context_summaries(
                 has_user_actions=bool(user_actions),
             )
         )
+        completed += 1
+        progress.advance(completed)
 
     # Time windows capture cross-conversation bursts around user actions or
     # short periods of activity.
-    for idx, (label, start_ms, end_ms, packet_ids) in enumerate(
-        _time_windows(facts, groupable_ids, user_actions),
-        start=1,
-    ):
+    for idx, (label, start_ms, end_ms, packet_ids) in enumerate(time_windows, start=1):
         try:
             context_text = mcp_client.packets_in_time_window(
                 recording_id,
@@ -348,7 +418,10 @@ def _build_context_summaries(
                 has_user_actions=bool(user_actions),
             )
         )
+        completed += 1
+        progress.advance(completed)
 
+    progress.done()
     return summaries
 
 

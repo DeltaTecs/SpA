@@ -41,18 +41,26 @@ Decision rules:
 1. Prefer conversation-local evidence over global packet order.
 2. Use existing events when the packet clearly belongs to one.
 3. Use a new event only when the packet does not fit an existing event.
-4. A new_event value should be either a candidate_id from the candidate list or
-   a concise event description. Do not use generic labels like "HTTP request".
+4. A new_event value should be one of the allowed new_event values from the
+   assignment-target section when one fits. Otherwise use a concise event
+   description. Do not use generic labels like "HTTP request".
 5. Treat user actions as non-exhaustive hints. Do not assign a packet to the
    nearest user action unless conversation, payload, protocol, or timing
    evidence supports that relationship.
 6. Preserve events that are not user-action-driven, such as background sync,
    telemetry, polling, keepalives, updates, server pushes, retries, or
    application startup/shutdown traffic.
-7. Always return exactly one JSON object and no markdown:
+7. This is packet assignment, not event discovery or candidate generation. The
+   allowed new_event values are selectable targets, not examples to continue.
+   Do not return candidates, candidate lists, arrays, nested "decision"
+   objects, summaries, analysis plans, or markdown.
+8. Always return exactly one top-level JSON object with exactly these keys:
+   packet_id, event_id, new_event, confidence, rationale.
    {{"packet_id": 123, "event_id": 45, "new_event": null, "confidence": 0.82, "rationale": "..."}}
    or
    {{"packet_id": 123, "event_id": null, "new_event": "candidate_2", "confidence": 0.76, "rationale": "..."}}
+9. The packet_id value must be the current packet_id. Exactly one of event_id
+   or new_event must be non-null.
 """
 
 

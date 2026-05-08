@@ -10,12 +10,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _trace_mcp_calls() -> bool:
+    """Return true only when per-call MCP debug logging is explicitly enabled."""
+    return os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
 
 
 class MCPClient:
@@ -100,7 +106,8 @@ class MCPClient:
         if not self._session_id:
             raise RuntimeError("MCP client not connected")
 
-        logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+        if _trace_mcp_calls():
+            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
 
         headers = {
             "Content-Type": "application/json",
