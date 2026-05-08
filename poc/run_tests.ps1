@@ -6,3 +6,6 @@ docker exec -e DB_HOST=postgres pcap-processor python3 -m unittest parsing/test/
 
 Write-Host "Running test_post_processing..."
 docker exec -e DB_HOST=postgres pcap-processor python3 -m unittest parsing/test/test_post_processing.py
+
+Write-Host "Running test_mcp_packet_db_server..."
+docker compose run --rm --build mcp-packet-db python -m unittest discover -s /app/test
