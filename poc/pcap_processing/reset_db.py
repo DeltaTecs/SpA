@@ -61,6 +61,7 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
 
     except Exception as e:
         print(f"An error occurred: {e}")
+        raise
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Reset the database to init_db.sql state.")

@@ -37,6 +37,8 @@ services:
   pcap-processor:
     build: ./pcap_processing
     container_name: ${PCAP_PROCESSOR_CONTAINER_NAME}
+    env_file:
+      - ./.env
     volumes:
       - ./pcap_processing/parsing:/app/parsing
       - ./pcap_processing/util:/app/util

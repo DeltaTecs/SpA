@@ -87,7 +87,7 @@ def _configure_db_env() -> None:
     if os.environ.get("DB_DSN"):
         return
 
-    os.environ.setdefault("DB_HOST", "localhost")
+    os.environ.setdefault("DB_HOST", "postgres")
     os.environ.setdefault("DB_PORT", "5432")
     os.environ.setdefault("DB_NAME", "main")
     os.environ.setdefault("DB_USER", "appuser")
