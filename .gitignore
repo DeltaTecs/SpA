@@ -58,7 +58,7 @@ Thumbs.db
 *.dump
 
 # temporary grouping files
-poc/grouping/data/*
+poc/grouping/data
 
 # Local env files (keep real config in samples)
 .env
