@@ -74,14 +74,19 @@ def main():
     )
     parser.add_argument(
         "--provider",
-        choices=["ollama", "gemini", "openai"],
+        choices=["ollama", "gemini", "openai", "deepseek"],
         default="ollama",
         help="LLM provider to use (default: ollama)",
     )
     parser.add_argument(
         "--api-key",
         default=None,
-        help="API key for the chosen provider (required for gemini/openai)",
+        help="API key for the chosen provider (required for gemini/openai/deepseek)",
+    )
+    parser.add_argument(
+        "--api-base-url",
+        default=None,
+        help="Override API base URL for OpenAI-compatible providers",
     )
     parser.add_argument(
         "--model",
@@ -128,6 +133,7 @@ def main():
         defaults = {
             "gemini": "gemini-2.0-flash",
             "openai": "gpt-4o-mini",
+            "deepseek": "deepseek-v4-flash",
             "ollama": "qwen3:8b",
         }
         args.model = defaults.get(args.provider, "qwen3:8b")
@@ -142,6 +148,7 @@ def main():
         ollama_host=args.ollama_host,
         provider=args.provider,
         api_key=args.api_key,
+        api_base_url=args.api_base_url,
     )
 
     try:

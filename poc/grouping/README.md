@@ -1,6 +1,6 @@
 # Packet Grouping / Analysis Module
 
-This module analyzes network packets using a local LLM (via Ollama) and groups them into application-specific events.
+This module analyzes network packets using a local LLM (via Ollama) or a hosted LLM API and groups them into application-specific events.
 
 ## Overview
 
@@ -39,34 +39,42 @@ This can be changed via the `--model` argument or environment variable.
 
 ```bash
 # Bash/Linux/WSL
-./run_analysis.sh <recording_id> [model_name]
+./run_grouping.sh <recording_id> [model_name]
 
 # PowerShell/Windows
-.\run_analysis.ps1 -RecordingId <recording_id> [-Model <model_name>]
+.\run_grouping.ps1 -RecordingId <recording_id> [-Model <model_name>]
 ```
 
 ### Examples:
 
 ```bash
 # Analyze recording 1 with default model
-./run_analysis.sh 1
+./run_grouping.sh 1
 
-# Analyze recording 2 with a specific model
-./run_analysis.sh 2 qwen3:8b
+# Analyze recording 2 with a specific Ollama model
+./run_grouping.sh 2 qwen3:8b
+
+# Analyze recording 1 with DeepSeek API
+./run_grouping.sh 1 --provider deepseek --api-key YOUR_DEEPSEEK_API_KEY
+
+# PowerShell / Windows
+.\run_grouping.ps1 -RecordingId 1 -Provider deepseek -ApiKey YOUR_DEEPSEEK_API_KEY
 ```
+
+For DeepSeek, the default hosted model is `deepseek-v4-flash` and the default
+base URL is `https://api.deepseek.com`. You can override the model with
+`deepseek-v4-pro` as the positional model argument, or set `DEEPSEEK_API_KEY`
+in `poc/.env` instead of passing `--api-key` / `-ApiKey`.
 
 ### Direct Python execution (inside container):
 
 ```bash
 python3 /app/src/packet_analyzer.py \
     --recording-id 1 \
-    --db-host postgres \
-    --db-port 5432 \
-    --db-name main \
-    --db-user appuser \
-    --db-password appuser_password \
-    --model qwen3:8b \
-    --ollama-host http://localhost:11434 \
+    --mcp-url http://mcp-packet-db:8765 \
+    --provider deepseek \
+    --api-key YOUR_DEEPSEEK_API_KEY \
+    --model deepseek-v4-flash \
     -v
 ```
 
@@ -75,23 +83,24 @@ python3 /app/src/packet_analyzer.py \
 | Argument | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `-r, --recording-id` | Yes | - | Recording ID to analyze |
-| `--db-host` | No | localhost | Database host |
-| `--db-port` | No | 5432 | Database port |
-| `--db-name` | No | main | Database name |
-| `--db-user` | No | appuser | Database user |
-| `--db-password` | No | appuser_password | Database password |
-| `--model` | No | qwen3:8b | Ollama model name |
+| `--mcp-url` | No | http://localhost:8765 | MCP packet-db server URL |
+| `--provider` | No | ollama | LLM provider: ollama, gemini, openai, or deepseek |
+| `--api-key` | No | - | API key for gemini/openai/deepseek |
+| `--api-base-url` | No | provider default | Override API base URL for OpenAI-compatible providers |
+| `--model` | No | provider default | Model name |
 | `--ollama-host` | No | http://localhost:11434 | Ollama server URL |
 | `-v, --verbose` | No | - | Enable debug logging |
 
 ## Available Models
 
-You can use any Ollama-compatible model. Some suggestions:
+You can use any Ollama-compatible model for local inference, or a supported hosted provider model. Some suggestions:
 
 - `qwen3:8b` (default, ~5.5GB) - Strong reasoning with built-in thinking mode
 - `deepseek-r1:8b` (~5.5GB) - Dedicated reasoning model, distilled from DeepSeek R1
 - `qwen3:4b` (~2.8GB) - Lighter Qwen3 variant, faster but less accurate
 - `llama3.1:8b-instruct-q4_K_M` (~4.7GB) - Good general-purpose alternative
+- `deepseek-v4-flash` - DeepSeek API default
+- `deepseek-v4-pro` - DeepSeek API stronger hosted model
 
 ## Output
 

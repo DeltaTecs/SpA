@@ -6,11 +6,14 @@ param(
     [string]$Model = "",
 
     [Parameter(Mandatory=$false)]
-    [ValidateSet("ollama", "gemini", "openai")]
+    [ValidateSet("ollama", "gemini", "openai", "deepseek")]
     [string]$Provider = "",
 
     [Parameter(Mandatory=$false)]
     [string]$ApiKey = "",
+
+    [Parameter(Mandatory=$false)]
+    [string]$ApiBaseUrl = "",
 
     [Parameter(Mandatory=$false)]
     [string]$AppDetails = "",
@@ -42,6 +45,21 @@ function Read-DotEnv([string]$path) {
 
 # Load environment
 $envMap = Read-DotEnv (Join-Path $PSScriptRoot '.env')
+if (-not $Provider -and $envMap.ContainsKey("PROVIDER")) {
+    $Provider = $envMap["PROVIDER"]
+}
+if (-not $ApiKey -and $Provider -eq "deepseek" -and $envMap.ContainsKey("DEEPSEEK_API_KEY")) {
+    $ApiKey = $envMap["DEEPSEEK_API_KEY"]
+}
+if (-not $ApiKey -and $envMap.ContainsKey("API_KEY")) {
+    $ApiKey = $envMap["API_KEY"]
+}
+if (-not $ApiBaseUrl -and $Provider -eq "deepseek" -and $envMap.ContainsKey("DEEPSEEK_API_BASE_URL")) {
+    $ApiBaseUrl = $envMap["DEEPSEEK_API_BASE_URL"]
+}
+if (-not $ApiBaseUrl -and $envMap.ContainsKey("API_BASE_URL")) {
+    $ApiBaseUrl = $envMap["API_BASE_URL"]
+}
 
 # Container name
 $GroupingContainer = "grouping"
@@ -72,6 +90,10 @@ if ($Provider) {
 if ($ApiKey) {
     $EnvFlags += @("-e", "API_KEY=$ApiKey")
     Write-Host "  API key: (set)"
+}
+if ($ApiBaseUrl) {
+    $EnvFlags += @("-e", "API_BASE_URL=$ApiBaseUrl")
+    Write-Host "  API base URL: $ApiBaseUrl"
 }
 
 # Build command

@@ -45,11 +45,13 @@ class PacketAnalyzer:
         ollama_host: str = "http://localhost:11434",
         provider: str = "ollama",
         api_key: Optional[str] = None,
+        api_base_url: Optional[str] = None,
     ):
         self.model_name = model
         self.ollama_host = ollama_host
         self.provider = provider
         self.api_key = api_key
+        self.api_base_url = api_base_url
         self.llm = None
 
     def initialize(self):
@@ -68,20 +70,28 @@ class PacketAnalyzer:
                 google_api_key=self.api_key,
                 temperature=0.1,
             )
-        elif self.provider == "openai":
+        elif self.provider in ("openai", "deepseek"):
             if ChatOpenAI is None:
                 raise ImportError(
-                    "langchain-openai is required for OpenAI. "
+                    "langchain-openai is required for OpenAI-compatible providers. "
                     "Install with: pip install langchain-openai"
                 )
             if not self.api_key:
-                raise ValueError("--api-key is required when using --provider openai")
-            logger.info("Initializing OpenAI with model: %s", self.model_name)
-            self.llm = ChatOpenAI(
-                model=self.model_name,
-                api_key=self.api_key,
-                temperature=0.1,
-            )
+                raise ValueError(f"--api-key is required when using --provider {self.provider}")
+            provider_label = "DeepSeek" if self.provider == "deepseek" else "OpenAI"
+            base_url = self.api_base_url
+            if self.provider == "deepseek" and not base_url:
+                base_url = "https://api.deepseek.com"
+
+            logger.info("Initializing %s with model: %s", provider_label, self.model_name)
+            kwargs = {
+                "model": self.model_name,
+                "api_key": self.api_key,
+                "temperature": 0.1,
+            }
+            if base_url:
+                kwargs["base_url"] = base_url
+            self.llm = ChatOpenAI(**kwargs)
         else:
             logger.info("Initializing ChatOllama with model: %s", self.model_name)
             self.llm = ChatOllama(
