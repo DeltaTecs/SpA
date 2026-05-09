@@ -64,7 +64,7 @@ if (-not $ApiBaseUrl -and $envMap.ContainsKey("API_BASE_URL")) {
 # Container name
 $GroupingContainer = "grouping"
 
-Write-Host "Running packet purpose analysis for recording $RecordingId..."
+Write-Host "Running packet event assignment for recording $RecordingId..."
 
 # Ensure data directory exists in container
 docker exec $GroupingContainer mkdir -p $ContainerDataDir

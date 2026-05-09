@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_grouping_internal.sh
-# Internal script to run packet purpose analysis inside the existing container.
+# Internal script to run packet event assignment inside the existing container.
 
 set -e
 
@@ -105,7 +105,7 @@ if [ "$PROVIDER" = "ollama" ]; then
 fi
 
 # Run the analysis
-echo "Starting packet purpose analysis..."
+echo "Starting packet event assignment..."
 CMD_ARGS=(
     --recording-id "$RECORDING_ID"
     --mcp-url "$MCP_URL"

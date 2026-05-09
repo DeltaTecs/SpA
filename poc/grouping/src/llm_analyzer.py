@@ -1,4 +1,4 @@
-"""Small LangChain adapter for per-packet purpose analysis."""
+"""Small LLM adapter for packet-to-event assignment."""
 
 from __future__ import annotations
 
@@ -31,14 +31,14 @@ try:
 except ImportError:
     OpenAI = None
 
-from prompts import build_packet_purpose_system_prompt
+from prompts import build_event_assignment_system_prompt
 
 
 logger = logging.getLogger(__name__)
 
 
 class PacketAnalyzer:
-    """Initialize a chat model and run a bounded read-only tool loop."""
+    """Initialize a chat model and run a bounded MCP tool loop."""
 
     def __init__(
         self,
@@ -116,7 +116,7 @@ class PacketAnalyzer:
             temperature=0.1,
         )
 
-    def analyze_packet_purpose(
+    def assign_packet_to_event(
         self,
         *,
         packet_id: int,
@@ -128,12 +128,12 @@ class PacketAnalyzer:
         has_user_actions: bool = False,
         max_rounds: int = 6,
     ) -> str:
-        """Return a concise purpose note for one packet."""
+        """Let the model assign the current packet to a database event."""
 
         if self.llm is None and self.deepseek_client is None:
             raise RuntimeError("LLM is not initialized")
 
-        system_prompt = build_packet_purpose_system_prompt(
+        system_prompt = build_event_assignment_system_prompt(
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
         )
@@ -156,7 +156,7 @@ class PacketAnalyzer:
             )
             return (
                 result
-                or "Purpose: unknown\nEvidence: no model response\nUncertainty: high"
+                or "Action: none\nEvent: unknown\nConfidence: 0\nReason: no model response"
             )
 
         messages = [
@@ -172,7 +172,10 @@ class PacketAnalyzer:
             packet_id=packet_id,
             max_rounds=max_rounds,
         )
-        return result or "Purpose: unknown\nEvidence: no model response\nUncertainty: high"
+        return (
+            result
+            or "Action: none\nEvent: unknown\nConfidence: 0\nReason: no model response"
+        )
 
     def analyze_packet(
         self,
@@ -183,7 +186,7 @@ class PacketAnalyzer:
     ) -> str:
         """Compatibility wrapper for old callers."""
 
-        return self.analyze_packet_purpose(
+        return self.assign_packet_to_event(
             packet_id=packet_id,
             packet_info_text=packet_info_text,
             tools=tools,
@@ -203,10 +206,21 @@ class PacketAnalyzer:
         packet_id: int,
         max_rounds: int,
     ) -> Optional[str]:
-        """Let the model call read-only tools, then return the final text."""
+        """Let the model call MCP tools, then return the final text."""
 
-        for _ in range(max_rounds):
+        for round_index in range(max_rounds):
             try:
+                if round_index == max_rounds - 2:
+                    messages.append(
+                        HumanMessage(
+                            content=(
+                                "You are near the tool-call limit. Do not call more "
+                                "context-only tools. Call either "
+                                "assign_current_packet_to_event or "
+                                "create_event_for_current_packet now."
+                            )
+                        )
+                    )
                 response = llm_with_tools.invoke(messages)
             except Exception as exc:
                 logger.error("LLM invocation failed for packet %d: %s", packet_id, exc)
@@ -247,8 +261,20 @@ class PacketAnalyzer:
         """Run DeepSeek thinking mode while preserving reasoning_content."""
 
         openai_tools = [_to_openai_tool(tool) for tool in tools]
-        for _ in range(max_rounds):
+        for round_index in range(max_rounds):
             try:
+                if round_index == max_rounds - 2:
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You are near the tool-call limit. Do not call more "
+                                "context-only tools. Call either "
+                                "assign_current_packet_to_event or "
+                                "create_event_for_current_packet now."
+                            ),
+                        }
+                    )
                 kwargs: Dict[str, Any] = {
                     "model": self.model_name,
                     "messages": messages,
@@ -306,7 +332,7 @@ def _packet_prompt(
     parts: List[str] = [f"Recording ID: {recording_id}"]
     if user_context:
         parts.append(user_context)
-    parts.append(f"Analyze packet_id={packet_id}.\n\n{packet_info_text}")
+    parts.append(f"Assign packet_id={packet_id} to an event.\n\n{packet_info_text}")
     return "\n\n".join(parts)
 
 

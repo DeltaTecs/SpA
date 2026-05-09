@@ -146,11 +146,58 @@ class MCPClient:
         return str(result)
 
     # ------------------------------------------------------------------
-    # read-only convenience wrappers
+    # convenience wrappers
     # ------------------------------------------------------------------
 
     def list_packet_ids(self, recording_id: int) -> str:
         return self.call_tool("list_packet_ids", {"recording_id": recording_id})
+
+    def events_for_recording(self, recording_id: int, packet_id: int = 0) -> str:
+        return self.call_tool(
+            "events_for_recording",
+            {"recording_id": recording_id, "packet_id": packet_id},
+        )
+
+    def create_event_and_assign_packet(
+        self,
+        packet_id: int,
+        description: str,
+        reason: str = "",
+        confidence: Optional[float] = None,
+    ) -> str:
+        """Create a new event and attach the packet atomically."""
+        return self.call_tool(
+            "create_event_and_assign_packet",
+            {
+                "packet_id": packet_id,
+                "description": description,
+                "reason": reason,
+                "confidence": confidence,
+            },
+        )
+
+    def assign_packet_to_event(
+        self,
+        packet_id: int,
+        event_id: int,
+        reason: str = "",
+        confidence: Optional[float] = None,
+    ) -> str:
+        return self.call_tool(
+            "assign_packet_to_event",
+            {
+                "packet_id": packet_id,
+                "event_id": event_id,
+                "reason": reason,
+                "confidence": confidence,
+            },
+        )
+
+    def update_event_description(self, event_id: int, description: str) -> str:
+        return self.call_tool(
+            "update_event_description",
+            {"event_id": event_id, "description": description},
+        )
 
     def packet_info(self, packet_id: int) -> str:
         return self.call_tool("packet_info", {"packet_id": packet_id})

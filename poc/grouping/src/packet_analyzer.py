@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Command-line entrypoint for packet purpose analysis.
+"""Command-line entrypoint for packet-to-event assignment.
 
 The executable name is preserved for compatibility with the existing container
 and wrapper scripts. The recording loop lives in analysis_runner.
@@ -58,7 +58,7 @@ def main():
     configure_logging()
 
     parser = argparse.ArgumentParser(
-        description="Analyze every packet in a recording using LangChain + MCP"
+        description="Assign payload-bearing packets to events using LLM + MCP"
     )
     parser.add_argument(
         "-r",

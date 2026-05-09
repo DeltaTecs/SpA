@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_grouping.sh
-# Run packet purpose analysis in the existing analysis container.
+# Run packet event assignment in the existing analysis container.
 
 # Check for required arguments
 if [ $# -lt 1 ]; then
@@ -90,7 +90,7 @@ if [ "$PROVIDER" = "deepseek" ] && [ -z "$API_BASE_URL" ] && [ -n "$DEEPSEEK_API
     API_BASE_URL="$DEEPSEEK_API_BASE_URL"
 fi
 
-echo "Running packet purpose analysis for recording $RECORDING_ID..."
+echo "Running packet event assignment for recording $RECORDING_ID..."
 
 # Container-internal directory for context files
 CONTAINER_DATA_DIR="/app/data"
