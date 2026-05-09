@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_grouping_internal.sh
-# Internal script to run the packet grouping inside the grouping container
+# Internal script to run packet purpose analysis inside the existing container.
 
 set -e
 
@@ -46,7 +46,7 @@ if [ -z "$MODEL" ]; then
 fi
 
 echo "=========================================="
-echo "Packet Grouping Configuration"
+echo "Packet Analysis Configuration"
 echo "=========================================="
 echo "Recording ID: $RECORDING_ID"
 echo "MCP Server: $MCP_URL"
@@ -105,7 +105,7 @@ if [ "$PROVIDER" = "ollama" ]; then
 fi
 
 # Run the analysis
-echo "Starting packet grouping..."
+echo "Starting packet purpose analysis..."
 CMD_ARGS=(
     --recording-id "$RECORDING_ID"
     --mcp-url "$MCP_URL"
@@ -137,4 +137,4 @@ fi
 
 python3 /app/src/packet_analyzer.py "${CMD_ARGS[@]}"
 
-echo "Grouping complete!"
+echo "Packet analysis complete!"

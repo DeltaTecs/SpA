@@ -146,27 +146,11 @@ class MCPClient:
         return str(result)
 
     # ------------------------------------------------------------------
-    # convenience wrappers (used by orchestrator, NOT by the LLM)
+    # read-only convenience wrappers
     # ------------------------------------------------------------------
 
     def list_packet_ids(self, recording_id: int) -> str:
         return self.call_tool("list_packet_ids", {"recording_id": recording_id})
-
-    def events_for_recording(self, recording_id: int) -> str:
-        return self.call_tool("events_for_recording", {"recording_id": recording_id})
-
-    def create_event(self, description: str) -> str:
-        return self.call_tool("create_event", {"description": description})
-
-    def create_event_and_assign_packet(self, packet_id: int, description: str) -> str:
-        """Create a new event and attach the packet in one MCP/DB operation."""
-        return self.call_tool(
-            "create_event_and_assign_packet",
-            {"packet_id": packet_id, "description": description},
-        )
-
-    def assign_packet_to_event(self, packet_id: int, event_id: int) -> str:
-        return self.call_tool("assign_packet_to_event", {"packet_id": packet_id, "event_id": event_id})
 
     def packet_info(self, packet_id: int) -> str:
         return self.call_tool("packet_info", {"packet_id": packet_id})

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Command-line entrypoint for packet grouping.
+"""Command-line entrypoint for packet purpose analysis.
 
-The CLI lives here to preserve the original executable name. The actual
-recording loop stays in analysis_runner so it can be reused without argparse.
+The executable name is preserved for compatibility with the existing container
+and wrapper scripts. The recording loop lives in analysis_runner.
 """
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ def main():
     configure_logging()
 
     parser = argparse.ArgumentParser(
-        description="Analyze network packets and group them into application events using LLM + MCP"
+        description="Analyze every packet in a recording using LangChain + MCP"
     )
     parser.add_argument(
         "-r",
@@ -101,7 +101,7 @@ def main():
     parser.add_argument(
         "--app-details",
         default=None,
-        help="Path to app_details.txt describing the application and its behaviour",
+        help="Path to app_details.txt describing the application and its behavior",
     )
     parser.add_argument(
         "--user-intend",

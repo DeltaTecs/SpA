@@ -64,7 +64,7 @@ if (-not $ApiBaseUrl -and $envMap.ContainsKey("API_BASE_URL")) {
 # Container name
 $GroupingContainer = "grouping"
 
-Write-Host "Running packet grouping for recording $RecordingId..."
+Write-Host "Running packet purpose analysis for recording $RecordingId..."
 
 # Ensure data directory exists in container
 docker exec $GroupingContainer mkdir -p $ContainerDataDir
@@ -106,8 +106,8 @@ if ($Model) {
 docker exec -it @EnvFlags $GroupingContainer bash -c $Cmd
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Grouping failed."
+    Write-Error "Packet analysis failed."
     exit 1
 }
 
-Write-Host "Packet grouping completed successfully!"
+Write-Host "Packet analysis completed successfully!"
