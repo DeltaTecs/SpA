@@ -2,6 +2,22 @@ import psycopg2
 import os
 import argparse
 
+def load_dotenv(path):
+    if not os.path.exists(path):
+        return
+
+    with open(path, "r") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key:
+                os.environ.setdefault(key, value)
+
 def reset_db(host, port, dbname, user, password, init_sql_path):
     try:
         conn = psycopg2.connect(
@@ -64,12 +80,15 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
         raise
 
 if __name__ == "__main__":
+    load_dotenv("/app/.env")
+    load_dotenv(".env")
+
     parser = argparse.ArgumentParser(description="Reset the database to init_db.sql state.")
-    parser.add_argument("--host", default="127.0.0.1", help="Database host")
-    parser.add_argument("--port", default="5432", help="Database port")
-    parser.add_argument("--dbname", default="main", help="Database name")
-    parser.add_argument("--user", default="appuser", help="Database user")
-    parser.add_argument("--password", default="appuser_password", help="Database password")
+    parser.add_argument("--host", default=os.getenv("DB_HOST", "127.0.0.1"), help="Database host")
+    parser.add_argument("--port", default=os.getenv("DB_PORT", "5432"), help="Database port")
+    parser.add_argument("--dbname", default=os.getenv("DB_NAME", "main"), help="Database name")
+    parser.add_argument("--user", default=os.getenv("DB_USER", "appuser"), help="Database user")
+    parser.add_argument("--password", default=os.getenv("DB_PASSWORD", "appuser"), help="Database password")
     parser.add_argument("--init-sql", default="db/init_db.sql", help="Path to init_db.sql")
 
     args = parser.parse_args()

@@ -1,2 +1,2 @@
 Write-Host "Resetting database..."
-docker exec pcap-processor python3 reset_db.py --host postgres
+docker exec pcap-processor python3 reset_db.py

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional
+from typing import List
 
 try:
     from langchain_core.tools import tool as langchain_tool
@@ -14,24 +14,12 @@ except ImportError as e:
 from mcp_client import MCPClient
 
 
-class ToolTracker:
-    """Tracks whether the LLM persisted an event assignment."""
-
-    def __init__(self):
-        self.assigned = False
-        self.event_id: Optional[int] = None
-        self.created_description: Optional[str] = None
-
-    def reset(self):
-        self.assigned = False
-        self.event_id = None
-        self.created_description = None
-
-
 def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[int]):
-    """Build LangChain tool definitions that delegate to the MCP server."""
+    """Build read-only LangChain tools that delegate to the MCP server."""
 
-    tracker = ToolTracker()
+    # Capture the recording ID so tool calls cannot inspect arbitrary recordings
+    # through the time-window helper.
+    current_recording_id = recording_id
 
     @langchain_tool
     def get_packet_info(packet_id: int) -> str:
@@ -64,6 +52,8 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         pkt_info = mcp.packet_info(packet_id)
         match = re.search(r"^conversation_id:\s*(\d+)\s*$", pkt_info, re.MULTILINE)
         if match:
+            # Conversation-local context is the preferred path because global
+            # capture order can interleave unrelated traffic.
             return mcp.conversation_packets(
                 int(match.group(1)),
                 packet_id=packet_id,
@@ -76,6 +66,7 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
         except ValueError:
             return f"packet_id {packet_id} not in current recording"
 
+        # Packets without a conversation still get a bounded global fallback.
         start = max(0, idx - window)
         end = min(len(packet_ids), idx + window + 1)
         parts: list[str] = []
@@ -106,17 +97,26 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
 
     @langchain_tool
     def get_packets_in_time_window(
+        recording_id: int,
         start_ms: int,
         end_ms: int,
         max_packets: int = 40,
     ) -> str:
         """Return rich packet facts inside a recording-relative time window.
 
-        Use this to inspect traffic around a user action. Epoch millisecond
-        timestamps are also accepted by the MCP server.
+        Use this to inspect traffic around a user action. recording_id must
+        match the current recording. Epoch millisecond timestamps are also
+        accepted by the MCP server.
         """
+        if recording_id != current_recording_id:
+            # Keep the LLM from pulling context from a different recording by
+            # accident or prompt drift.
+            return (
+                f"recording_id {recording_id} is outside this analysis; "
+                f"use recording_id {current_recording_id}"
+            )
         return mcp.packets_in_time_window(
-            recording_id,
+            current_recording_id,
             start_ms=start_ms,
             end_ms=end_ms,
             max_packets=max_packets,
@@ -126,35 +126,19 @@ def build_langchain_tools(mcp: MCPClient, recording_id: int, packet_ids: List[in
     def get_events(recording_id_unused: int = 0) -> str:
         """Return all events that currently exist for this recording.
 
-        Use this before deciding whether to create a new event or assign the
-        packet to an existing one.
+        Use this before recommending an existing event_id or a new_event in
+        the structured decision.
         """
         return mcp.events_for_recording(recording_id)
 
-    @langchain_tool
-    def create_new_event(description: str) -> str:
-        """Create a brand-new event and return the new event_id."""
-        result = mcp.create_event(description)
-        tracker.created_description = description
-        return result
-
-    @langchain_tool
-    def assign_to_event(packet_id: int, event_id: int) -> str:
-        """Assign a packet to an existing event."""
-        result = mcp.assign_packet_to_event(packet_id, event_id)
-        if "ok" in result.lower():
-            tracker.assigned = True
-            tracker.event_id = event_id
-        return result
-
     tools = [
+        # Deliberately excludes create/assign tools; only the orchestrator
+        # persists validated decisions.
         get_packet_info,
         get_full_payload,
         get_surrounding_packets,
         get_conversation_packets,
         get_packets_in_time_window,
         get_events,
-        create_new_event,
-        assign_to_event,
     ]
-    return tools, tracker
+    return tools

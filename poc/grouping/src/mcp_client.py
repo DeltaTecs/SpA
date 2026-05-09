@@ -10,12 +10,18 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any, Dict, Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+def _trace_mcp_calls() -> bool:
+    """Return true only when per-call MCP debug logging is explicitly enabled."""
+    return os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
 
 
 class MCPClient:
@@ -100,7 +106,8 @@ class MCPClient:
         if not self._session_id:
             raise RuntimeError("MCP client not connected")
 
-        logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+        if _trace_mcp_calls():
+            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
 
         headers = {
             "Content-Type": "application/json",
@@ -150,6 +157,13 @@ class MCPClient:
 
     def create_event(self, description: str) -> str:
         return self.call_tool("create_event", {"description": description})
+
+    def create_event_and_assign_packet(self, packet_id: int, description: str) -> str:
+        """Create a new event and attach the packet in one MCP/DB operation."""
+        return self.call_tool(
+            "create_event_and_assign_packet",
+            {"packet_id": packet_id, "description": description},
+        )
 
     def assign_packet_to_event(self, packet_id: int, event_id: int) -> str:
         return self.call_tool("assign_packet_to_event", {"packet_id": packet_id, "event_id": event_id})

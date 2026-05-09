@@ -131,6 +131,16 @@ def format_packet_info_text(
     lines.append(f"app protocol: {app_protocol_disp}")
 
     if http_headers:
+        # Stream metadata is sparse but useful when available for optional
+        # HTTP stream summaries in the grouping phase.
+        for header in http_headers:
+            stream_id = header.get("stream_id")
+            version = header.get("version")
+            if stream_id is not None:
+                lines.append(f"http stream_id: {stream_id}")
+            if version is not None:
+                lines.append(f"http version: {version}")
+
         # Keep raw HTTP header text intact; the analyst prompt relies on it.
         rendered_headers: List[str] = []
         for header in http_headers:

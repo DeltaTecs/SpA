@@ -102,6 +102,7 @@ from packet_db_server.server import (  # noqa: E402
     assign_packet_to_event,
     conversation_packets,
     create_event,
+    create_event_and_assign_packet,
     events_for_recording,
     list_packet_ids,
     packet_info,
@@ -653,6 +654,23 @@ class TestPacketDbServerTools(unittest.TestCase):
         self.assertIn(f"start:{expected_start}", text)
         self.assertIn(f"end:{expected_end}", text)
 
+    def test_event_can_be_created_and_assigned_atomically(self) -> None:
+        packet = self.packets["request"]
+        description = f"mcp-test-atomic-event-{self.token}-{self.rng.getrandbits(32):08x}"
+
+        create_result = create_event_and_assign_packet(packet["packet_id"], description)
+        match = re.fullmatch(r"event_id:(\d+)", create_result)
+        self.assertIsNotNone(match, create_result)
+        event_id = int(match.group(1))
+        self.event_ids.append(event_id)
+
+        text = events_for_recording(self.recording_id)
+
+        self.assertIn(f"event_id:{event_id}", text)
+        self.assertIn(f"description:{description}", text)
+        self.assertIn(f"start:{packet['timestamp']}", text)
+        self.assertIn(f"end:{packet['timestamp']}", text)
+
     def test_missing_packet_returns_not_found_text(self) -> None:
         with self.conn.cursor() as cursor:
             cursor.execute("SELECT COALESCE(MAX(packet_id), 0) + 1000000000 FROM packet")
@@ -669,6 +687,10 @@ class TestPacketDbServerTools(unittest.TestCase):
         self.assertEqual(
             f"packet_id {missing_packet_id} not found",
             assign_packet_to_event(missing_packet_id, 1),
+        )
+        self.assertEqual(
+            f"packet_id {missing_packet_id} not found",
+            create_event_and_assign_packet(missing_packet_id, f"missing-{self.token}"),
         )
 
 

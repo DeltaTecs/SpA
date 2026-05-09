@@ -77,11 +77,12 @@ case "$ACTION" in
 
     docker cp "$FILE" "${CONTAINER_NAME}:${TMP}"
 
+    exec_in_postgres "psql -U '${DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+
     if [[ "${EXT,,}" == "sql" ]]; then
-      exec_in_postgres "psql -U '${DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c \"DROP SCHEMA public CASCADE; CREATE SCHEMA public;\""
       exec_in_postgres "psql -U '${DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -f '${TMP}'"
     else
-      exec_in_postgres "pg_restore -U '${DB_USER}' -d '${DB_NAME}' --clean --if-exists --no-owner --no-privileges --exit-on-error '${TMP}'"
+      exec_in_postgres "pg_restore -U '${DB_USER}' -d '${DB_NAME}' --no-owner --no-privileges --exit-on-error '${TMP}'"
     fi
 
     exec_in_postgres "rm -f '${TMP}'"

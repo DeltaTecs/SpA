@@ -18,6 +18,7 @@ from .config import DbConfig
 from .db import retry_connect_db
 from .event_queries import (
     assign_packet_to_event_record,
+    create_event_and_assign_packet_record,
     create_event_record,
     events_for_recording_text,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "assign_packet_to_event",
     "conversation_packets",
     "create_event",
+    "create_event_and_assign_packet",
     "events_for_recording",
     "hexdump",
     "list_packet_ids",
@@ -142,6 +144,15 @@ def create_event(description: str) -> str:
     with retry_connect_db() as conn:
         with conn.cursor() as cursor:
             return create_event_record(cursor, description)
+
+
+@mcp.tool()
+def create_event_and_assign_packet(packet_id: int, description: str) -> str:
+    """Atomically create an event and assign one packet to it."""
+
+    with retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            return create_event_and_assign_packet_record(cursor, packet_id, description)
 
 
 @mcp.tool()

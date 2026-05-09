@@ -12,6 +12,15 @@ APP_DETAILS="${APP_DETAILS:-}"
 USER_INTEND="${USER_INTEND:-}"
 PROVIDER="${PROVIDER:-ollama}"
 API_KEY="${API_KEY:-}"
+API_BASE_URL="${API_BASE_URL:-}"
+GROUPING_VERBOSE="${GROUPING_VERBOSE:-0}"
+
+if [ "$PROVIDER" = "deepseek" ] && [ -z "$API_KEY" ] && [ -n "${DEEPSEEK_API_KEY:-}" ]; then
+    API_KEY="$DEEPSEEK_API_KEY"
+fi
+if [ "$PROVIDER" = "deepseek" ] && [ -z "$API_BASE_URL" ] && [ -n "${DEEPSEEK_API_BASE_URL:-}" ]; then
+    API_BASE_URL="$DEEPSEEK_API_BASE_URL"
+fi
 
 # Recording ID is required
 if [ -z "$1" ]; then
@@ -31,6 +40,7 @@ if [ -z "$MODEL" ]; then
     case "$PROVIDER" in
         gemini)  MODEL="gemini-2.0-flash" ;;
         openai)  MODEL="gpt-4o-mini" ;;
+        deepseek) MODEL="deepseek-v4-flash" ;;
         *)       MODEL="qwen3:8b" ;;
     esac
 fi
@@ -47,6 +57,9 @@ if [ "$PROVIDER" = "ollama" ]; then
 fi
 if [ -n "$API_KEY" ]; then
     echo "API Key: (set)"
+fi
+if [ -n "$API_BASE_URL" ]; then
+    echo "API Base URL: $API_BASE_URL"
 fi
 if [ -n "$APP_DETAILS" ]; then
     echo "App Details: $APP_DETAILS"
@@ -98,14 +111,20 @@ CMD_ARGS=(
     --mcp-url "$MCP_URL"
     --model "$MODEL"
     --provider "$PROVIDER"
-    -v
 )
+
+if [ "$GROUPING_VERBOSE" != "0" ]; then
+    CMD_ARGS+=(-v)
+fi
 
 if [ "$PROVIDER" = "ollama" ]; then
     CMD_ARGS+=(--ollama-host "$OLLAMA_HOST")
 fi
 if [ -n "$API_KEY" ]; then
     CMD_ARGS+=(--api-key "$API_KEY")
+fi
+if [ -n "$API_BASE_URL" ]; then
+    CMD_ARGS+=(--api-base-url "$API_BASE_URL")
 fi
 if [ -n "$APP_DETAILS" ]; then
     CMD_ARGS+=(--app-details "$APP_DETAILS")
