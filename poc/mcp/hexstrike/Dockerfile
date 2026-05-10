@@ -21,32 +21,60 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
     && rm -rf /var/lib/apt/lists/*
 
+RUN mkdir -p "${PIPX_BIN_DIR}"
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.14.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/httpx/cmd/httpx@v1.9.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.8.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/katana/cmd/katana@v1.6.1
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.3
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/owasp-amass/amass/v4/cmd/amass@v4.2.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/OJ/gobuster/v3@v3.8.2
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/ffuf/ffuf/v2@v2.1.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/hahwul/dalfox/v2@v2.13.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/jaeles-project/jaeles@beta-v0.17.1
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/hakluke/hakrawler@61905593d82e8bac87ff7a7cca32b2adde42bb60
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/lc/gau/v2/cmd/gau@v2.2.4
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/tomnomnom/waybackurls@v0.1.0
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/tomnomnom/anew@v0.1.1
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/tomnomnom/qsreplace@v0.0.3
+
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOBIN="${PIPX_BIN_DIR}" go install github.com/haccer/subjack@b53899ce6230767beb1c4a9f879c6ebba23a98fa
+
 RUN set -eux; \
-    mkdir -p "${PIPX_BIN_DIR}"; \
-    export GOBIN="${PIPX_BIN_DIR}"; \
-    go_tools=( \
-      "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.14.0" \
-      "github.com/projectdiscovery/httpx/cmd/httpx@v1.9.0" \
-      "github.com/projectdiscovery/nuclei/v3/cmd/nuclei@v3.8.0" \
-      "github.com/projectdiscovery/katana/cmd/katana@v1.6.1" \
-      "github.com/projectdiscovery/dnsx/cmd/dnsx@v1.2.3" \
-      "github.com/projectdiscovery/naabu/v2/cmd/naabu@v2.6.1" \
-      "github.com/owasp-amass/amass/v4/cmd/amass@v4.2.0" \
-      "github.com/OJ/gobuster/v3@v3.8.2" \
-      "github.com/ffuf/ffuf/v2@v2.1.0" \
-      "github.com/hahwul/dalfox/v2@v2.13.0" \
-      "github.com/jaeles-project/jaeles@beta-v0.17.1" \
-      "github.com/hakluke/hakrawler@61905593d82e8bac87ff7a7cca32b2adde42bb60" \
-      "github.com/lc/gau/v2/cmd/gau@v2.2.4" \
-      "github.com/tomnomnom/waybackurls@v0.1.0" \
-      "github.com/tomnomnom/anew@v0.1.1" \
-      "github.com/tomnomnom/qsreplace@v0.0.3" \
-      "github.com/haccer/subjack@b53899ce6230767beb1c4a9f879c6ebba23a98fa" \
-    ); \
-    for tool in "${go_tools[@]}"; do \
-      echo "Installing Go security tool: ${tool}"; \
-      go install "${tool}"; \
-    done; \
     tmp_dir="$(mktemp -d)"; \
     cd "${tmp_dir}"; \
     curl -fsSLO "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"; \
@@ -55,12 +83,24 @@ RUN set -eux; \
     mkdir trivy; \
     tar -xzf "trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -C trivy; \
     install -m 0755 trivy/trivy "${PIPX_BIN_DIR}/trivy"; \
+    cd /; \
+    rm -rf "${tmp_dir}"
+
+RUN set -eux; \
+    tmp_dir="$(mktemp -d)"; \
+    cd "${tmp_dir}"; \
     curl -fsSLO "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz"; \
     curl -fsSLO "https://github.com/trufflesecurity/trufflehog/releases/download/v${TRUFFLEHOG_VERSION}/trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt"; \
     grep "  trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz$" "trufflehog_${TRUFFLEHOG_VERSION}_checksums.txt" | sha256sum -c -; \
     mkdir trufflehog; \
     tar -xzf "trufflehog_${TRUFFLEHOG_VERSION}_linux_amd64.tar.gz" -C trufflehog; \
     install -m 0755 trufflehog/trufflehog "${PIPX_BIN_DIR}/trufflehog"; \
+    cd /; \
+    rm -rf "${tmp_dir}"
+
+RUN set -eux; \
+    tmp_dir="$(mktemp -d)"; \
+    cd "${tmp_dir}"; \
     curl -fsSLO "https://github.com/tenable/terrascan/releases/download/v${TERRASCAN_VERSION}/terrascan_${TERRASCAN_VERSION}_Linux_x86_64.tar.gz"; \
     curl -fsSLO "https://github.com/tenable/terrascan/releases/download/v${TERRASCAN_VERSION}/checksums.txt"; \
     grep "  terrascan_${TERRASCAN_VERSION}_Linux_x86_64.tar.gz$" checksums.txt | sha256sum -c -; \
@@ -68,8 +108,7 @@ RUN set -eux; \
     tar -xzf "terrascan_${TERRASCAN_VERSION}_Linux_x86_64.tar.gz" -C terrascan; \
     install -m 0755 terrascan/terrascan "${PIPX_BIN_DIR}/terrascan"; \
     cd /; \
-    rm -rf "${tmp_dir}"; \
-    rm -rf /root/go/pkg/mod /root/.cache/go-build
+    rm -rf "${tmp_dir}"
 
 FROM python:3.11-slim-bookworm AS builder
 
@@ -97,13 +136,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN set -eux; \
-    mkdir -p "${HEXSTRIKE_HOME}"; \
-    curl -fsSL "${HEXSTRIKE_ARCHIVE_BASE}/${HEXSTRIKE_REF}.tar.gz" \
-      | tar -xz --strip-components=1 -C "${HEXSTRIKE_HOME}"; \
-    python -m venv "${HEXSTRIKE_VENV}"; \
-    "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir --upgrade pip "setuptools<81" wheel; \
-    "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir \
+RUN python -m venv "${HEXSTRIKE_VENV}"
+
+RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir --upgrade pip "setuptools<81" wheel
+
+RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir \
       "flask>=2.3.0,<4.0.0" \
       "requests>=2.31.0,<3.0.0" \
       "psutil>=5.9.0,<6.0.0" \
@@ -116,8 +153,15 @@ RUN set -eux; \
       "mitmproxy>=9.0.0,<11.0.0"
 
 RUN set -eux; \
-    git clone --depth 1 --branch "${DIRSEARCH_REF}" "${DIRSEARCH_REPO}" /opt/dirsearch; \
-    "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir -r /opt/dirsearch/requirements.txt; \
+    mkdir -p "${HEXSTRIKE_HOME}"; \
+    curl -fsSL "${HEXSTRIKE_ARCHIVE_BASE}/${HEXSTRIKE_REF}.tar.gz" \
+      | tar -xz --strip-components=1 -C "${HEXSTRIKE_HOME}"
+
+RUN git clone --depth 1 --branch "${DIRSEARCH_REF}" "${DIRSEARCH_REPO}" /opt/dirsearch
+
+RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir -r /opt/dirsearch/requirements.txt
+
+RUN set -eux; \
     mkdir -p "${PIPX_BIN_DIR}"; \
     printf '%s\n' \
       '#!/usr/bin/env bash' \
@@ -125,35 +169,47 @@ RUN set -eux; \
       > "${PIPX_BIN_DIR}/dirsearch"; \
     chmod +x "${PIPX_BIN_DIR}/dirsearch"
 
+RUN python -m pip install --no-cache-dir pipx
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps arjun || echo "Skipped failed Python tool install: arjun"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps paramspider || echo "Skipped failed Python tool install: paramspider"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps wafw00f || echo "Skipped failed Python tool install: wafw00f"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps uro || echo "Skipped failed Python tool install: uro"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps shodan || echo "Skipped failed Python tool install: shodan"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps censys || echo "Skipped failed Python tool install: censys"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps prowler || echo "Skipped failed Python tool install: prowler"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps ScoutSuite || echo "Skipped failed Python tool install: ScoutSuite"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps checkov || echo "Skipped failed Python tool install: checkov"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps kube-hunter || echo "Skipped failed Python tool install: kube-hunter"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sslyze || echo "Skipped failed Python tool install: sslyze"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps hashid || echo "Skipped failed Python tool install: hashid"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sherlock-project || echo "Skipped failed Python tool install: sherlock-project"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps social-analyzer || echo "Skipped failed Python tool install: social-analyzer"
+
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps spiderfoot || echo "Skipped failed Python tool install: spiderfoot"
+
 RUN set -eux; \
-    python -m pip install --no-cache-dir pipx; \
-    pipx_tools=( \
-      "arjun" \
-      "paramspider" \
-      "wafw00f" \
-      "uro" \
-      "shodan" \
-      "censys" \
-      "prowler" \
-      "ScoutSuite" \
-      "checkov" \
-      "kube-hunter" \
-      "sslyze" \
-      "hashid" \
-      "sherlock-project" \
-      "social-analyzer" \
-      "spiderfoot" \
-    ); \
-    for tool in "${pipx_tools[@]}"; do \
-      echo "Installing Python security tool: ${tool}"; \
-      PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps "${tool}" || echo "Skipped failed Python tool install: ${tool}"; \
-    done; \
     find "${PIPX_HOME}" -type d -name "__pycache__" -prune -exec rm -rf {} +; \
     rm -rf /root/.cache/pip
 
 FROM python:3.11-slim-bookworm
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG PROTONVPN_RELEASE_VERSION=1.0.8
+ARG PROTONVPN_RELEASE_SHA256=0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180
 
 ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_VENV=/opt/hexstrike-venv \
@@ -168,9 +224,7 @@ ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
       bash \
       ca-certificates \
       chromium \
@@ -185,7 +239,45 @@ RUN set -eux; \
       procps \
       tini \
       unzip \
-      wget; \
+      wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    apt-get update; \
+    protonvpn_release="protonvpn-stable-release_${PROTONVPN_RELEASE_VERSION}_all.deb"; \
+    curl -fsSLo "/tmp/${protonvpn_release}" "https://repo.protonvpn.com/debian/dists/stable/main/binary-all/${protonvpn_release}"; \
+    echo "${PROTONVPN_RELEASE_SHA256}  /tmp/${protonvpn_release}" | sha256sum -c -; \
+    apt-get install -y --no-install-recommends "/tmp/${protonvpn_release}"; \
+    rm -f "/tmp/${protonvpn_release}"; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    apt-get update; \
+    systemctl_path="$(command -v systemctl || true)"; \
+    restore_systemctl() { \
+      if [[ -n "${systemctl_path}" && -x "${systemctl_path}.real" ]]; then \
+        mv -f "${systemctl_path}.real" "${systemctl_path}"; \
+      fi; \
+    }; \
+    trap restore_systemctl EXIT; \
+    if [[ -n "${systemctl_path}" ]]; then \
+      mv "${systemctl_path}" "${systemctl_path}.real"; \
+      printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${systemctl_path}"; \
+      chmod +x "${systemctl_path}"; \
+    fi; \
+    apt-get install -y --no-install-recommends \
+      dbus \
+      gnome-keyring \
+      network-manager \
+      openvpn \
+      proton-vpn-cli \
+      wireguard-tools; \
+    restore_systemctl; \
+    trap - EXIT; \
+    rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    apt-get update; \
     category_tools=( \
       nmap masscan amass fierce dnsenum theharvester responder enum4linux-ng arp-scan nbtscan \
       samba-common-bin smbmap gobuster feroxbuster dirsearch ffuf dirb nikto sqlmap wpscan \
