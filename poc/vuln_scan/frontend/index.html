@@ -27,8 +27,18 @@
 
         <div class="scan-pane">
           <div class="pane-header">
-            <h2>Phase 1</h2>
-            <button id="startButton" type="button" disabled>Start Phase 1</button>
+            <h2>Evaluation</h2>
+            <button id="startButton" type="button" disabled>Evaluate</button>
+          </div>
+          <div class="scan-config" aria-label="LLM configuration">
+            <label>
+              <span>Provider</span>
+              <select id="providerSelect" disabled></select>
+            </label>
+            <label>
+              <span>Model</span>
+              <select id="modelSelect" disabled></select>
+            </label>
           </div>
           <div id="selectedEvent" class="selected-event">Select an event.</div>
           <div id="statusLine" class="status-line"></div>

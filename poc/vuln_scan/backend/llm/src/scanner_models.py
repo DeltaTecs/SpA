@@ -53,7 +53,6 @@ class ScanSummary:
     suspected_trigger: str
     entrypoint_rationale: str
     supporting_packet_ids: List[int] = field(default_factory=list)
-    phase_two_todo: str = "Phase two is intentionally not implemented yet."
 
     @classmethod
     def from_dict(
@@ -86,10 +85,6 @@ class ScanSummary:
             supporting_packet_ids=_int_list(
                 raw.get("supporting_packet_ids") or raw.get("supporting_packets") or []
             ),
-            phase_two_todo=str(
-                raw.get("phase_two_todo")
-                or "Phase two is intentionally not implemented yet."
-            ).strip(),
         )
 
     def to_markdown(self) -> str:
@@ -119,9 +114,6 @@ class ScanSummary:
                 "",
                 "## Entrypoint Rationale",
                 self.entrypoint_rationale or "(not provided)",
-                "",
-                "## Phase 2",
-                self.phase_two_todo or "Phase two is intentionally not implemented yet.",
             ]
         )
 

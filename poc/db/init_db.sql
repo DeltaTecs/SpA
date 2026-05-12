@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS packet_event (
   PRIMARY KEY (packet_id, event_id)
 );
 
+-- One persisted phase-one pre-scan per event.
+CREATE TABLE IF NOT EXISTS "PreScan" (
+  event_id bigint PRIMARY KEY REFERENCES event(event_id) ON DELETE CASCADE,
+  recording_id bigint REFERENCES recording(recording_id) ON DELETE SET NULL,
+  most_interesting_packet_id bigint REFERENCES packet(packet_id) ON DELETE SET NULL,
+  packet_content text NOT NULL DEFAULT '',
+  event_summary text NOT NULL DEFAULT '',
+  suspected_trigger text NOT NULL DEFAULT '',
+  entrypoint_rationale text NOT NULL DEFAULT '',
+  supporting_packet_ids bigint[] NOT NULL DEFAULT ARRAY[]::bigint[]
+);
+
 -- Many-to-many between packet and header_information
 CREATE TABLE IF NOT EXISTS packet_header_information (
   packet_id bigint NOT NULL REFERENCES packet(packet_id) ON DELETE CASCADE,

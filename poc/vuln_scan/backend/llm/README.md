@@ -18,22 +18,8 @@ packets assigned to the requested event before invoking the LLM.
 
 ## Usage
 
-From the `poc` directory:
-
-```bash
-./run_scanner.sh <event_id> [model_name]
-./run_scanner.sh 7 --provider deepseek --api-key YOUR_KEY
-./run_scanner.sh 7 --app-details ./grouping/data/app_details.txt --user-intend ./grouping/data/user_intend.txt
-```
-
-PowerShell:
-
-```powershell
-.\run_scanner.ps1 -EventId 7
-.\run_scanner.ps1 -EventId 7 -Provider deepseek -ApiKey YOUR_KEY
-```
-
-Directly inside the container:
+Run scans through the web/API service, or invoke the scanner directly inside
+the `scanner-llm` container:
 
 ```bash
 python3 /app/src/scanner.py \

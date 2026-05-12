@@ -27,12 +27,27 @@ button {
   padding: 0 14px;
 }
 
+select {
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, #526071 50%) right 14px center / 6px 6px no-repeat,
+    linear-gradient(135deg, #526071 50%, transparent 50%) right 10px center / 6px 6px no-repeat,
+    #ffffff;
+  border: 1px solid #a7b0bc;
+  border-radius: 6px;
+  color: #17202a;
+  font: inherit;
+  min-height: 36px;
+  padding: 0 34px 0 10px;
+}
+
 button:hover:not(:disabled) {
   border-color: #526071;
   background: #f0f3f7;
 }
 
-button:disabled {
+button:disabled,
+select:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -95,6 +110,26 @@ h2 {
   justify-content: space-between;
   min-height: 56px;
   padding: 0 16px;
+}
+
+.scan-config {
+  border-bottom: 1px solid #e3e7ed;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(160px, 220px) minmax(220px, 1fr);
+  padding: 12px 16px;
+}
+
+.scan-config label {
+  color: #596677;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.scan-config select {
+  width: 100%;
 }
 
 #eventCount {
@@ -199,5 +234,9 @@ h2 {
 
   .event-list {
     max-height: 320px;
+  }
+
+  .scan-config {
+    grid-template-columns: 1fr;
   }
 }
