@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Vulnerability Scanner</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <h1>Vulnerability Scanner</h1>
+          <p id="configText">Loading backend configuration...</p>
+        </div>
+        <button id="refreshButton" type="button">Refresh Events</button>
+      </header>
+
+      <section class="workspace">
+        <div class="events-pane">
+          <div class="pane-header">
+            <h2>Events</h2>
+            <span id="eventCount">0</span>
+          </div>
+          <div id="eventList" class="event-list" aria-live="polite"></div>
+        </div>
+
+        <div class="scan-pane">
+          <div class="pane-header">
+            <h2>Phase 1</h2>
+            <button id="startButton" type="button" disabled>Start Phase 1</button>
+          </div>
+          <div id="selectedEvent" class="selected-event">Select an event.</div>
+          <div id="statusLine" class="status-line"></div>
+          <pre id="report" class="report" aria-live="polite"></pre>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

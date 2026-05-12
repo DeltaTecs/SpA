@@ -30,6 +30,9 @@ MCP server that provides packet metadata/payload lookup tools and event persiste
 - `events_for_recording(recording_id: int)`
   - Returns persisted events that already have packets in the recording
 
+- `events()`
+  - Returns all persisted events with packet counts and associated recording IDs
+
 - `event_packets(event_id: int)`
   - Returns event metadata plus assigned packet IDs, recording IDs, timestamps,
     packet numbers, and conversation IDs

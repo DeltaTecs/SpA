@@ -72,7 +72,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-SCANNER_CONTAINER="scanner"
+SCANNER_CONTAINER="scanner-llm"
 
 CLI_MODEL="$MODEL"
 CLI_PROVIDER="$PROVIDER"

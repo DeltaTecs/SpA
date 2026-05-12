@@ -3,6 +3,39 @@ from __future__ import annotations
 from typing import List
 
 
+def events_text(cursor) -> str:
+    """Return all persisted events with packet counts and recording IDs."""
+    cursor.execute(
+        """
+        SELECT
+            e.event_id,
+            e.description,
+            e.start_timestamp,
+            e.end_timestamp,
+            COUNT(pe.packet_id) AS packet_count,
+            ARRAY_REMOVE(ARRAY_AGG(DISTINCT p.recording_id), NULL) AS recording_ids
+        FROM event e
+        LEFT JOIN packet_event pe ON e.event_id = pe.event_id
+        LEFT JOIN packet p ON pe.packet_id = p.packet_id
+        GROUP BY e.event_id, e.description, e.start_timestamp, e.end_timestamp
+        ORDER BY e.event_id
+        """
+    )
+    rows = cursor.fetchall()
+    if not rows:
+        return "(no events yet)"
+
+    lines: List[str] = []
+    for row in rows:
+        recording_ids = ",".join(str(rid) for rid in (row["recording_ids"] or []))
+        lines.append(
+            f"event_id:{row['event_id']}  description:{row['description']}  "
+            f"start:{row['start_timestamp']}  end:{row['end_timestamp']}  "
+            f"packets:{row['packet_count']}  recording_ids:{recording_ids}"
+        )
+    return "\n".join(lines)
+
+
 def event_packets_text(cursor, event_id: int) -> str:
     """Return event metadata and packets assigned to the event."""
     cursor.execute(
@@ -82,8 +115,8 @@ def create_event_record(cursor, description: str) -> str:
     """Create an event without assigning packets."""
     cursor.execute(
         """
-        INSERT INTO event (description)
-        VALUES (%s)
+        INSERT INTO event (description, start_timestamp, end_timestamp)
+        VALUES (%s, 9223372036854775807, -9223372036854775808)
         RETURNING event_id
         """,
         (description,),

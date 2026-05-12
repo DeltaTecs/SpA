@@ -21,6 +21,7 @@ from .event_queries import (
     create_event_and_assign_packet_record,
     create_event_record,
     event_packets_text,
+    events_text,
     events_for_recording_text,
 )
 from .formatters import hexdump
@@ -40,6 +41,7 @@ __all__ = [
     "create_event",
     "create_event_and_assign_packet",
     "event_packets",
+    "events",
     "events_for_recording",
     "hexdump",
     "list_packet_ids",
@@ -137,6 +139,15 @@ def events_for_recording(recording_id: int) -> str:
     with retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             return events_for_recording_text(cursor, recording_id)
+
+
+@mcp.tool()
+def events() -> str:
+    """Return all persisted events with packet counts and recording IDs."""
+
+    with retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            return events_text(cursor)
 
 
 @mcp.tool()

@@ -1,49 +1,43 @@
 # Vulnerability Scanner
 
-Phase-one vulnerability assessment triage for authorized targets. The scanner
-loads a database event, gives an LLM read-only access to selected packet MCP
-tools, and emits a summary for later manual or automated phase-two work.
+Web and backend services for event-based vulnerability-assessment workflows.
 
-Phase two is intentionally not implemented yet.
+## Layout
 
-## MCP Tools Exposed To The LLM
+- `backend/llm` contains the phase-one LLM scanner implementation and CLI runner.
+- `backend/api` exposes HTTP endpoints that import and call `backend/llm` functions.
+- `frontend` serves the browser UI and proxies `/api/*` to `scanner-api`.
 
-- `packet_info(packet_id)`
-- `packet_payload_hexdump(packet_id)`
-- `conversation_packets(conversation_id, packet_id, before, after)`
-- `packets_in_time_window(recording_id, start_ms, end_ms, max_packets)`
+Phase two remains a placeholder and returns HTTP 501.
 
-The scanner orchestrator also uses `event_packets(event_id)` to resolve the
-packets assigned to the requested event before invoking the LLM.
+## Docker Compose
 
-## Usage
-
-From the `poc` directory:
+From `poc`:
 
 ```bash
-./run_scanner.sh <event_id> [model_name]
-./run_scanner.sh 7 --provider deepseek --api-key YOUR_KEY
-./run_scanner.sh 7 --app-details ./grouping/data/app_details.txt --user-intend ./grouping/data/user_intend.txt
+docker compose up -d --build scanner-llm scanner-api scanner-frontend
 ```
 
-PowerShell:
+Open the frontend at:
+
+```text
+http://localhost:8091
+```
+
+The API is also exposed directly at:
+
+```text
+http://localhost:8090
+```
+
+## CLI
+
+The existing CLI runner still works, now against the `scanner-llm` container:
+
+```bash
+./run_scanner.sh <event_id>
+```
 
 ```powershell
-.\run_scanner.ps1 -EventId 7
-.\run_scanner.ps1 -EventId 7 -Provider deepseek -ApiKey YOUR_KEY
+.\run_scanner.ps1 -EventId <event_id>
 ```
-
-Directly inside the container:
-
-```bash
-python3 /app/src/scanner.py \
-    --event-id 7 \
-    --mcp-url http://mcp-packet-db:8765 \
-    --provider deepseek \
-    --api-key YOUR_KEY
-```
-
-## Output
-
-The phase-one summary is printed as Markdown and can optionally be written to a
-container path with `--output` or the `OUTPUT` environment variable.

@@ -119,6 +119,9 @@ class MCPClient:
     def event_packets(self, event_id: int) -> str:
         return self.call_tool("event_packets", {"event_id": event_id})
 
+    def events(self) -> str:
+        return self.call_tool("events", {})
+
     def packet_info(self, packet_id: int) -> str:
         return self.call_tool("packet_info", {"packet_id": packet_id})
 

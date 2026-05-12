@@ -62,7 +62,7 @@ if (-not $ApiBaseUrl -and $envMap.ContainsKey("API_BASE_URL")) {
     $ApiBaseUrl = $envMap["API_BASE_URL"]
 }
 
-$ScannerContainer = "scanner"
+$ScannerContainer = "scanner-llm"
 
 Write-Host "Running scanner phase 1 for event $EventId..."
 

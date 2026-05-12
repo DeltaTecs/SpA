@@ -119,11 +119,11 @@ services:
     tty: true
     stdin_open: true
 
-  # LLM based vulnerability-assessment phase-one summarizer for grouped events
-  scanner:
-    build: ./vuln_scan
-    container_name: scanner
-    command: ["bash", "-lc", "sleep infinity"]
+  # LLM runtime for vulnerability-assessment phase-one/two workflows
+  scanner-llm:
+    build: ./vuln_scan/backend/llm
+    container_name: scanner-llm
+    command: ["bash", "-lc", "ollama serve > /tmp/ollama.log 2>&1 & sleep infinity"]
     restart: unless-stopped
     deploy:
       resources:
@@ -137,7 +137,8 @@ services:
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MCP_URL=http://mcp-packet-db:8765
     volumes:
-      - ./vuln_scan:/app
+      - ./vuln_scan/backend/llm:/app
+      - ./vuln_scan/data:/app/data
       - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama
     networks:
@@ -146,6 +147,44 @@ services:
       - mcp-packet-db
     tty: true
     stdin_open: true
+
+  # HTTP API for the vulnerability scanner frontend
+  scanner-api:
+    build:
+      context: ./vuln_scan
+      dockerfile: backend/api/Dockerfile
+    container_name: scanner-api
+    restart: unless-stopped
+    env_file:
+      - ./.env
+    environment:
+      - MCP_URL=http://mcp-packet-db:8765
+      - OLLAMA_HOST=http://scanner-llm:11434
+      - APP_DETAILS=/data/app_details.txt
+      - USER_INTEND=/data/user_intend.txt
+    volumes:
+      - ./vuln_scan/backend/api:/app
+      - ./vuln_scan/backend/llm:/llm
+      - ./vuln_scan/data:/data:ro
+    ports:
+      - "8090:8000"
+    networks:
+      - app-network
+    depends_on:
+      - mcp-packet-db
+      - scanner-llm
+
+  # Web UI for selecting events and running phase-one summaries
+  scanner-frontend:
+    build: ./vuln_scan/frontend
+    container_name: scanner-frontend
+    restart: unless-stopped
+    ports:
+      - "8091:80"
+    networks:
+      - app-network
+    depends_on:
+      - scanner-api
 
 volumes:
   postgres_data:
