@@ -57,8 +57,9 @@ Thumbs.db
 # Database dumps
 *.dump
 
-# temporary grouping files
+# temporary app context files
 poc/grouping/data
+poc/vuln_scan/data
 
 # Local env files (keep real config in samples)
 .env

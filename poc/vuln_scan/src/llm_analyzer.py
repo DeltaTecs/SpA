@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 try:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -22,6 +22,11 @@ try:
     from langchain_openai import ChatOpenAI
 except ImportError:
     ChatOpenAI = None
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
 
 from prompts import build_phase_one_system_prompt
 from scanner_models import ScanSummary
@@ -47,6 +52,7 @@ class ScannerAnalyzer:
         self.api_key = api_key
         self.api_base_url = api_base_url
         self.llm = None
+        self.deepseek_client = None
 
     def initialize(self) -> None:
         if self.provider == "gemini":
@@ -63,19 +69,31 @@ class ScannerAnalyzer:
                 google_api_key=self.api_key,
                 temperature=0.1,
             )
-        elif self.provider in ("openai", "deepseek"):
+        elif self.provider == "deepseek":
+            if OpenAI is None:
+                raise ImportError(
+                    "openai is required for DeepSeek. "
+                    "Install with: pip install openai"
+                )
+            if not self.api_key:
+                raise ValueError("--api-key is required when using --provider deepseek")
+            base_url = self.api_base_url or "https://api.deepseek.com"
+            logger.info(
+                "Initializing DeepSeek with model: %s (thinking mode enabled)",
+                self.model_name,
+            )
+            self.deepseek_client = OpenAI(api_key=self.api_key, base_url=base_url)
+            self.llm = self.deepseek_client
+        elif self.provider == "openai":
             if ChatOpenAI is None:
                 raise ImportError(
                     "langchain-openai is required for OpenAI-compatible providers. "
                     "Install with: pip install langchain-openai"
                 )
             if not self.api_key:
-                raise ValueError(f"--api-key is required when using --provider {self.provider}")
+                raise ValueError("--api-key is required when using --provider openai")
             base_url = self.api_base_url
-            if self.provider == "deepseek" and not base_url:
-                base_url = "https://api.deepseek.com"
-            provider_label = "DeepSeek" if self.provider == "deepseek" else "OpenAI"
-            logger.info("Initializing %s with model: %s", provider_label, self.model_name)
+            logger.info("Initializing OpenAI with model: %s", self.model_name)
             kwargs = {
                 "model": self.model_name,
                 "api_key": self.api_key,
@@ -108,7 +126,6 @@ class ScannerAnalyzer:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
 
-        llm_with_tools = self.llm.bind_tools(list(tools))
         prompt_parts = []
         if user_context:
             prompt_parts.append(user_context)
@@ -119,23 +136,33 @@ class ScannerAnalyzer:
         )
         prompt_parts.append(event_context)
 
-        messages = [
-            SystemMessage(
-                content=build_phase_one_system_prompt(
-                    has_app_details=has_app_details,
-                    has_user_actions=has_user_actions,
-                )
-            ),
-            HumanMessage(content="\n\n".join(prompt_parts)),
-        ]
-
-        response_text = self._run_tool_conversation(
-            llm_with_tools,
-            messages,
-            list(tools),
-            event_id=event_id,
-            max_rounds=max_rounds,
+        system_prompt = build_phase_one_system_prompt(
+            has_app_details=has_app_details,
+            has_user_actions=has_user_actions,
         )
+        human_prompt = "\n\n".join(prompt_parts)
+
+        if self.provider == "deepseek":
+            response_text = self._run_deepseek_tool_conversation(
+                system_prompt=system_prompt,
+                human_prompt=human_prompt,
+                tools=list(tools),
+                event_id=event_id,
+                max_rounds=max_rounds,
+            )
+        else:
+            llm_with_tools = self.llm.bind_tools(list(tools))
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=human_prompt),
+            ]
+            response_text = self._run_tool_conversation(
+                llm_with_tools,
+                messages,
+                list(tools),
+                event_id=event_id,
+                max_rounds=max_rounds,
+            )
         if response_text is None:
             response_text = ""
 
@@ -199,6 +226,77 @@ class ScannerAnalyzer:
         logger.warning("Max tool-call rounds reached for event %d", event_id)
         return _content_to_text(messages[-1].content) if messages else None
 
+    def _run_deepseek_tool_conversation(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+        tools: list,
+        event_id: int,
+        max_rounds: int,
+    ) -> Optional[str]:
+        """Run DeepSeek V4 thinking mode while preserving reasoning_content."""
+        if self.deepseek_client is None:
+            raise RuntimeError("DeepSeek client is not initialized")
+
+        tool_specs = [_openai_tool_spec(tool) for tool in tools]
+        tool_by_name = {tool.name: tool for tool in tools}
+        messages: List[Dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": human_prompt},
+        ]
+
+        for round_num in range(max_rounds):
+            try:
+                response = self.deepseek_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=messages,
+                    tools=tool_specs,
+                    reasoning_effort="high",
+                    extra_body={"thinking": {"type": "enabled"}},
+                )
+            except Exception as exc:
+                logger.error("DeepSeek invocation failed (round %d): %s", round_num, exc)
+                return None
+
+            message = response.choices[0].message
+            assistant_message = _openai_message_dict(message)
+            messages.append(assistant_message)
+
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                return str(getattr(message, "content", "") or "")
+
+            for tool_call in tool_calls:
+                tool_name = tool_call.function.name
+                tool_args_text = tool_call.function.arguments or "{}"
+                try:
+                    tool_args = json.loads(tool_args_text)
+                except json.JSONDecodeError:
+                    tool_args = {}
+                logger.debug("Tool call: %s(%s)", tool_name, tool_args)
+
+                tool = tool_by_name.get(tool_name)
+                if tool is None:
+                    result = "(tool not found)"
+                else:
+                    try:
+                        result = tool.invoke(tool_args)
+                    except Exception as exc:
+                        result = f"Error: {exc}"
+
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": str(result),
+                    }
+                )
+
+        logger.warning("Max DeepSeek tool-call rounds reached for event %d", event_id)
+        last = messages[-1].get("content") if messages else None
+        return str(last or "")
+
 
 def _content_to_text(content: Any) -> str:
     if isinstance(content, str):
@@ -212,6 +310,54 @@ def _content_to_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
+
+
+def _openai_tool_spec(tool: Any) -> Dict[str, Any]:
+    """Convert a LangChain StructuredTool to OpenAI function-tool schema."""
+    if getattr(tool, "args_schema", None) is not None:
+        parameters = tool.args_schema.model_json_schema()
+    else:
+        parameters = {
+            "type": "object",
+            "properties": getattr(tool, "args", {}) or {},
+            "required": [],
+        }
+
+    parameters = json.loads(json.dumps(parameters))
+    parameters.pop("title", None)
+    description = str(getattr(tool, "description", "") or "").strip()
+
+    return {
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": description,
+            "parameters": parameters,
+        },
+    }
+
+
+def _openai_message_dict(message: Any) -> Dict[str, Any]:
+    """Preserve DeepSeek's reasoning_content on assistant tool-call turns."""
+    if hasattr(message, "model_dump"):
+        data = message.model_dump(mode="json", exclude_none=True)
+    else:
+        data = {
+            "role": "assistant",
+            "content": getattr(message, "content", "") or "",
+        }
+
+    data["role"] = "assistant"
+    if "content" not in data:
+        data["content"] = getattr(message, "content", "") or ""
+
+    reasoning_content = getattr(message, "reasoning_content", None)
+    if reasoning_content is None and getattr(message, "model_extra", None):
+        reasoning_content = message.model_extra.get("reasoning_content")
+    if reasoning_content is not None:
+        data["reasoning_content"] = reasoning_content
+
+    return data
 
 
 def _parse_json_object(text: str) -> dict[str, Any]:
