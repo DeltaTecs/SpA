@@ -37,3 +37,6 @@ docker exec "${DB_ENV_ARGS[@]}" "$PROCESSOR_CONTAINER" python3 -m unittest parsi
 
 echo "Running test_mcp_packet_db_server..."
 docker compose run --rm --build mcp-packet-db python -m unittest discover -s /app/test
+
+echo "Running test_mcp_hexstrike..."
+docker compose run --rm --build --no-deps --entrypoint /opt/hexstrike-venv/bin/python mcp-hexstrike -m unittest discover -s /app/test

@@ -3,6 +3,54 @@ from __future__ import annotations
 from typing import List
 
 
+def event_packets_text(cursor, event_id: int) -> str:
+    """Return event metadata and packets assigned to the event."""
+    cursor.execute(
+        """
+        SELECT event_id, description, start_timestamp, end_timestamp
+        FROM event
+        WHERE event_id = %s
+        """,
+        (event_id,),
+    )
+    event = cursor.fetchone()
+    if not event:
+        return f"event_id {event_id} not found"
+
+    cursor.execute(
+        """
+        SELECT
+            p.packet_id,
+            p.recording_id,
+            p.conversation_id,
+            p.number,
+            p.timestamp
+        FROM packet_event pe
+        JOIN packet p ON p.packet_id = pe.packet_id
+        WHERE pe.event_id = %s
+        ORDER BY p.timestamp ASC NULLS LAST, p.number ASC, p.packet_id ASC
+        """,
+        (event_id,),
+    )
+    rows = cursor.fetchall() or []
+
+    lines: List[str] = [
+        f"event_id:{event['event_id']}  description:{event['description']}  "
+        f"start:{event['start_timestamp']}  end:{event['end_timestamp']}",
+        f"packets:{len(rows)}",
+    ]
+    for row in rows:
+        conversation_id = (
+            row["conversation_id"] if row["conversation_id"] is not None else "null"
+        )
+        lines.append(
+            f"packet_id:{row['packet_id']}  recording_id:{row['recording_id']}  "
+            f"number:{row['number']}  timestamp:{row['timestamp']}  "
+            f"conversation_id:{conversation_id}"
+        )
+    return "\n".join(lines)
+
+
 def events_for_recording_text(cursor, recording_id: int) -> str:
     """Return persisted events that already have packets in this recording."""
     cursor.execute(

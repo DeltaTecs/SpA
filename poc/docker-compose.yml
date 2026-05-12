@@ -1,4 +1,6 @@
 services:
+
+  # database for packets and annotations
   postgres:
     image: postgres:15
     container_name: ${DB_CONTAINER_NAME}
@@ -21,6 +23,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # web UI for browsing the database
   pgweb:
     image: sosedoff/pgweb
     container_name: pgweb
@@ -34,6 +37,7 @@ services:
     depends_on:
       - postgres
 
+  # service for processing pcap files and inserting into the database
   pcap-processor:
     build: ./pcap_processing
     container_name: ${PCAP_PROCESSOR_CONTAINER_NAME}
@@ -52,6 +56,7 @@ services:
       - postgres
     tty: true
 
+  # service for exposing the packet database via MCP
   mcp-packet-db:
     build: ./mcp/packet_db_server
     container_name: mcp-packet-db
@@ -68,6 +73,25 @@ services:
     depends_on:
       - postgres
 
+  # penetration testing MCP tools
+  mcp-hexstrike:
+    build: ./mcp/hexstrike
+    container_name: mcp-hexstrike
+    restart: unless-stopped
+    environment:
+      - HEXSTRIKE_MODE=bash-mcp
+      - HEXSTRIKE_BASH_MCP_HOST=0.0.0.0
+      - HEXSTRIKE_BASH_MCP_PORT=8766
+      - HEXSTRIKE_BASH_MCP_TRANSPORT=streamable-http
+      - HEXSTRIKE_BASH_MCP_CWD=/workspace
+    ports:
+      - "8766:8766"
+    networks:
+      - app-network
+    tty: true
+    stdin_open: true
+
+  # LLM based network packet grouping/aggregation into events
   grouping:
     build: ./grouping
     container_name: grouping
@@ -86,6 +110,34 @@ services:
       - MCP_URL=http://mcp-packet-db:8765
     volumes:
       - ./grouping:/app
+      - ./.env:/app/.env:ro
+      - ollama_models:/root/.ollama
+    networks:
+      - app-network
+    depends_on:
+      - mcp-packet-db
+    tty: true
+    stdin_open: true
+
+  # LLM based vulnerability-assessment phase-one summarizer for grouped events
+  scanner:
+    build: ./vuln_scan
+    container_name: scanner
+    command: ["bash", "-lc", "sleep infinity"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - MCP_URL=http://mcp-packet-db:8765
+    volumes:
+      - ./vuln_scan:/app
       - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama
     networks:

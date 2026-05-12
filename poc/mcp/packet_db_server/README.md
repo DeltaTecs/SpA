@@ -27,6 +27,13 @@ MCP server that provides packet metadata/payload lookup tools and event persiste
   - Returns rich `packet_info` output for packets in a time window
   - `start_ms` and `end_ms` are recording-relative offsets; epoch millisecond values are also accepted
 
+- `events_for_recording(recording_id: int)`
+  - Returns persisted events that already have packets in the recording
+
+- `event_packets(event_id: int)`
+  - Returns event metadata plus assigned packet IDs, recording IDs, timestamps,
+    packet numbers, and conversation IDs
+
 - `create_event_and_assign_packet(packet_id: int, description: str)`
   - Atomically creates a new event and assigns the packet to it
   - Intended for orchestrators after validating an LLM decision

@@ -103,6 +103,7 @@ from packet_db_server.server import (  # noqa: E402
     conversation_packets,
     create_event,
     create_event_and_assign_packet,
+    event_packets,
     events_for_recording,
     list_packet_ids,
     packet_info,
@@ -653,6 +654,14 @@ class TestPacketDbServerTools(unittest.TestCase):
         self.assertIn(f"description:{description}", text)
         self.assertIn(f"start:{expected_start}", text)
         self.assertIn(f"end:{expected_end}", text)
+
+        event_text = event_packets(event_id)
+        self.assertIn(f"event_id:{event_id}", event_text)
+        self.assertIn(f"description:{description}", event_text)
+        self.assertIn("packets:2", event_text)
+        self.assertIn(f"packet_id:{response['packet_id']}", event_text)
+        self.assertIn(f"packet_id:{datagram['packet_id']}", event_text)
+        self.assertNotIn(f"packet_id:{self.packets['request']['packet_id']}", event_text)
 
     def test_event_can_be_created_and_assigned_atomically(self) -> None:
         packet = self.packets["request"]

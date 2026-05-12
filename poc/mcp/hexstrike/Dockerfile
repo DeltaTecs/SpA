@@ -309,6 +309,7 @@ COPY --from=builder /opt/secbin /opt/secbin
 COPY --from=go-tools /opt/secbin /opt/secbin
 COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
+COPY test/ /app/test/
 
 RUN set -eux; \
     chmod +x /usr/local/bin/hexstrike-bash-mcp; \
