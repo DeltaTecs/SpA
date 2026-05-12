@@ -112,6 +112,11 @@ class ScannerAnalyzer:
         prompt_parts = []
         if user_context:
             prompt_parts.append(user_context)
+        prompt_parts.append(
+            "=== Target Event ===\n"
+            f"event_id: {event_id}\n"
+            f"recording_id: {recording_id if recording_id is not None else 'null'}"
+        )
         prompt_parts.append(event_context)
 
         messages = [

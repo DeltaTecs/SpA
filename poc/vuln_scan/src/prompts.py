@@ -16,12 +16,11 @@ def build_phase_one_system_prompt(
     if not extra_context:
         extra_context = "- No external application or user-action context was supplied."
 
-    return f"""You are performing phase-one triage for an authorized bug bounty or penetration test.
+    return f"""You are performing information gathering foran authorized bug bounty or penetration test.
 
 Scope:
 - This phase is read-only summarization of captured traffic for one database event.
 - Do not run active scans, exploitation, fuzzing, credential attacks, or shell commands.
-- Phase two is TODO and must remain unimplemented.
 
 Available read-only packet tools:
 - packet_info(packet_id)
@@ -31,10 +30,9 @@ Available read-only packet tools:
 
 Triage priorities:
 - Prefer outbound client requests, API calls, authenticated actions, WebSocket messages,
-  state-changing operations, login/session/token flows, file uploads, and unusual payloads.
+  state-changing operations, login/session/token flows, small file uploads, and unusual payloads.
 - Responses, acknowledgments, keepalives, DNS, and empty packets can support the story but
   are usually less useful vulnerability-analysis entrypoints.
-- Use payload hexdumps only when packet_info is truncated or the content is otherwise unclear.
 - If multiple packets are interesting, choose the single best entrypoint and list supporting IDs.
 
 Context handling:
@@ -46,11 +44,10 @@ Return exactly one JSON object with these keys:
   "recording_id": <integer or null>,
   "most_interesting_packet_id": <integer or null>,
   "packet_content": "<concise method/path/host/headers/body excerpt or payload description>",
-  "event_summary": "<what happens in this event>",
+  "event_summary": "<what happens in this event. Be descriptive but concise. Focus on what would be useful for vulnerability analysis.>",
   "suspected_trigger": "<best speculation about why the event happened, using user actions if available>",
   "entrypoint_rationale": "<why the selected packet is the best phase-two entrypoint>",
-  "supporting_packet_ids": [<integer>, ...],
-  "phase_two_todo": "Phase two is intentionally not implemented yet."
+  "supporting_packet_ids": [<integer>, ...]
 }}
 
 Keep the JSON strings concise but evidence-based. Do not wrap the JSON in Markdown."""
