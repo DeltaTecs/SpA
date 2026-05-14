@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS packet_event (
 );
 
 -- One persisted phase-one pre-scan per event.
-CREATE TABLE IF NOT EXISTS "PreScan" (
+CREATE TABLE IF NOT EXISTS pre_scan (
   event_id bigint PRIMARY KEY REFERENCES event(event_id) ON DELETE CASCADE,
   recording_id bigint REFERENCES recording(recording_id) ON DELETE SET NULL,
   most_interesting_packet_id bigint REFERENCES packet(packet_id) ON DELETE SET NULL,

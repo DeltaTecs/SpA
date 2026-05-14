@@ -80,7 +80,7 @@ class ToolDecisionRequest(BaseModel):
     approved: bool
 
 
-class PreScanItem(BaseModel):
+class StoredPhaseOneItem(BaseModel):
     event_id: int
     recording_id: Optional[int] = None
     most_interesting_packet_id: Optional[int] = None
@@ -123,16 +123,16 @@ def list_events() -> List[EventItem]:
     return _parse_events(text)
 
 
-@app.get("/prescans", response_model=List[PreScanItem])
-def prescans() -> List[PreScanItem]:
-    return [PreScanItem(**row) for row in list_prescans()]
+@app.get("/prescans", response_model=List[StoredPhaseOneItem])
+def prescans() -> List[StoredPhaseOneItem]:
+    return [StoredPhaseOneItem(**row) for row in list_prescans()]
 
 
 @app.get("/prescans/{event_id}", response_model=ScanResponse)
 def prescan(event_id: int) -> ScanResponse:
     summary = get_prescan(event_id)
     if summary is None:
-        raise HTTPException(status_code=404, detail=f"No PreScan for event_id {event_id}")
+        raise HTTPException(status_code=404, detail=f"No pre_scan for event_id {event_id}")
     return ScanResponse(
         event_id=summary.event_id,
         recording_id=summary.recording_id,

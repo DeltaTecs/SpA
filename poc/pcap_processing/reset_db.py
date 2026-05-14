@@ -1,4 +1,5 @@
 import psycopg2
+from psycopg2 import sql
 import os
 import argparse
 
@@ -36,6 +37,7 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
         # We drop in an order that respects dependencies, or just use CASCADE.
         # Since we are resetting to init_db.sql, we want to wipe everything clean.
         tables_to_drop = [
+            "pre_scan",
             "packet_processing_tag",
             "recording_processing_tag",
             "packet_event",
@@ -54,7 +56,9 @@ def reset_db(host, port, dbname, user, password, init_sql_path):
 
         print("Dropping existing tables...")
         for table in tables_to_drop:
-            cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE;")
+            cur.execute(
+                sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(sql.Identifier(table))
+            )
         
         print("Tables dropped.")
 

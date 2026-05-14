@@ -36,7 +36,7 @@ be set with `SCANNER_OLLAMA_MODELS`, `SCANNER_DEEPSEEK_MODELS`,
 `SCANNER_OPENAI_MODELS`, and `SCANNER_GEMINI_MODELS`; otherwise the UI uses
 the built-in defaults for each provider.
 
-Phase-one evaluations are persisted in the PostgreSQL `"PreScan"` table, keyed
+Phase-one evaluations are persisted in the PostgreSQL `pre_scan` table, keyed
 one-to-one by `event_id`. Re-evaluating an event replaces that event's stored
 pre-scan.
 

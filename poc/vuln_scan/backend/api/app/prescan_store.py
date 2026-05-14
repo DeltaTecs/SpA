@@ -11,8 +11,26 @@ from psycopg2.extras import RealDictCursor
 from scanner_models import ScanSummary
 
 
+MIGRATE_LEGACY_PRESCAN_TABLE = """
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'PreScan'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'pre_scan'
+  ) THEN
+    ALTER TABLE "PreScan" RENAME TO pre_scan;
+  END IF;
+END $$;
+"""
+
+
 CREATE_PRESCAN_TABLE = """
-CREATE TABLE IF NOT EXISTS "PreScan" (
+CREATE TABLE IF NOT EXISTS pre_scan (
   event_id bigint PRIMARY KEY REFERENCES event(event_id) ON DELETE CASCADE,
   recording_id bigint REFERENCES recording(recording_id) ON DELETE SET NULL,
   most_interesting_packet_id bigint REFERENCES packet(packet_id) ON DELETE SET NULL,
@@ -51,6 +69,7 @@ def _connection() -> Iterator:
 def ensure_prescan_table() -> None:
     with _connection() as conn:
         with conn.cursor() as cursor:
+            cursor.execute(MIGRATE_LEGACY_PRESCAN_TABLE)
             cursor.execute(CREATE_PRESCAN_TABLE)
 
 
@@ -60,7 +79,7 @@ def save_prescan(summary: ScanSummary) -> None:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO "PreScan" (
+                INSERT INTO pre_scan (
                   event_id,
                   recording_id,
                   most_interesting_packet_id,
@@ -108,7 +127,7 @@ def list_prescans() -> List[dict]:
                   suspected_trigger,
                   entrypoint_rationale,
                   supporting_packet_ids
-                FROM "PreScan"
+                FROM pre_scan
                 ORDER BY event_id
                 """
             )
@@ -130,7 +149,7 @@ def get_prescan(event_id: int) -> Optional[ScanSummary]:
                   suspected_trigger,
                   entrypoint_rationale,
                   supporting_packet_ids
-                FROM "PreScan"
+                FROM pre_scan
                 WHERE event_id = %s
                 """,
                 (event_id,),
