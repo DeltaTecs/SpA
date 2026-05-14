@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import requests
@@ -17,14 +18,29 @@ def _trace_mcp_calls() -> bool:
     return os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
 
 
+@dataclass(frozen=True)
+class MCPToolSpec:
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
+
+
 class MCPClient:
     """Call streamable-http MCP tools over JSON-RPC."""
 
-    def __init__(self, base_url: str):
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        connect_timeout: float = 10,
+        default_timeout: float = 30,
+    ):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self._session_id: Optional[str] = None
         self._endpoint = f"{self.base_url}/mcp"
+        self._connect_timeout = connect_timeout
+        self._default_timeout = default_timeout
         self._connect()
 
     def _connect(self) -> None:
@@ -46,7 +62,10 @@ class MCPClient:
                     },
                 }
                 resp = self.session.post(
-                    self._endpoint, json=init_payload, headers=headers, timeout=10
+                    self._endpoint,
+                    json=init_payload,
+                    headers=headers,
+                    timeout=self._connect_timeout,
                 )
                 if resp.status_code != 200:
                     raise RuntimeError(f"Initialize failed: {resp.status_code}")
@@ -59,7 +78,12 @@ class MCPClient:
 
                 headers["Mcp-Session-Id"] = self._session_id
                 notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
-                self.session.post(self._endpoint, json=notif, headers=headers, timeout=5)
+                self.session.post(
+                    self._endpoint,
+                    json=notif,
+                    headers=headers,
+                    timeout=min(self._connect_timeout, 5),
+                )
                 return
             except requests.ConnectionError:
                 if attempt % 5 == 0:
@@ -78,12 +102,15 @@ class MCPClient:
                     return json.loads(data)
         raise RuntimeError(f"No JSON data in response: {text[:200]}")
 
-    def call_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: float = 30) -> str:
+    def request(
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        timeout: Optional[float] = None,
+    ) -> dict:
         if not self._session_id:
             raise RuntimeError("MCP client not connected")
-
-        if _trace_mcp_calls():
-            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
 
         headers = {
             "Content-Type": "application/json",
@@ -93,19 +120,70 @@ class MCPClient:
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "tools/call",
-            "params": {"name": tool_name, "arguments": arguments},
+            "method": method,
+            "params": params or {},
         }
 
-        resp = self.session.post(self._endpoint, json=payload, headers=headers, timeout=timeout)
+        resp = self.session.post(
+            self._endpoint,
+            json=payload,
+            headers=headers,
+            timeout=timeout or self._default_timeout,
+        )
         if resp.status_code >= 400:
             raise RuntimeError(
-                f"MCP tool call failed ({resp.status_code}): {resp.text[:200]}"
+                f"MCP request {method} failed ({resp.status_code}): {resp.text[:200]}"
             )
 
         data = self._parse_sse_response(resp.text)
         if "error" in data:
             raise RuntimeError(f"MCP error: {data['error']}")
+        return data
+
+    def list_tools(self, timeout: Optional[float] = None) -> list[MCPToolSpec]:
+        tools: list[MCPToolSpec] = []
+        cursor: Optional[str] = None
+
+        while True:
+            params = {"cursor": cursor} if cursor else {}
+            data = self.request("tools/list", params, timeout=timeout)
+            result = data.get("result", data)
+            if not isinstance(result, dict):
+                raise RuntimeError(f"Unexpected tools/list result: {result}")
+
+            for raw_tool in result.get("tools", []) or []:
+                if not isinstance(raw_tool, dict):
+                    continue
+                tools.append(
+                    MCPToolSpec(
+                        name=str(raw_tool.get("name") or ""),
+                        description=str(raw_tool.get("description") or ""),
+                        input_schema=(
+                            raw_tool.get("inputSchema")
+                            or raw_tool.get("input_schema")
+                            or {"type": "object", "properties": {}}
+                        ),
+                    )
+                )
+
+            cursor = result.get("nextCursor") or result.get("next_cursor")
+            if not cursor:
+                return [tool for tool in tools if tool.name]
+
+    def call_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout: Optional[float] = None,
+    ) -> str:
+        if _trace_mcp_calls():
+            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+
+        data = self.request(
+            "tools/call",
+            {"name": tool_name, "arguments": arguments},
+            timeout=timeout,
+        )
 
         result = data.get("result", data)
         if isinstance(result, dict) and "content" in result:

@@ -216,6 +216,7 @@ ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_MODE=api \
     HEXSTRIKE_PORT=8888 \
     HEXSTRIKE_BASH_MCP_PORT=8766 \
+    HEXSTRIKE_MCP_HTTP_PORT=8767 \
     HEXSTRIKE_STARTUP_TIMEOUT=60 \
     PIPX_HOME=/opt/pipx \
     PIPX_BIN_DIR=/opt/secbin \
@@ -308,11 +309,13 @@ COPY --from=builder /opt/pipx /opt/pipx
 COPY --from=builder /opt/secbin /opt/secbin
 COPY --from=go-tools /opt/secbin /opt/secbin
 COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
+COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/
 
 RUN set -eux; \
     chmod +x /usr/local/bin/hexstrike-bash-mcp; \
+    chmod +x /usr/local/bin/hexstrike-http-mcp; \
     chmod +x /usr/local/bin/hexstrike-entrypoint; \
     mkdir -p /workspace /tmp/hexstrike
 
@@ -321,7 +324,7 @@ WORKDIR /workspace
 EXPOSE 8888 8766
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
+  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; mcp-http|http-mcp|streamable-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_MCP_HTTP_PORT}" ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
 
 ENTRYPOINT ["tini", "--", "hexstrike-entrypoint"]
 CMD []

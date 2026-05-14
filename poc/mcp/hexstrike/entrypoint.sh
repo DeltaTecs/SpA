@@ -8,6 +8,7 @@ HEXSTRIKE_PORT="${HEXSTRIKE_PORT:-8888}"
 HEXSTRIKE_SERVER_URL="${HEXSTRIKE_SERVER_URL:-http://127.0.0.1:${HEXSTRIKE_PORT}}"
 HEXSTRIKE_STARTUP_TIMEOUT="${HEXSTRIKE_STARTUP_TIMEOUT:-60}"
 HEXSTRIKE_BASH_MCP_PORT="${HEXSTRIKE_BASH_MCP_PORT:-8766}"
+HEXSTRIKE_MCP_HTTP_PORT="${HEXSTRIKE_MCP_HTTP_PORT:-8767}"
 
 debug_args=()
 if [[ "${HEXSTRIKE_DEBUG:-0}" == "1" || "${HEXSTRIKE_DEBUG:-}" == "true" ]]; then
@@ -89,6 +90,27 @@ case "${HEXSTRIKE_MODE}" in
     fi
 
     "${HEXSTRIKE_VENV}/bin/python" hexstrike_mcp.py --server "${HEXSTRIKE_SERVER_URL}" "$@"
+    ;;
+  mcp-http|http-mcp|streamable-mcp)
+    backend_pid=""
+    bash_mcp_pid=""
+    cleanup() {
+      if [[ -n "${backend_pid}" ]]; then
+        kill "${backend_pid}" >/dev/null 2>&1 || true
+        wait "${backend_pid}" >/dev/null 2>&1 || true
+      fi
+      cleanup_bash_mcp
+    }
+    trap cleanup EXIT INT TERM
+
+    if [[ "${HEXSTRIKE_ENABLE_BASH_MCP:-0}" == "1" || "${HEXSTRIKE_ENABLE_BASH_MCP:-}" == "true" ]]; then
+      start_bash_mcp
+    fi
+
+    start_backend
+    wait_for_backend
+
+    exec "${HEXSTRIKE_VENV}/bin/python" /usr/local/bin/hexstrike-http-mcp "$@"
     ;;
   bash-mcp|shell-mcp|command-mcp)
     exec "${HEXSTRIKE_VENV}/bin/python" /usr/local/bin/hexstrike-bash-mcp "$@"

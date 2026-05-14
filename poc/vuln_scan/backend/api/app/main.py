@@ -2,19 +2,31 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 from functools import lru_cache
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from analysis_runner import run_phase_one_summary
-from llm_analyzer import ScannerAnalyzer
 from logging_setup import configure_logging
 from mcp_client import MCPClient
+from mcp_proxy_tools import analysis_mcp_server_specs_from_env
+from phase2_runner import run_phase_two_analysis
+from scanner_config import (
+    PROVIDERS,
+    create_analyzer,
+    provider_configs,
+    resolve_api_base_url,
+    resolve_api_key,
+    resolve_model,
+    resolve_provider,
+)
 from user_context import load_app_details, parse_intend_file
 
+from .analysis_sessions import AnalysisRun, AnalysisSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
 
 
@@ -54,6 +66,20 @@ class ScanResponse(BaseModel):
     summary: dict
 
 
+class PhaseTwoRequest(BaseModel):
+    event_id: int
+    analysis_types: List[str] = Field(default_factory=lambda: ["Explorative"])
+    constraints: str = ""
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    api_key: Optional[str] = None
+    api_base_url: Optional[str] = None
+
+
+class ToolDecisionRequest(BaseModel):
+    approved: bool
+
+
 class PreScanItem(BaseModel):
     event_id: int
     recording_id: Optional[int] = None
@@ -65,36 +91,7 @@ class PreScanItem(BaseModel):
     supporting_packet_ids: List[int] = Field(default_factory=list)
 
 
-PROVIDERS: Dict[str, dict] = {
-    "ollama": {
-        "label": "Ollama",
-        "default_model": "qwen3:8b",
-        "models": ("qwen3:8b", "qwen2.5:7b", "llama3.1:8b"),
-        "model_envs": ("SCANNER_OLLAMA_MODELS", "OLLAMA_MODELS"),
-        "api_key_envs": (),
-    },
-    "deepseek": {
-        "label": "DeepSeek",
-        "default_model": "deepseek-v4-flash",
-        "models": ("deepseek-v4-flash", "deepseek-v4-pro"),
-        "model_envs": ("SCANNER_DEEPSEEK_MODELS", "DEEPSEEK_MODELS"),
-        "api_key_envs": ("DEEPSEEK_API_KEY",),
-    },
-    "openai": {
-        "label": "OpenAI",
-        "default_model": "gpt-4o-mini",
-        "models": ("gpt-4o-mini", "gpt-4o"),
-        "model_envs": ("SCANNER_OPENAI_MODELS", "OPENAI_MODELS"),
-        "api_key_envs": ("OPENAI_API_KEY",),
-    },
-    "gemini": {
-        "label": "Gemini",
-        "default_model": "gemini-2.0-flash",
-        "models": ("gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"),
-        "model_envs": ("SCANNER_GEMINI_MODELS", "GEMINI_MODELS"),
-        "api_key_envs": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
-    },
-}
+analysis_runs = AnalysisSessionStore()
 
 
 @app.get("/health")
@@ -104,12 +101,12 @@ def health() -> dict:
 
 @app.get("/config")
 def config() -> dict:
-    provider = _provider(None)
-    model = _model(provider, None)
-    providers = [_provider_config(provider_id) for provider_id in PROVIDERS]
+    provider = resolve_provider(None)
+    model = resolve_model(provider, None)
+    providers = provider_configs()
     if not any(item["id"] == provider and item["available"] for item in providers):
         provider = next((item["id"] for item in providers if item["available"]), provider)
-        model = _model(provider, None)
+        model = resolve_model(provider, None)
     return {
         "provider": provider,
         "model": model,
@@ -146,29 +143,15 @@ def prescan(event_id: int) -> ScanResponse:
 
 @app.post("/phase1", response_model=ScanResponse)
 def run_phase1(request: ScanRequest) -> ScanResponse:
-    provider = _provider(request.provider)
-    if provider not in PROVIDERS:
-        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
-    model = _model(provider, request.model)
-    api_key = _api_key(provider, request.api_key)
-    if PROVIDERS[provider]["api_key_envs"] and not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{PROVIDERS[provider]['label']} API key is not configured",
-        )
-    api_base_url = request.api_base_url or os.environ.get("API_BASE_URL")
-    if provider == "deepseek" and not api_base_url:
-        api_base_url = os.environ.get("DEEPSEEK_API_BASE_URL")
+    provider, model, api_key, api_base_url = _llm_settings(request)
 
     try:
-        analyzer = ScannerAnalyzer(
-            model=model,
-            ollama_host=os.environ.get("OLLAMA_HOST", "http://scanner-llm:11434"),
+        analyzer = create_analyzer(
             provider=provider,
+            model=model,
             api_key=api_key,
             api_base_url=api_base_url,
         )
-        analyzer.initialize()
         summary = run_phase_one_summary(
             mcp_client=_mcp_client(),
             analyzer=analyzer,
@@ -188,12 +171,57 @@ def run_phase1(request: ScanRequest) -> ScanResponse:
     )
 
 
-@app.post("/phase2", status_code=501)
-def run_phase2() -> dict:
-    raise HTTPException(
-        status_code=501,
-        detail="Phase two is intentionally not implemented yet.",
+@app.post("/phase2")
+def start_phase2(request: PhaseTwoRequest) -> dict:
+    provider, model, api_key, api_base_url = _llm_settings(request)
+    analysis_types = _analysis_types(request.analysis_types)
+    run = analysis_runs.create(
+        event_id=request.event_id,
+        analysis_types=analysis_types,
+        constraints=request.constraints,
+        provider=provider,
+        model=model,
+        approval_timeout_seconds=float(
+            os.environ.get("PHASE2_APPROVAL_TIMEOUT_SECONDS", "3600")
+        ),
     )
+
+    thread = threading.Thread(
+        target=_run_phase2_background,
+        args=(run, request, provider, model, api_key, api_base_url),
+        daemon=True,
+    )
+    thread.start()
+    return run.snapshot()
+
+
+@app.get("/phase2/{run_id}")
+def phase2_status(run_id: str) -> dict:
+    run = _analysis_run(run_id)
+    return run.snapshot()
+
+
+@app.post("/phase2/{run_id}/abort")
+def abort_phase2(run_id: str) -> dict:
+    run = _analysis_run(run_id)
+    run.abort()
+    return run.snapshot()
+
+
+@app.post("/phase2/{run_id}/tool-requests/{request_id}/decision")
+def decide_phase2_tool(
+    run_id: str,
+    request_id: str,
+    request: ToolDecisionRequest,
+) -> dict:
+    run = _analysis_run(run_id)
+    try:
+        run.decide_tool_request(request_id, request.approved)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Tool request not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return run.snapshot()
 
 
 @lru_cache(maxsize=1)
@@ -201,98 +229,79 @@ def _mcp_client() -> MCPClient:
     return MCPClient(base_url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"))
 
 
-def _provider(request_provider: Optional[str]) -> str:
-    if request_provider:
-        return request_provider.strip().lower()
-    env_provider = os.environ.get("SCANNER_PROVIDER") or os.environ.get("PROVIDER")
-    if env_provider:
-        return env_provider.strip().lower()
-    if os.environ.get("DEEPSEEK_API_KEY"):
-        return "deepseek"
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
-        return "gemini"
-    return "ollama"
+def _llm_settings(request: ScanRequest | PhaseTwoRequest):
+    provider = resolve_provider(request.provider)
+    if provider not in PROVIDERS:
+        raise HTTPException(status_code=400, detail=f"Unsupported provider: {provider}")
+    model = resolve_model(provider, request.model)
+    api_key = resolve_api_key(provider, request.api_key)
+    if PROVIDERS[provider]["api_key_envs"] and not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{PROVIDERS[provider]['label']} API key is not configured",
+        )
+    api_base_url = resolve_api_base_url(provider, request.api_base_url)
+    return provider, model, api_key, api_base_url
 
 
-def _model(provider: str, request_model: Optional[str]) -> str:
-    if request_model:
-        return request_model.strip()
-    provider_key = provider.upper().replace("-", "_")
-    env_model = (
-        os.environ.get(f"SCANNER_{provider_key}_MODEL")
-        or os.environ.get(f"{provider_key}_MODEL")
-        or os.environ.get("SCANNER_MODEL")
-        or os.environ.get("MODEL")
-    )
-    if env_model:
-        return env_model
-    return PROVIDERS.get(provider, PROVIDERS["ollama"])["default_model"]
+def _analysis_types(raw_types: List[str]) -> List[str]:
+    allowed = {"Recon", "Authentication", "Cloud Configuration", "Explorative"}
+    types = [item.strip() for item in raw_types if item.strip() in allowed]
+    return types or ["Explorative"]
 
 
-def _api_key(provider: str, request_api_key: Optional[str]) -> Optional[str]:
-    if request_api_key:
-        return request_api_key
-    for env_name in PROVIDERS.get(provider, {}).get("api_key_envs", ()):
-        value = os.environ.get(env_name)
-        if value:
-            return value
-    return os.environ.get("API_KEY")
+def _analysis_run(run_id: str) -> AnalysisRun:
+    run = analysis_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Analysis run not found")
+    return run
 
 
-def _provider_config(provider_id: str) -> dict:
-    provider = PROVIDERS[provider_id]
-    default_model = _model(provider_id, None)
-    models = _models(provider_id, default_model)
-    has_api_key = bool(_configured_api_key_env(provider_id))
-    available = not provider["api_key_envs"] or has_api_key
-    if not available and _generic_api_key_applies(provider_id):
-        has_api_key = True
-        available = True
-    return {
-        "id": provider_id,
-        "label": provider["label"],
-        "available": available,
-        "has_api_key": has_api_key,
-        "default_model": default_model,
-        "models": models,
-    }
+def _run_phase2_background(
+    run: AnalysisRun,
+    request: PhaseTwoRequest,
+    provider: str,
+    model: str,
+    api_key: Optional[str],
+    api_base_url: Optional[str],
+) -> None:
+    run.start()
+    try:
+        analyzer = create_analyzer(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            api_base_url=api_base_url,
+        )
+        prescan_summary = get_prescan(request.event_id)
+        prescan_markdown = prescan_summary.to_markdown() if prescan_summary else ""
+        if prescan_markdown:
+            run.add_progress("Loaded stored phase-one summary.")
 
-
-def _models(provider_id: str, default_model: str) -> List[str]:
-    provider = PROVIDERS[provider_id]
-    models: List[str] = []
-    for env_name in provider["model_envs"]:
-        raw = os.environ.get(env_name)
-        if raw:
-            models.extend(
-                model.strip()
-                for model in re.split(r"[,;\s]+", raw)
-                if model.strip()
-            )
-            break
-    if not models:
-        models.extend(provider["models"])
-    if default_model not in models:
-        models.insert(0, default_model)
-    return models
-
-
-def _configured_api_key_env(provider_id: str) -> Optional[str]:
-    for env_name in PROVIDERS[provider_id]["api_key_envs"]:
-        if os.environ.get(env_name):
-            return env_name
-    return None
-
-
-def _generic_api_key_applies(provider_id: str) -> bool:
-    env_provider = os.environ.get("SCANNER_PROVIDER") or os.environ.get("PROVIDER")
-    return bool(
-        os.environ.get("API_KEY")
-        and env_provider
-        and env_provider.strip().lower() == provider_id
-    )
+        packet_mcp_client = MCPClient(
+            base_url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"),
+            connect_timeout=30,
+            default_timeout=float(os.environ.get("PHASE2_MCP_TOOL_TIMEOUT_SECONDS", "900")),
+        )
+        result = run_phase_two_analysis(
+            packet_mcp_client=packet_mcp_client,
+            analyzer=analyzer,
+            event_id=request.event_id,
+            analysis_types=run.analysis_types,
+            constraints=request.constraints,
+            mcp_servers=analysis_mcp_server_specs_from_env(),
+            approval_callback=run.request_tool_permission,
+            progress_callback=run.add_progress,
+            app_details=_optional_app_details(),
+            user_actions=_optional_user_actions(),
+            prescan_markdown=prescan_markdown,
+        )
+        run.complete(result)
+    except Exception as exc:
+        if run.abort_requested:
+            run.complete("")
+            return
+        run.fail(str(exc))
 
 
 def _optional_app_details() -> Optional[str]:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
     from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -28,7 +28,11 @@ try:
 except ImportError:
     OpenAI = None
 
-from prompts import build_phase_one_system_prompt
+from prompts import (
+    append_test_directive,
+    build_phase_one_system_prompt,
+    build_phase_two_system_prompt,
+)
 from scanner_models import ScanSummary
 
 
@@ -36,7 +40,7 @@ logger = logging.getLogger(__name__)
 
 
 class ScannerAnalyzer:
-    """Run the phase-one vulnerability triage prompt with read-only tools."""
+    """Run scanner LLM prompts with MCP-backed tools."""
 
     def __init__(
         self,
@@ -140,29 +144,15 @@ class ScannerAnalyzer:
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
         )
-        human_prompt = "\n\n".join(prompt_parts)
+        human_prompt = append_test_directive("\n\n".join(prompt_parts))
 
-        if self.provider == "deepseek":
-            response_text = self._run_deepseek_tool_conversation(
-                system_prompt=system_prompt,
-                human_prompt=human_prompt,
-                tools=list(tools),
-                event_id=event_id,
-                max_rounds=max_rounds,
-            )
-        else:
-            llm_with_tools = self.llm.bind_tools(list(tools))
-            messages = [
-                SystemMessage(content=system_prompt),
-                HumanMessage(content=human_prompt),
-            ]
-            response_text = self._run_tool_conversation(
-                llm_with_tools,
-                messages,
-                list(tools),
-                event_id=event_id,
-                max_rounds=max_rounds,
-            )
+        response_text = self._invoke_with_tools(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            tools=list(tools),
+            event_id=event_id,
+            max_rounds=max_rounds,
+        )
         if response_text is None:
             response_text = ""
 
@@ -185,6 +175,105 @@ class ScannerAnalyzer:
                 entrypoint_rationale="",
             )
 
+    def analyze_vulnerabilities(
+        self,
+        *,
+        event_id: int,
+        recording_id: Optional[int],
+        analysis_types: Sequence[str],
+        constraints: str,
+        event_context: str,
+        tools: Sequence[Any],
+        external_context: str = "",
+        prescan_markdown: str = "",
+        tool_catalog: str = "",
+        has_app_details: bool = False,
+        has_user_actions: bool = False,
+        max_rounds: int = 24,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> str:
+        if self.llm is None:
+            raise RuntimeError("Analyzer is not initialized")
+
+        system_prompt = build_phase_two_system_prompt(
+            analysis_types=list(analysis_types),
+            has_app_details=has_app_details,
+            has_user_actions=has_user_actions,
+            has_prescan=bool(prescan_markdown.strip()),
+        )
+
+        prompt_parts: list[str] = []
+        if external_context:
+            prompt_parts.append(external_context)
+        if constraints.strip():
+            prompt_parts.append(
+                "=== Bug Bounty Program Constraints ===\n"
+                f"{constraints.strip()}\n"
+                "=== End Bug Bounty Program Constraints ==="
+            )
+        if prescan_markdown.strip():
+            prompt_parts.append(
+                "=== Phase One Summary ===\n"
+                f"{prescan_markdown.strip()}\n"
+                "=== End Phase One Summary ==="
+            )
+        prompt_parts.append(
+            "=== Target Event ===\n"
+            f"event_id: {event_id}\n"
+            f"recording_id: {recording_id if recording_id is not None else 'null'}"
+        )
+        prompt_parts.append(event_context)
+        if tool_catalog:
+            prompt_parts.append(tool_catalog)
+
+        human_prompt = append_test_directive("\n\n".join(prompt_parts))
+        if on_progress:
+            on_progress("Prompt prepared; invoking LLM vulnerability analysis.")
+
+        response_text = self._invoke_with_tools(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            tools=list(tools),
+            event_id=event_id,
+            max_rounds=max_rounds,
+            on_progress=on_progress,
+        )
+        return (response_text or "").strip() or "(LLM returned no analysis)"
+
+    def _invoke_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+        tools: list,
+        event_id: int,
+        max_rounds: int,
+        on_progress: Optional[Callable[[str], None]] = None,
+    ) -> Optional[str]:
+        if self.provider == "deepseek":
+            return self._run_deepseek_tool_conversation(
+                system_prompt=system_prompt,
+                human_prompt=human_prompt,
+                tools=tools,
+                event_id=event_id,
+                max_rounds=max_rounds,
+                on_progress=on_progress,
+            )
+
+        llm_with_tools = self.llm.bind_tools(tools)
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt),
+        ]
+        return self._run_tool_conversation(
+            llm_with_tools,
+            messages,
+            tools,
+            event_id=event_id,
+            max_rounds=max_rounds,
+            on_progress=on_progress,
+        )
+
     def _run_tool_conversation(
         self,
         llm_with_tools,
@@ -193,6 +282,7 @@ class ScannerAnalyzer:
         *,
         event_id: int,
         max_rounds: int,
+        on_progress: Optional[Callable[[str], None]] = None,
     ) -> Optional[str]:
         for round_num in range(max_rounds):
             try:
@@ -209,6 +299,8 @@ class ScannerAnalyzer:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
+                if on_progress:
+                    on_progress(f"LLM requested tool {tool_name}.")
 
                 result = "(tool not found)"
                 for tool in tools:
@@ -234,6 +326,7 @@ class ScannerAnalyzer:
         tools: list,
         event_id: int,
         max_rounds: int,
+        on_progress: Optional[Callable[[str], None]] = None,
     ) -> Optional[str]:
         """Run DeepSeek V4 thinking mode while preserving reasoning_content."""
         if self.deepseek_client is None:
@@ -275,6 +368,8 @@ class ScannerAnalyzer:
                 except json.JSONDecodeError:
                     tool_args = {}
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
+                if on_progress:
+                    on_progress(f"LLM requested tool {tool_name}.")
 
                 tool = tool_by_name.get(tool_name)
                 if tool is None:

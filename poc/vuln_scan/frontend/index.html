@@ -28,7 +28,6 @@
         <div class="scan-pane">
           <div class="pane-header">
             <h2>Evaluation</h2>
-            <button id="startButton" type="button" disabled>Evaluate</button>
           </div>
           <div class="scan-config" aria-label="LLM configuration">
             <label>
@@ -41,8 +40,34 @@
             </label>
           </div>
           <div id="selectedEvent" class="selected-event">Select an event.</div>
-          <div id="statusLine" class="status-line"></div>
-          <pre id="report" class="report" aria-live="polite"></pre>
+          <div class="tabs" role="tablist" aria-label="Evaluation phases">
+            <button id="phaseOneTab" class="tab active" type="button" role="tab" aria-selected="true">Pre-Scan</button>
+            <button id="vulnerabilityTab" class="tab" type="button" role="tab" aria-selected="false">Vulnerability Analysis</button>
+          </div>
+
+          <section id="phaseOnePanel" class="tab-panel active" role="tabpanel" aria-labelledby="phaseOneTab">
+            <div class="panel-actions">
+              <button id="startButton" type="button" disabled>Evaluate</button>
+            </div>
+            <div id="statusLine" class="status-line"></div>
+            <pre id="report" class="report" aria-live="polite"></pre>
+          </section>
+
+          <section id="vulnerabilityPanel" class="tab-panel" role="tabpanel" aria-labelledby="vulnerabilityTab">
+            <div class="analysis-actions">
+              <button id="addAnalysisButton" type="button">Add</button>
+              <button id="startAnalysisButton" type="button" disabled>Start</button>
+              <button id="abortAnalysisButton" type="button" disabled>Abort</button>
+            </div>
+            <div id="analysisItems" class="analysis-items"></div>
+            <label class="constraints-field">
+              <span>Constrains</span>
+              <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>
+            </label>
+            <div id="analysisStatus" class="status-line"></div>
+            <div id="toolApprovals" class="tool-approvals"></div>
+            <pre id="analysisProgress" class="report analysis-progress" aria-live="polite"></pre>
+          </section>
         </div>
       </section>
     </main>

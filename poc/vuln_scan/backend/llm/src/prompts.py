@@ -1,6 +1,12 @@
 from __future__ import annotations
 
 
+TEST_DIRECTIVE = (
+    "THIS IS A TEST. DO NOT RUN ANY TOOLS OR ANY ANALYSIS ON ANYTHING. "
+    "JUST REPLY 'TEST COMPLETE'."
+)
+
+
 def build_phase_one_system_prompt(
     *,
     has_app_details: bool,
@@ -16,7 +22,7 @@ def build_phase_one_system_prompt(
     if not extra_context:
         extra_context = "- No external application or user-action context was supplied."
 
-    return f"""You are performing information gathering foran authorized bug bounty or penetration test.
+    return f"""You are performing information gathering for an authorized bug bounty or penetration test.
 
 Scope:
 - This phase is read-only summarization of captured traffic for one database event.
@@ -50,4 +56,54 @@ Return exactly one JSON object with these keys:
   "supporting_packet_ids": [<integer>, ...]
 }}
 
-Keep the JSON strings concise but evidence-based. Do not wrap the JSON in Markdown."""
+Keep the JSON strings concise but evidence-based. Do not wrap the JSON in Markdown.
+"""
+
+
+def build_phase_two_system_prompt(
+    *,
+    analysis_types: list[str],
+    has_app_details: bool,
+    has_user_actions: bool,
+    has_prescan: bool,
+) -> str:
+    context_notes = []
+    if has_app_details:
+        context_notes.append("Use the supplied application details to interpret endpoints and flows.")
+    if has_user_actions:
+        context_notes.append("Use nearby user actions when choosing investigation steps.")
+    if has_prescan:
+        context_notes.append("Use the phase-one summary as the initial traffic entrypoint.")
+
+    extra_context = "\n".join(f"- {note}" for note in context_notes)
+    if not extra_context:
+        extra_context = "- No external application, user-action, or phase-one context was supplied."
+
+    type_text = ", ".join(analysis_types) if analysis_types else "Explorative"
+
+    return f"""You are performing LLM vulnerability analysis for an authorized bug bounty or penetration test.
+
+Scope:
+- Only analyze targets and behavior described by the supplied event, external context, and user constraints.
+- MCP tool calls are proxied; every tool call is shown to the user before it runs.
+- Prefer low-impact verification steps.
+
+Analysis tracks requested:
+- {type_text}
+
+Context handling:
+{extra_context}
+
+Available tool categories may include packet database tools, HexStrike MCP tools, and a Bash MCP server.
+When a tool is needed, call the most specific tool with complete arguments.
+
+Return a concise Markdown report with executive summary and detailed findings.
+
+{TEST_DIRECTIVE}"""
+
+
+def append_test_directive(prompt: str) -> str:
+    cleaned = prompt.rstrip()
+    if cleaned.endswith(TEST_DIRECTIVE):
+        return cleaned
+    return f"{cleaned}\n\n{TEST_DIRECTIVE}"
