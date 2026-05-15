@@ -1,4 +1,26 @@
-const ANALYSIS_TYPES = ["Recon", "Authentication", "Cloud Configuration", "Explorative"];
+const ANALYSIS_TYPES = [
+  {
+    label: "Recon: Domain",
+    description: "Perform a security analysis and discovery of all domains mentioned in the event.",
+  },
+  {
+    label: "Recon: Ports",
+    description: "Perform extensive port scans on the machines mentioned in the event.",
+  },
+  {
+    label: "Recon: HTTP Path/API",
+    description: "Perform discovery on any HTTP API or path found in the event.",
+  },
+  {
+    label: "Authentication",
+    description: "Evaluate authentication, session, authorization, and access-control behavior in the event.",
+  },
+  {
+    label: "Configuration",
+    description: "Evaluate endpoint/cloud configuration of all remote endpoints in the event. Look for HTTP configuration, exposed storage/database, exposed secrets, etc.",
+  },
+];
+const DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label;
 const ACTIVE_ANALYSIS_STATUSES = new Set(["queued", "running", "waiting_for_tool_approval"]);
 
 const state = {
@@ -345,9 +367,13 @@ function setActiveTab(tab) {
 }
 
 function addAnalysisItem() {
+  if (state.analysisItems.length > 0) {
+    setAnalysisStatus("Only one vulnerability analysis type can be selected.");
+    return;
+  }
   state.analysisItems.push({
     id: state.nextAnalysisItemId++,
-    type: "Recon",
+    type: DEFAULT_ANALYSIS_TYPE,
   });
   renderPhaseTwo();
 }
@@ -520,6 +546,7 @@ function renderPhaseTwo() {
   renderAnalysisItems();
 
   const event = selected();
+  addAnalysisButton.disabled = running || state.analysisItems.length >= 1;
   startAnalysisButton.disabled = running || !event || !state.selectedProvider || !state.selectedModel || state.analysisItems.length === 0;
   abortAnalysisButton.disabled = !running;
   stopToolButton.disabled = !canStopActiveTool();
@@ -535,7 +562,7 @@ function renderPhaseTwo() {
   } else if (state.phase2Run?.status === "aborted") {
     setAnalysisStatus("Analysis aborted.");
   } else if (state.analysisItems.length === 0) {
-    setAnalysisStatus("Add at least one vulnerability analysis type.");
+    setAnalysisStatus("Select a vulnerability analysis type.");
   } else {
     setAnalysisStatus("Ready to start vulnerability analysis.");
   }
@@ -550,7 +577,7 @@ function renderAnalysisItems() {
   if (state.analysisItems.length === 0) {
     const empty = document.createElement("div");
     empty.className = "event-meta";
-    empty.textContent = "No analysis types added.";
+    empty.textContent = "No analysis type selected.";
     analysisItems.append(empty);
     return;
   }
@@ -565,8 +592,8 @@ function renderAnalysisItems() {
     const select = document.createElement("select");
     for (const type of ANALYSIS_TYPES) {
       const option = document.createElement("option");
-      option.value = type;
-      option.textContent = type;
+      option.value = type.label;
+      option.textContent = type.label;
       select.append(option);
     }
     select.value = item.type;

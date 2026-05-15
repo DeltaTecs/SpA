@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -13,6 +14,8 @@ from pydantic import BaseModel, Field, create_model
 
 from mcp_client import MCPClient, MCPToolSpec
 
+
+logger = logging.getLogger(__name__)
 
 ApprovalCallback = Callable[[dict[str, Any]], bool]
 ProgressCallback = Callable[[str], None]
@@ -80,6 +83,8 @@ class PermissionedMCPToolProxy:
             self.clients[server.server_id] = client
             tool_specs = client.list_tools(timeout=server.tool_timeout_seconds)
             self._progress(f"{server.label}: loaded {len(tool_specs)} MCP tools.")
+            for spec in tool_specs:
+                self._progress(f"{server.label}: MCP tool loaded: {spec.name}")
 
             for spec in tool_specs:
                 if spec.name in CONTROL_TOOL_NAMES:
@@ -224,6 +229,7 @@ class PermissionedMCPToolProxy:
         )
 
     def _progress(self, message: str) -> None:
+        logger.info(message)
         if self.progress_callback:
             self.progress_callback(message)
 

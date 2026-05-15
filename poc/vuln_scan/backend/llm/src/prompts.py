@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from analysis_types import ANALYSIS_TYPE_DESCRIPTIONS
+
 
 def build_phase_one_system_prompt(
     *,
@@ -73,7 +75,16 @@ def build_phase_two_system_prompt(
     if not extra_context:
         extra_context = "- No external application, user-action, or phase-one context was supplied."
 
-    type_text = ", ".join(analysis_types) if analysis_types else "Explorative"
+    type_lines = []
+    for analysis_type in analysis_types:
+        description = ANALYSIS_TYPE_DESCRIPTIONS.get(analysis_type)
+        if description:
+            type_lines.append(f"- {analysis_type}: {description}")
+        else:
+            type_lines.append(f"- {analysis_type}")
+    if not type_lines:
+        type_lines.append("- No analysis track was selected.")
+    type_text = "\n".join(type_lines)
 
     return f"""You are performing LLM vulnerability analysis for an authorized bug bounty or penetration test.
 
@@ -83,7 +94,7 @@ Scope:
 - Prefer low-impact verification steps.
 
 Analysis tracks requested:
-- {type_text}
+{type_text}
 
 Context handling:
 {extra_context}

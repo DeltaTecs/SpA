@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from analysis_types import ALLOWED_ANALYSIS_TYPES, DEFAULT_ANALYSIS_TYPE
 from analysis_runner import run_phase_one_summary
 from logging_setup import configure_logging
 from mcp_client import MCPClient
@@ -70,7 +71,7 @@ class ScanResponse(BaseModel):
 
 class PhaseTwoRequest(BaseModel):
     event_id: int
-    analysis_types: List[str] = Field(default_factory=lambda: ["Explorative"])
+    analysis_types: List[str] = Field(default_factory=lambda: [DEFAULT_ANALYSIS_TYPE])
     constraints: str = ""
     auto_approve_mcp_database_requests: bool = False
     auto_approve_all_mcp_requests: bool = False
@@ -263,9 +264,21 @@ def _llm_settings(request: ScanRequest | PhaseTwoRequest):
 
 
 def _analysis_types(raw_types: List[str]) -> List[str]:
-    allowed = {"Recon", "Authentication", "Cloud Configuration", "Explorative"}
-    types = [item.strip() for item in raw_types if item.strip() in allowed]
-    return types or ["Explorative"]
+    types = [item.strip() for item in raw_types if item.strip()]
+    if not types:
+        return [DEFAULT_ANALYSIS_TYPE]
+    invalid = [item for item in types if item not in ALLOWED_ANALYSIS_TYPES]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported analysis type: {invalid[0]}",
+        )
+    if len(types) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="Select exactly one vulnerability analysis type.",
+        )
+    return types
 
 
 def _analysis_run(run_id: str) -> AnalysisRun:
