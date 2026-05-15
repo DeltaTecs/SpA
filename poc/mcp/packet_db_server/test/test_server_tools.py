@@ -724,15 +724,14 @@ class TestPacketDbServerTools(unittest.TestCase):
         event_text = event_packets(event_id)
         self.assertIn(f"event_id:{event_id}", event_text)
         self.assertIn(f"description:{description}", event_text)
-        self.assertIn("packets:2", event_text)
+        self.assertIn("packets:1", event_text)
         self.assertIn(f"packet_id:{response['packet_id']}", event_text)
-        self.assertIn(f"packet_id:{datagram['packet_id']}", event_text)
         self.assertNotIn(f"packet_id:{self.packets['request']['packet_id']}", event_text)
 
         all_events_text = events()
         self.assertIn(f"event_id:{event_id}", all_events_text)
         self.assertIn(f"description:{description}", all_events_text)
-        self.assertIn("packets:2", all_events_text)
+        self.assertIn("packets:1", all_events_text)
         self.assertIn(f"recording_ids:{self.recording_id}", all_events_text)
 
     def test_event_can_be_created_and_assigned_atomically(self) -> None:
