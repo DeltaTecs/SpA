@@ -4,43 +4,24 @@ import logging
 import os
 
 try:
-    from psycopg2.extras import RealDictCursor
-except ImportError as e:  # pragma: no cover
-    raise RuntimeError("psycopg2-binary is required") from e
-
-try:
     from mcp.server.fastmcp import FastMCP
     from mcp.server.fastmcp.server import TransportSecuritySettings
 except ImportError as e:  # pragma: no cover
     raise RuntimeError("mcp package is required") from e
 
 from .config import DbConfig
-from .db import retry_connect_db
-from .event_queries import (
-    assign_packet_to_event_record,
-    create_event_and_assign_packet_with_metadata_record,
-    create_event_record,
-    event_packets_text,
-    events_text,
-    events_for_recording_text,
-    update_event_description_record,
-)
+from .database_access import DatabaseAccess, database
 from .formatters import hexdump
-from .packet_queries import (
-    conversation_packets_text,
-    list_packet_ids_text,
-    packet_info_text_for_packet,
-    packets_in_time_window_text,
-    payload_hexdump_for_packet,
-)
 
 
 __all__ = [
     "DbConfig",
+    "DatabaseAccess",
     "assign_packet_to_event",
     "conversation_packets",
     "create_event",
     "create_event_and_assign_packet",
+    "database",
     "event_packets",
     "events",
     "events_for_recording",
@@ -52,6 +33,7 @@ __all__ = [
     "packets_in_time_window",
     "update_event_description",
 ]
+
 
 _mcp_host = os.environ.get("MCP_HOST", "0.0.0.0")
 _mcp_port = int(os.environ.get("MCP_PORT", "8765"))
@@ -71,27 +53,21 @@ mcp = FastMCP(
 def packet_info(packet_id: int) -> str:
     """Return flow, protocol, and preview payload info for a packet."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return packet_info_text_for_packet(cursor, packet_id)
+    return database.packet_info(packet_id)
 
 
 @mcp.tool()
 def packet_payload_hexdump(packet_id: int) -> str:
     """Return full cleartext application payload as hex+ASCII hexdump."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return payload_hexdump_for_packet(cursor, packet_id)
+    return database.packet_payload_hexdump(packet_id)
 
 
 @mcp.tool()
 def list_packet_ids(recording_id: int) -> str:
     """Return all packet IDs for a recording, ordered by packet number."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return list_packet_ids_text(cursor, recording_id)
+    return database.list_packet_ids(recording_id)
 
 
 @mcp.tool()
@@ -103,15 +79,12 @@ def conversation_packets(
 ) -> str:
     """Return packet facts for packets in the same conversation."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return conversation_packets_text(
-                cursor,
-                conversation_id,
-                packet_id=packet_id,
-                before=before,
-                after=after,
-            )
+    return database.conversation_packets(
+        conversation_id,
+        packet_id=packet_id,
+        before=before,
+        after=after,
+    )
 
 
 @mcp.tool()
@@ -123,51 +96,40 @@ def packets_in_time_window(
 ) -> str:
     """Return packet facts for a recording time window."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return packets_in_time_window_text(
-                cursor,
-                recording_id,
-                start_ms,
-                end_ms,
-                max_packets=max_packets,
-            )
+    return database.packets_in_time_window(
+        recording_id,
+        start_ms,
+        end_ms,
+        max_packets=max_packets,
+    )
 
 
 @mcp.tool()
 def events_for_recording(recording_id: int, packet_id: int = 0) -> str:
     """Return recording events, optionally filtered by packet IP/port tuple."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return events_for_recording_text(cursor, recording_id, packet_id=packet_id)
+    return database.events_for_recording(recording_id, packet_id=packet_id)
 
 
 @mcp.tool()
 def events() -> str:
     """Return all persisted events with packet counts and recording IDs."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return events_text(cursor)
+    return database.events()
 
 
 @mcp.tool()
 def event_packets(event_id: int) -> str:
     """Return event metadata and packet IDs assigned to the event."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return event_packets_text(cursor, event_id)
+    return database.event_packets(event_id)
 
 
 @mcp.tool()
 def create_event(description: str) -> str:
     """Create a new event and return its ID."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor() as cursor:
-            return create_event_record(cursor, description)
+    return database.create_event(description)
 
 
 @mcp.tool()
@@ -179,15 +141,12 @@ def create_event_and_assign_packet(
 ) -> str:
     """Create an event and assign one packet with LLM rationale metadata."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return create_event_and_assign_packet_with_metadata_record(
-                cursor,
-                packet_id,
-                description,
-                reason=reason,
-                confidence=confidence,
-            )
+    return database.create_event_and_assign_packet(
+        packet_id,
+        description,
+        reason=reason,
+        confidence=confidence,
+    )
 
 
 @mcp.tool()
@@ -199,24 +158,19 @@ def assign_packet_to_event(
 ) -> str:
     """Assign a packet to an event with LLM rationale metadata."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return assign_packet_to_event_record(
-                cursor,
-                packet_id,
-                event_id,
-                reason=reason,
-                confidence=confidence,
-            )
+    return database.assign_packet_to_event(
+        packet_id,
+        event_id,
+        reason=reason,
+        confidence=confidence,
+    )
 
 
 @mcp.tool()
 def update_event_description(event_id: int, description: str) -> str:
     """Update an event description after new packets clarify the event."""
 
-    with retry_connect_db() as conn:
-        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return update_event_description_record(cursor, event_id, description)
+    return database.update_event_description(event_id, description)
 
 
 def main() -> None:

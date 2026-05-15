@@ -6,8 +6,9 @@ langchain-google-genai>=1.0.0
 langchain-openai>=0.1.0
 openai>=1.0.0
 
-# HTTP client (for MCP server calls)
+# MCP and direct packet database access
 requests>=2.31.0
+psycopg2-binary>=2.9.9
 
 # Ollama client
 ollama>=0.2.0

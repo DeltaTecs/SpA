@@ -3,13 +3,33 @@
 from __future__ import annotations
 
 import logging
-import re
+import sys
+from pathlib import Path
 from typing import List, Optional
 
 from llm_analyzer import PacketAnalyzer
 from mcp_client import MCPClient
 from packet_tools import build_langchain_tools
 from user_context import UserAction, format_user_context
+
+try:
+    from packet_db_server.database_access import (
+        DatabaseAccess,
+        database as default_database,
+    )
+except ModuleNotFoundError as exc:
+    if exc.name != "packet_db_server":
+        raise
+
+    mcp_src = Path(__file__).resolve().parents[2] / "mcp" / "packet_db_server" / "src"
+    if not mcp_src.exists():
+        mcp_src = Path("/app/mcp_packet_db_server/src")
+    sys.path.insert(0, str(mcp_src))
+
+    from packet_db_server.database_access import (  # type: ignore[no-redef]
+        DatabaseAccess,
+        database as default_database,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -21,11 +41,14 @@ def run_analysis(
     recording_id: int,
     app_details: Optional[str] = None,
     user_actions: Optional[List[UserAction]] = None,
+    db_access: Optional[DatabaseAccess] = None,
 ) -> None:
     """Assign payload-bearing packets to events in capture order."""
 
     logger.info("Starting packet event assignment for recording %d", recording_id)
-    packet_ids = _parse_packet_ids(mcp_client.list_packet_ids(recording_id))
+    db = db_access or default_database
+    packet_metadata = db.packet_analysis_metadata_for_recording(recording_id)
+    packet_ids = [metadata.packet_id for metadata in packet_metadata]
     if not packet_ids:
         logger.warning("No packets found for recording %d", recording_id)
         return
@@ -33,7 +56,8 @@ def run_analysis(
     logger.info("Found %d packets for recording %d", len(packet_ids), recording_id)
     stats = {"processed": 0, "skipped": 0, "errors": 0}
 
-    for index, packet_id in enumerate(packet_ids, start=1):
+    for index, metadata in enumerate(packet_metadata, start=1):
+        packet_id = metadata.packet_id
         logger.info(
             "Evaluating packet %d/%d: packet_id=%d",
             index,
@@ -41,8 +65,7 @@ def run_analysis(
             packet_id,
         )
         try:
-            packet_info_text = mcp_client.packet_info(packet_id)
-            if not _has_clear_application_payload(packet_info_text):
+            if not metadata.has_clear_application_payload:
                 stats["skipped"] += 1
                 logger.info(
                     "Skipping packet_id=%d because clear application payload is empty",
@@ -50,6 +73,7 @@ def run_analysis(
                 )
                 continue
 
+            packet_info_text = mcp_client.packet_info(packet_id)
             mutation_state = {"done": False}
             tools = build_langchain_tools(
                 mcp_client,
@@ -61,7 +85,7 @@ def run_analysis(
             user_context = format_user_context(
                 app_details,
                 user_actions,
-                _packet_offset_ms(packet_info_text),
+                metadata.timestamp_offset_ms,
             )
             result = analyzer.assign_packet_to_event(
                 packet_id=packet_id,
@@ -98,42 +122,7 @@ def run_analysis(
     )
 
 
-def _parse_packet_ids(raw: str) -> List[int]:
-    """Extract packet IDs from the MCP list_packet_ids text response."""
-
-    packet_ids: List[int] = []
-    seen: set[int] = set()
-    for match in re.finditer(r"\bpacket_id:(\d+)\b", raw):
-        packet_id = int(match.group(1))
-        if packet_id not in seen:
-            packet_ids.append(packet_id)
-            seen.add(packet_id)
-    return packet_ids
-
-
-def _packet_offset_ms(packet_info_text: str) -> Optional[int]:
-    """Read the recording-relative timestamp from packet_info when present."""
-
-    match = re.search(
-        r"^timestamp offset:\s*(-?\d+)\s+ms",
-        packet_info_text,
-        flags=re.MULTILINE,
-    )
-    return int(match.group(1)) if match else None
-
-
-def _has_clear_application_payload(packet_info_text: str) -> bool:
-    """Return true when packet_info reports non-empty clear app payload."""
-
-    match = re.search(
-        r"^payload length:\s*(\d+)\s+bytes",
-        packet_info_text,
-        flags=re.MULTILINE,
-    )
-    return bool(match and int(match.group(1)) > 0)
-
-
 def _one_line(text: str) -> str:
     """Compact model result text for logs."""
 
-    return re.sub(r"\s+", " ", text.strip())
+    return " ".join(text.strip().split())

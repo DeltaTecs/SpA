@@ -115,8 +115,10 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MCP_URL=http://mcp-packet-db:8765
+      - PYTHONPATH=/app/src:/app/mcp_packet_db_server/src
     volumes:
       - ./grouping:/app
+      - ./mcp/packet_db_server/src:/app/mcp_packet_db_server/src:ro
       - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama
     networks:
