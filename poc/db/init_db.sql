@@ -103,6 +103,48 @@ CREATE TABLE IF NOT EXISTS pre_scan (
   supporting_packet_ids bigint[] NOT NULL DEFAULT ARRAY[]::bigint[]
 );
 
+-- Static phase-two vulnerability scan types.
+CREATE TABLE IF NOT EXISTS scan_type (
+  scan_type_id bigserial PRIMARY KEY,
+  title text NOT NULL UNIQUE,
+  prompt text NOT NULL DEFAULT ''
+);
+
+INSERT INTO scan_type (title, prompt) VALUES
+  (
+    'Recon: Domain',
+    'Perform a security analysis and discovery of all domains mentioned in the event.'
+  ),
+  (
+    'Recon: Ports',
+    'Perform extensive port scans on the machines mentioned in the event.'
+  ),
+  (
+    'Recon: HTTP Path/API',
+    'Perform discovery on any HTTP API or path found in the event.'
+  ),
+  (
+    'Authentication',
+    'Evaluate authentication, session, authorization, and access-control behavior in the event.'
+  ),
+  (
+    'Configuration',
+    'Evaluate endpoint/cloud configuration of all remote endpoints in the event. Look for HTTP configuration, exposed storage/database, exposed secrets, etc.'
+  )
+ON CONFLICT (title) DO UPDATE SET
+  prompt = EXCLUDED.prompt;
+
+CREATE TABLE IF NOT EXISTS scans (
+  scan_id bigserial PRIMARY KEY,
+  scan_type_id bigint NOT NULL REFERENCES scan_type(scan_type_id),
+  event_id bigint NOT NULL REFERENCES event(event_id) ON DELETE CASCADE,
+  llm_provider text NOT NULL DEFAULT '',
+  llm_model text NOT NULL DEFAULT '',
+  user_constrains text NOT NULL DEFAULT '',
+  tools_used text NOT NULL DEFAULT '',
+  summary text NOT NULL DEFAULT ''
+);
+
 -- Many-to-many between packet and header_information
 CREATE TABLE IF NOT EXISTS packet_header_information (
   packet_id bigint NOT NULL REFERENCES packet(packet_id) ON DELETE CASCADE,
@@ -143,3 +185,4 @@ CREATE INDEX IF NOT EXISTS idx_packet_conversation ON packet(conversation_id);
 -- Indexes for event + packet_event lookups
 CREATE INDEX IF NOT EXISTS idx_event_time_range ON event(start_timestamp, end_timestamp);
 CREATE INDEX IF NOT EXISTS idx_packet_event_event_id ON packet_event(event_id);
+CREATE INDEX IF NOT EXISTS idx_scans_event_id ON scans(event_id);

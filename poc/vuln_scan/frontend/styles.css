@@ -115,6 +115,11 @@ h2 {
   min-width: 0;
 }
 
+.events-pane {
+  display: flex;
+  flex-direction: column;
+}
+
 .pane-header {
   align-items: center;
   border-bottom: 1px solid #e3e7ed;
@@ -172,7 +177,8 @@ h2 {
 }
 
 .event-list {
-  max-height: calc(100vh - 178px);
+  flex: 0 1 42%;
+  min-height: 180px;
   overflow: auto;
 }
 
@@ -221,6 +227,64 @@ h2 {
   color: #596677;
   font-size: 12px;
   margin-top: 8px;
+}
+
+.stored-reports {
+  border-top: 1px solid #e3e7ed;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.stored-reports-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  min-height: 46px;
+  padding: 0 16px;
+}
+
+#storedReportPosition {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stored-reports-actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 0 16px 10px;
+}
+
+.stored-reports-actions button {
+  padding: 0 8px;
+}
+
+.stored-report-meta {
+  border-top: 1px solid #edf0f4;
+  color: #596677;
+  font-size: 12px;
+  line-height: 1.45;
+  min-height: 46px;
+  padding: 10px 16px;
+}
+
+.stored-report-body {
+  background: #f8fafc;
+  border: 0;
+  border-top: 1px solid #edf0f4;
+  color: #17202a;
+  flex: 1 1 auto;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+  min-height: 160px;
+  overflow: auto;
+  padding: 12px 16px;
+  white-space: pre-wrap;
 }
 
 .selected-event {
@@ -451,7 +515,12 @@ h2 {
   }
 
   .event-list {
+    flex-basis: auto;
     max-height: 320px;
+  }
+
+  .stored-report-body {
+    max-height: 280px;
   }
 
   .scan-config {

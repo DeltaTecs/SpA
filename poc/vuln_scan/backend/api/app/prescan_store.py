@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
 from dataclasses import asdict
-from typing import Iterator, List, Optional
+from typing import List, Optional
 
-import psycopg2
 from psycopg2.extras import RealDictCursor
 
 from scanner_models import ScanSummary
+
+from .db import connection
 
 
 MIGRATE_LEGACY_PRESCAN_TABLE = """
@@ -43,31 +42,8 @@ CREATE TABLE IF NOT EXISTS pre_scan (
 """
 
 
-@contextmanager
-def _connection() -> Iterator:
-    dsn = os.environ.get("DB_DSN")
-    if dsn:
-        conn = psycopg2.connect(dsn)
-    else:
-        conn = psycopg2.connect(
-            host=os.environ.get("DB_HOST", "postgres"),
-            port=int(os.environ.get("DB_PORT", "5432")),
-            dbname=os.environ.get("DB_NAME", "main"),
-            user=os.environ.get("DB_USER", "appuser"),
-            password=os.environ.get("DB_PASSWORD", "appuser_password"),
-        )
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
 def ensure_prescan_table() -> None:
-    with _connection() as conn:
+    with connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(MIGRATE_LEGACY_PRESCAN_TABLE)
             cursor.execute(CREATE_PRESCAN_TABLE)
@@ -75,7 +51,7 @@ def ensure_prescan_table() -> None:
 
 def save_prescan(summary: ScanSummary) -> None:
     ensure_prescan_table()
-    with _connection() as conn:
+    with connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
@@ -114,7 +90,7 @@ def save_prescan(summary: ScanSummary) -> None:
 
 def list_prescans() -> List[dict]:
     ensure_prescan_table()
-    with _connection() as conn:
+    with connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
                 """
@@ -136,7 +112,7 @@ def list_prescans() -> List[dict]:
 
 def get_prescan(event_id: int) -> Optional[ScanSummary]:
     ensure_prescan_table()
-    with _connection() as conn:
+    with connection() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute(
                 """

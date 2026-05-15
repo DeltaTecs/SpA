@@ -45,10 +45,20 @@ const state = {
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
+  storedReportsByEvent: {},
+  storedReportIndexByEvent: {},
+  loadingReportEventIds: new Set(),
+  reportErrorsByEvent: {},
 };
 
 const eventList = document.querySelector("#eventList");
 const eventCount = document.querySelector("#eventCount");
+const storedReportPosition = document.querySelector("#storedReportPosition");
+const previousStoredReportButton = document.querySelector("#previousStoredReportButton");
+const nextStoredReportButton = document.querySelector("#nextStoredReportButton");
+const refreshStoredReportsButton = document.querySelector("#refreshStoredReportsButton");
+const storedReportMeta = document.querySelector("#storedReportMeta");
+const storedReportBody = document.querySelector("#storedReportBody");
 const selectedEvent = document.querySelector("#selectedEvent");
 const statusLine = document.querySelector("#statusLine");
 const report = document.querySelector("#report");
@@ -82,6 +92,9 @@ const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
 
 refreshButton.addEventListener("click", loadEvents);
+previousStoredReportButton.addEventListener("click", () => cycleStoredReport(-1));
+nextStoredReportButton.addEventListener("click", () => cycleStoredReport(1));
+refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
 startButton.addEventListener("click", startPhaseOne);
 phaseOneTab.addEventListener("click", () => setActiveTab("phase1"));
 vulnerabilityTab.addEventListener("click", () => setActiveTab("phase2"));
@@ -162,6 +175,7 @@ async function loadEvents() {
     }
     renderEvents();
     renderSelectedEvent();
+    loadStoredReportsForSelectedEvent({force: true});
     setStatus(state.events.length ? "Select an event and evaluate it." : "No events found.");
   } catch (error) {
     setStatus(`Could not load events: ${error.message}`, true);
@@ -188,6 +202,52 @@ async function loadPrescans() {
     renderSelectedEvent();
   } catch (error) {
     setStatus(`Could not load stored evaluations: ${error.message}`, true);
+  }
+}
+
+async function loadStoredReportsForSelectedEvent(options = {}) {
+  const event = selected();
+  if (!event) {
+    renderStoredReports();
+    return;
+  }
+  await loadStoredReports(event.event_id, options);
+}
+
+async function refreshStoredReportsForSelectedEvent() {
+  await loadStoredReportsForSelectedEvent({force: true});
+}
+
+async function loadStoredReports(eventId, options = {}) {
+  if (!options.force && state.storedReportsByEvent[eventId]) {
+    renderStoredReports();
+    return;
+  }
+  if (state.loadingReportEventIds.has(eventId)) {
+    return;
+  }
+
+  state.loadingReportEventIds.add(eventId);
+  state.reportErrorsByEvent[eventId] = "";
+  renderStoredReports();
+  try {
+    const response = await fetch(`/api/events/${eventId}/scans`);
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    const reports = await response.json();
+    state.storedReportsByEvent[eventId] = Array.isArray(reports) ? reports : [];
+    const maxIndex = Math.max(0, state.storedReportsByEvent[eventId].length - 1);
+    state.storedReportIndexByEvent[eventId] = Math.min(
+      storedReportIndex(eventId),
+      maxIndex,
+    );
+  } catch (error) {
+    state.reportErrorsByEvent[eventId] = error.message;
+  } finally {
+    state.loadingReportEventIds.delete(eventId);
+    renderEvents();
+    renderStoredReports();
   }
 }
 
@@ -346,6 +406,9 @@ async function refreshPhaseTwoRun() {
     }
     state.phase2Run = await response.json();
     renderPhaseTwo();
+    if (state.phase2Run.status === "completed") {
+      await loadStoredReports(state.phase2Run.event_id, {force: true});
+    }
     if (!isPhaseTwoRunning()) {
       stopPhaseTwoPolling();
     }
@@ -479,6 +542,7 @@ function renderEvents() {
       state.selectedEventId = event.event_id;
       renderEvents();
       renderSelectedEvent();
+      loadStoredReportsForSelectedEvent();
       setStatus("Ready.");
     });
 
@@ -503,13 +567,18 @@ function renderEvents() {
       : state.results[event.event_id]
         ? "evaluated"
         : "not evaluated";
-    meta.textContent = `${event.packet_count} packets, recordings ${recordings}, ${evaluationState}`;
+    const reportCount = state.storedReportsByEvent[event.event_id]?.length;
+    const reportText = reportCount === undefined
+      ? ""
+      : `, ${reportCount} ${reportCount === 1 ? "report" : "reports"}`;
+    meta.textContent = `${event.packet_count} packets, recordings ${recordings}, ${evaluationState}${reportText}`;
 
     button.append(title, meta);
     eventList.append(button);
   }
 
   renderSelectedEvent();
+  renderStoredReports();
 }
 
 function renderSelectedEvent() {
@@ -523,17 +592,101 @@ function renderSelectedEvent() {
 
   if (!event) {
     report.textContent = "";
+    renderStoredReports();
     renderPhaseTwo();
     return;
   }
   if (isRunning) {
     report.textContent = `Evaluation is running for event ${event.event_id}.`;
+    renderStoredReports();
     renderPhaseTwo();
     return;
   }
   const result = state.results[event.event_id];
   report.textContent = result?.markdown || "No stored evaluation for this event.";
+  renderStoredReports();
   renderPhaseTwo();
+}
+
+function renderStoredReports() {
+  const event = selected();
+  if (!event) {
+    storedReportPosition.textContent = "0 / 0";
+    storedReportMeta.textContent = "Select an event.";
+    storedReportBody.textContent = "";
+    previousStoredReportButton.disabled = true;
+    nextStoredReportButton.disabled = true;
+    refreshStoredReportsButton.disabled = true;
+    return;
+  }
+
+  const eventId = event.event_id;
+  const isLoading = state.loadingReportEventIds.has(eventId);
+  const error = state.reportErrorsByEvent[eventId];
+  const reports = state.storedReportsByEvent[eventId] || [];
+  const reportCount = reports.length;
+  const index = storedReportIndex(eventId);
+  const current = reports[index] || null;
+
+  storedReportPosition.textContent = reportCount
+    ? `${index + 1} / ${reportCount}`
+    : "0 / 0";
+  previousStoredReportButton.disabled = isLoading || reportCount < 2;
+  nextStoredReportButton.disabled = isLoading || reportCount < 2;
+  refreshStoredReportsButton.disabled = isLoading;
+
+  if (isLoading) {
+    storedReportMeta.textContent = `Loading reports for event ${eventId}...`;
+    storedReportBody.textContent = "";
+    return;
+  }
+  if (error) {
+    storedReportMeta.textContent = `Could not load reports for event ${eventId}: ${error}`;
+    storedReportBody.textContent = "";
+    return;
+  }
+  if (!current) {
+    storedReportMeta.textContent = `No stored reports for event ${eventId}.`;
+    storedReportBody.textContent = "";
+    return;
+  }
+
+  storedReportMeta.textContent = storedReportMetaText(current);
+  storedReportBody.textContent = current.summary || "(empty report)";
+}
+
+function cycleStoredReport(delta) {
+  const event = selected();
+  if (!event) {
+    return;
+  }
+  const reports = state.storedReportsByEvent[event.event_id] || [];
+  if (reports.length < 2) {
+    return;
+  }
+  const index = storedReportIndex(event.event_id);
+  state.storedReportIndexByEvent[event.event_id] = (index + delta + reports.length) % reports.length;
+  renderStoredReports();
+}
+
+function storedReportIndex(eventId) {
+  const index = state.storedReportIndexByEvent[eventId] || 0;
+  const reports = state.storedReportsByEvent[eventId] || [];
+  if (reports.length === 0) {
+    return 0;
+  }
+  return Math.min(Math.max(index, 0), reports.length - 1);
+}
+
+function storedReportMetaText(reportItem) {
+  const toolsUsed = reportItem.tools_used?.trim() || "(none recorded)";
+  const constraints = reportItem.user_constrains?.trim() || "(none)";
+  return [
+    `Report #${reportItem.scan_id} - ${reportItem.scan_type_title || "Unknown scan type"}`,
+    `${reportItem.llm_provider || "provider"} / ${reportItem.llm_model || "model"}`,
+    `Tools: ${toolsUsed}`,
+    `Constraints: ${constraints}`,
+  ].join("\n");
 }
 
 function renderPhaseTwo() {

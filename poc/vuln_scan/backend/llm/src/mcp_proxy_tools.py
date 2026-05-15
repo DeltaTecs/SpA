@@ -7,7 +7,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Optional
+from typing import Any, Callable, Collection, Dict, Iterable, Mapping, Optional
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
@@ -29,6 +29,12 @@ class ToolCallAborted(RuntimeError):
 
 
 CONTROL_TOOL_NAMES = {"stop_active_bash", "stop_active_tool"}
+PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES = {
+    "event_packets",
+    "packet_info",
+    "packet_payload_hexdump",
+    "packets_in_time_window",
+}
 
 
 @dataclass(frozen=True)
@@ -58,6 +64,7 @@ class PermissionedMCPToolProxy:
         tool_start_callback: Optional[ToolStartCallback] = None,
         tool_stop_requested_callback: Optional[ToolStopRequestedCallback] = None,
         tool_finish_callback: Optional[ToolFinishCallback] = None,
+        allowed_tool_names_by_server_id: Optional[Mapping[str, Collection[str]]] = None,
     ):
         self.servers = list(servers)
         self.approval_callback = approval_callback
@@ -65,6 +72,10 @@ class PermissionedMCPToolProxy:
         self.tool_start_callback = tool_start_callback
         self.tool_stop_requested_callback = tool_stop_requested_callback
         self.tool_finish_callback = tool_finish_callback
+        self.allowed_tool_names_by_server_id = {
+            server_id: frozenset(tool_names)
+            for server_id, tool_names in (allowed_tool_names_by_server_id or {}).items()
+        }
         self.clients: dict[str, MCPClient] = {}
         self.exposed_tools: dict[str, ExposedMCPTool] = {}
         self.control_stop_tools: dict[str, str] = {}
@@ -89,6 +100,25 @@ class PermissionedMCPToolProxy:
             for spec in tool_specs:
                 if spec.name in CONTROL_TOOL_NAMES:
                     self.control_stop_tools[server.server_id] = spec.name
+                    continue
+                if (
+                    _is_packet_db_server(server)
+                    and spec.name in PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES
+                ):
+                    self._progress(
+                        f"{server.label}: MCP tool hidden from phase two: {spec.name}"
+                    )
+                    continue
+                allowed_tool_names = self.allowed_tool_names_by_server_id.get(
+                    server.server_id
+                )
+                if (
+                    allowed_tool_names is not None
+                    and spec.name not in allowed_tool_names
+                ):
+                    self._progress(
+                        f"{server.label}: MCP tool not enabled for selected analysis: {spec.name}"
+                    )
                     continue
 
                 exposed_name = _exposed_tool_name(server.server_id, spec.name, used_names)
@@ -340,6 +370,17 @@ def _exposed_tool_name(server_id: str, tool_name: str, used_names: set[str]) -> 
 
     used_names.add(candidate)
     return candidate
+
+
+def _is_packet_db_server(server: MCPServerSpec) -> bool:
+    server_id = _safe_identifier(server.server_id)
+    label = _safe_identifier(server.label)
+    return (
+        server_id == "packet"
+        or label == "packet_db"
+        or "packet_db" in server_id
+        or "packetdb" in server_id
+    )
 
 
 def _safe_identifier(value: str) -> str:

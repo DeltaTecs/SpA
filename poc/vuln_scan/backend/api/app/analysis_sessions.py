@@ -249,6 +249,17 @@ class AnalysisRun:
             self.updated_at = time.time()
             self._condition.notify_all()
 
+    def tools_used(self) -> list[str]:
+        with self._condition:
+            return [
+                _tool_display_name(request.tool_call)
+                for request in sorted(
+                    self.tool_requests.values(),
+                    key=lambda item: item.created_at,
+                )
+                if request.status == "approved"
+            ]
+
     def decide_tool_request(self, request_id: str, approved: bool) -> None:
         with self._condition:
             request = self.tool_requests.get(request_id)

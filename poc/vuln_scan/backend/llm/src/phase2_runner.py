@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, Sequence
 
+from analysis_types import hexstrike_mcp_tools_for_analysis_types
 from event_context import load_prepared_event_context
 from llm_analyzer import ScannerAnalyzer
 from mcp_client import MCPClient
@@ -42,6 +43,17 @@ def run_phase_two_analysis(
 
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
     external_context = prepared.external_context(app_details, user_actions)
+    allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(analysis_types)
+    hexstrike_server_ids = {
+        server.server_id for server in mcp_servers if _is_hexstrike_server(server)
+    }
+    allowed_tool_names_by_server_id = {
+        server_id: allowed_hexstrike_tools for server_id in hexstrike_server_ids
+    }
+    progress_callback(
+        "Selected analysis tracks enable "
+        f"{len(allowed_hexstrike_tools)} HexStrike MCP tools."
+    )
 
     proxy = PermissionedMCPToolProxy(
         mcp_servers,
@@ -50,6 +62,7 @@ def run_phase_two_analysis(
         tool_start_callback=tool_start_callback,
         tool_stop_requested_callback=tool_stop_requested_callback,
         tool_finish_callback=tool_finish_callback,
+        allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
     )
     tools = proxy.build_tools()
     tool_catalog = proxy.tool_catalog()
@@ -73,3 +86,10 @@ def run_phase_two_analysis(
     )
     progress_callback("LLM vulnerability analysis finished.")
     return result
+
+
+def _is_hexstrike_server(server: MCPServerSpec) -> bool:
+    return (
+        "hexstrike" in server.server_id.lower()
+        or "hexstrike" in server.label.lower()
+    )

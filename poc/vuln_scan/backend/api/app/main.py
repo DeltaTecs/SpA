@@ -29,6 +29,7 @@ from user_context import load_app_details, parse_intend_file, parse_intend_text
 
 from .analysis_sessions import AnalysisRun, AnalysisSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
+from .scan_store import list_phase_two_scans, save_completed_phase_two_scan
 
 
 configure_logging()
@@ -98,6 +99,19 @@ class StoredPhaseOneItem(BaseModel):
     supporting_packet_ids: List[int] = Field(default_factory=list)
 
 
+class StoredScanReportItem(BaseModel):
+    scan_id: int
+    scan_type_id: int
+    scan_type_title: str
+    scan_type_prompt: str = ""
+    event_id: int
+    llm_provider: str = ""
+    llm_model: str = ""
+    user_constrains: str = ""
+    tools_used: str = ""
+    summary: str = ""
+
+
 analysis_runs = AnalysisSessionStore()
 
 
@@ -146,6 +160,11 @@ def prescan(event_id: int) -> ScanResponse:
         markdown=summary.to_markdown(),
         summary=prescan_dict(summary),
     )
+
+
+@app.get("/events/{event_id}/scans", response_model=List[StoredScanReportItem])
+def stored_scan_reports(event_id: int) -> List[StoredScanReportItem]:
+    return [StoredScanReportItem(**row) for row in list_phase_two_scans(event_id)]
 
 
 @app.post("/phase1", response_model=ScanResponse)
@@ -330,6 +349,21 @@ def _run_phase2_background(
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
         )
+        if run.abort_requested:
+            run.complete("")
+            return
+        scan_id = save_completed_phase_two_scan(
+            scan_type_title=(
+                run.analysis_types[0] if run.analysis_types else DEFAULT_ANALYSIS_TYPE
+            ),
+            event_id=run.event_id,
+            llm_provider=run.provider,
+            llm_model=run.model,
+            user_constraints=run.constraints,
+            tools_used=run.tools_used(),
+            summary=result,
+        )
+        run.add_progress(f"Stored phase-two scan report: scan_id {scan_id}.")
         run.complete(result)
     except Exception as exc:
         if run.abort_requested:

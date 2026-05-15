@@ -17,8 +17,12 @@ The scanner orchestrator also uses `event_packets(event_id)` to resolve the
 packets assigned to the requested event before invoking the LLM.
 
 Phase-two tools are discovered from `PHASE2_MCP_SERVERS` and exposed with
-server-prefixed names such as `packet__packet_info`, `hexstrike__nmap_scan`,
-and `bash__bash`. Every phase-two tool call blocks on the API/UI approval
+server-prefixed names such as `packet__conversation_packets`,
+`hexstrike__nmap_scan`, and `bash__bash`. HexStrike tools are filtered by the
+selected analysis tracks' allowlists. Packet DB and Bash tools are otherwise
+still exposed normally, except the packet DB tools `packet_info`,
+`packet_payload_hexdump`, `packets_in_time_window`, and `event_packets` are not
+exposed in phase two. Every phase-two tool call blocks on the API/UI approval
 callback before the underlying MCP call runs.
 
 All prompts currently end with the test directive that instructs the model to
