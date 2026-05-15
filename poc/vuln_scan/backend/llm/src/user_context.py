@@ -16,27 +16,31 @@ class UserAction:
 
 
 def parse_intend_file(path: str) -> List[UserAction]:
-    actions: List[UserAction] = []
     with open(path, encoding="utf-8") as fh:
-        for raw_line in fh:
-            line = raw_line.strip()
-            if not line:
-                continue
-            match = re.match(r"^(\d+):(\d{2})\s+(.+)$", line)
-            if not match:
-                logger.debug("Skipping unparseable intend line: %s", line)
-                continue
-            minutes = int(match.group(1))
-            seconds = int(match.group(2))
-            actions.append(
-                UserAction(
-                    offset_ms=(minutes * 60 + seconds) * 1000,
-                    description=match.group(3),
-                )
+        return parse_intend_text(fh.read(), path)
+
+
+def parse_intend_text(text: str, source: str = "provided content") -> List[UserAction]:
+    actions: List[UserAction] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        match = re.match(r"^(\d+):(\d{2})\s+(.+)$", line)
+        if not match:
+            logger.debug("Skipping unparseable intend line: %s", line)
+            continue
+        minutes = int(match.group(1))
+        seconds = int(match.group(2))
+        actions.append(
+            UserAction(
+                offset_ms=(minutes * 60 + seconds) * 1000,
+                description=match.group(3),
             )
+        )
 
     actions.sort(key=lambda action: action.offset_ms)
-    logger.info("Parsed %d user actions from %s", len(actions), path)
+    logger.info("Parsed %d user actions from %s", len(actions), source)
     return actions
 
 

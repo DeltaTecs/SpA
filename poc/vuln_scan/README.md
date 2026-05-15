@@ -40,6 +40,11 @@ Phase-one evaluations are persisted in the PostgreSQL `pre_scan` table, keyed
 one-to-one by `event_id`. Re-evaluating an event replaces that event's stored
 pre-scan.
 
+The UI includes Browse buttons for user actions and the application
+description. Selected text files are read in the browser and sent with the scan
+request. If no file is selected, the backend uses its configured `USER_INTEND`
+and `APP_DETAILS` defaults.
+
 Phase-two vulnerability analysis is started from the UI under
 `Evaluation -> Vulnerability Analysis`. Each run is held in API memory while it
 is active. The UI polls for progress, shows pending MCP tool calls in full, and

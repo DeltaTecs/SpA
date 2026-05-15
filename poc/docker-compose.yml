@@ -128,7 +128,7 @@ services:
     tty: true
     stdin_open: true
 
-  # LLM runtime for vulnerability-assessment phase-one/two workflows
+  # container that solely hosts local LLM, if ollama is requested
   scanner-llm:
     build: ./vuln_scan/backend/llm
     container_name: scanner-llm

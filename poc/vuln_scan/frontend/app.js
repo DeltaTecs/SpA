@@ -7,6 +7,10 @@ const state = {
   providers: [],
   selectedProvider: null,
   selectedModel: null,
+  appDetailsFileName: "",
+  appDetailsContent: null,
+  userIntendFileName: "",
+  userIntendContent: null,
   runningEventIds: new Set(),
   results: {},
   configError: null,
@@ -29,6 +33,12 @@ const refreshButton = document.querySelector("#refreshButton");
 const configText = document.querySelector("#configText");
 const providerSelect = document.querySelector("#providerSelect");
 const modelSelect = document.querySelector("#modelSelect");
+const appDetailsBrowseButton = document.querySelector("#appDetailsBrowseButton");
+const appDetailsFileInput = document.querySelector("#appDetailsFileInput");
+const appDetailsFileName = document.querySelector("#appDetailsFileName");
+const userIntendBrowseButton = document.querySelector("#userIntendBrowseButton");
+const userIntendFileInput = document.querySelector("#userIntendFileInput");
+const userIntendFileName = document.querySelector("#userIntendFileName");
 const phaseOneTab = document.querySelector("#phaseOneTab");
 const vulnerabilityTab = document.querySelector("#vulnerabilityTab");
 const phaseOnePanel = document.querySelector("#phaseOnePanel");
@@ -62,6 +72,10 @@ modelSelect.addEventListener("change", () => {
   state.selectedModel = modelSelect.value;
   renderConfig();
 });
+appDetailsBrowseButton.addEventListener("click", () => appDetailsFileInput.click());
+userIntendBrowseButton.addEventListener("click", () => userIntendFileInput.click());
+appDetailsFileInput.addEventListener("change", () => readSelectedFile(appDetailsFileInput, "appDetails"));
+userIntendFileInput.addEventListener("change", () => readSelectedFile(userIntendFileInput, "userIntend"));
 
 loadConfig();
 loadEvents();
@@ -78,11 +92,19 @@ async function loadConfig() {
     state.providers = Array.isArray(config.providers) ? config.providers : [];
     state.selectedProvider = config.provider || firstAvailableProvider()?.id || null;
     state.selectedModel = config.model || modelsForProvider(state.selectedProvider)[0] || null;
+    state.appDetailsFileName = "";
+    state.appDetailsContent = null;
+    state.userIntendFileName = "";
+    state.userIntendContent = null;
     renderConfig();
   } catch (error) {
     state.providers = [];
     state.selectedProvider = null;
     state.selectedModel = null;
+    state.appDetailsFileName = "";
+    state.appDetailsContent = null;
+    state.userIntendFileName = "";
+    state.userIntendContent = null;
     state.configError = "Backend configuration unavailable.";
     renderConfig();
   }
@@ -148,6 +170,7 @@ async function startPhaseOne() {
       event_id: event.event_id,
       provider: state.selectedProvider,
       model: state.selectedModel,
+      ...contextPayload(),
     };
     const response = await fetch("/api/phase1", {
       method: "POST",
@@ -183,6 +206,7 @@ async function startPhaseTwo() {
     constraints: state.analysisConstraints,
     provider: state.selectedProvider,
     model: state.selectedModel,
+    ...contextPayload(),
   };
 
   setAnalysisStatus(`Starting vulnerability analysis for event ${event.event_id}...`);
@@ -294,6 +318,42 @@ function addAnalysisItem() {
   renderPhaseTwo();
 }
 
+async function readSelectedFile(input, target) {
+  const file = input.files?.[0];
+  if (!file) {
+    return;
+  }
+
+  try {
+    const content = await file.text();
+    if (target === "appDetails") {
+      state.appDetailsFileName = file.name;
+      state.appDetailsContent = content;
+    } else {
+      state.userIntendFileName = file.name;
+      state.userIntendContent = content;
+    }
+    renderConfig();
+    setStatus(`Loaded ${file.name}.`);
+  } catch (error) {
+    setStatus(`Could not read ${file.name}: ${error.message}`, true);
+  } finally {
+    input.value = "";
+  }
+}
+
+function contextPayload() {
+  const payload = {};
+
+  if (state.appDetailsContent !== null) {
+    payload.app_details_content = state.appDetailsContent;
+  }
+  if (state.userIntendContent !== null) {
+    payload.user_intend_content = state.userIntendContent;
+  }
+  return payload;
+}
+
 function renderConfig() {
   const availableProviders = state.providers.filter((provider) => provider.available);
 
@@ -324,6 +384,8 @@ function renderConfig() {
 
   providerSelect.value = state.selectedProvider || "";
   modelSelect.value = state.selectedModel || "";
+  appDetailsFileName.textContent = state.appDetailsFileName || "Using configured default";
+  userIntendFileName.textContent = state.userIntendFileName || "Using configured default";
   providerSelect.disabled = availableProviders.length === 0;
   modelSelect.disabled = models.length === 0;
 

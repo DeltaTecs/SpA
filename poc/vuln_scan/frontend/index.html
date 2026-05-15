@@ -38,6 +38,22 @@
               <span>Model</span>
               <select id="modelSelect" disabled></select>
             </label>
+            <label>
+              <span>User actions / intend file</span>
+              <div class="file-field">
+                <button id="userIntendBrowseButton" type="button">Browse</button>
+                <span id="userIntendFileName" class="file-selected">Using configured default</span>
+              </div>
+              <input id="userIntendFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
+            </label>
+            <label>
+              <span>Application description file</span>
+              <div class="file-field">
+                <button id="appDetailsBrowseButton" type="button">Browse</button>
+                <span id="appDetailsFileName" class="file-selected">Using configured default</span>
+              </div>
+              <input id="appDetailsFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
+            </label>
           </div>
           <div id="selectedEvent" class="selected-event">Select an event.</div>
           <div class="tabs" role="tablist" aria-label="Evaluation phases">

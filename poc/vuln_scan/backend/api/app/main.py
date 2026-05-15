@@ -24,7 +24,7 @@ from scanner_config import (
     resolve_model,
     resolve_provider,
 )
-from user_context import load_app_details, parse_intend_file
+from user_context import load_app_details, parse_intend_file, parse_intend_text
 
 from .analysis_sessions import AnalysisRun, AnalysisSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
@@ -57,6 +57,8 @@ class ScanRequest(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     api_base_url: Optional[str] = None
+    app_details_content: Optional[str] = None
+    user_intend_content: Optional[str] = None
 
 
 class ScanResponse(BaseModel):
@@ -74,6 +76,8 @@ class PhaseTwoRequest(BaseModel):
     model: Optional[str] = None
     api_key: Optional[str] = None
     api_base_url: Optional[str] = None
+    app_details_content: Optional[str] = None
+    user_intend_content: Optional[str] = None
 
 
 class ToolDecisionRequest(BaseModel):
@@ -156,10 +160,12 @@ def run_phase1(request: ScanRequest) -> ScanResponse:
             mcp_client=_mcp_client(),
             analyzer=analyzer,
             event_id=request.event_id,
-            app_details=_optional_app_details(),
-            user_actions=_optional_user_actions(),
+            app_details=_optional_app_details(request),
+            user_actions=_optional_user_actions(request),
         )
         save_prescan(summary)
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -292,8 +298,8 @@ def _run_phase2_background(
             mcp_servers=analysis_mcp_server_specs_from_env(),
             approval_callback=run.request_tool_permission,
             progress_callback=run.add_progress,
-            app_details=_optional_app_details(),
-            user_actions=_optional_user_actions(),
+            app_details=_optional_app_details(request),
+            user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
         )
         run.complete(result)
@@ -304,18 +310,38 @@ def _run_phase2_background(
         run.fail(str(exc))
 
 
-def _optional_app_details() -> Optional[str]:
-    path = os.environ.get("APP_DETAILS")
-    if not path or not os.path.exists(path):
+def _optional_app_details(request: ScanRequest | PhaseTwoRequest) -> Optional[str]:
+    if request.app_details_content is not None:
+        return request.app_details_content.strip() or None
+
+    resolved_path = _context_file_path("APP_DETAILS")
+    if resolved_path is None:
         return None
-    return load_app_details(path)
+    return load_app_details(resolved_path)
 
 
-def _optional_user_actions():
-    path = os.environ.get("USER_INTEND")
-    if not path or not os.path.exists(path):
+def _optional_user_actions(request: ScanRequest | PhaseTwoRequest):
+    if request.user_intend_content is not None:
+        return parse_intend_text(request.user_intend_content, "uploaded user intend file")
+
+    resolved_path = _context_file_path("USER_INTEND")
+    if resolved_path is None:
         return None
-    return parse_intend_file(path)
+    return parse_intend_file(resolved_path)
+
+
+def _context_file_path(env_name: str) -> Optional[str]:
+    candidate = os.environ.get(env_name)
+    if candidate is None:
+        return None
+
+    candidate = candidate.strip()
+    if not candidate:
+        return None
+
+    if not os.path.isfile(candidate):
+        return None
+    return candidate
 
 
 def _parse_events(text: str) -> List[EventItem]:
