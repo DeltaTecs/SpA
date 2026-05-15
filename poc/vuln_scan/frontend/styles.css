@@ -268,6 +268,34 @@ h2 {
   padding: 8px 16px;
 }
 
+.auto-approval-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-right: auto;
+}
+
+.auto-approval-option {
+  align-items: center;
+  color: #394656;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.auto-approval-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.auto-approval-option:has(input:disabled) {
+  opacity: 0.55;
+}
+
 .analysis-items {
   display: grid;
   gap: 8px;
@@ -299,6 +327,53 @@ h2 {
   display: grid;
   gap: 10px;
   padding: 0 16px;
+}
+
+.analysis-process {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e3e7ed;
+  border-radius: 6px;
+  color: #394656;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 10px;
+  margin: 10px 16px 12px;
+  min-height: 42px;
+  padding: 8px 12px;
+}
+
+.analysis-process.error {
+  border-color: #f2b8b5;
+  color: #b42318;
+}
+
+.analysis-process.terminal {
+  background: #ffffff;
+}
+
+.process-spinner {
+  border: 3px solid #d7dde5;
+  border-top-color: #2f6feb;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  height: 18px;
+  width: 18px;
+}
+
+.analysis-process.active .process-spinner {
+  animation: process-spin 0.8s linear infinite;
+}
+
+.analysis-process:not(.active) .process-spinner {
+  border-top-color: #d7dde5;
+}
+
+@keyframes process-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .tool-approval {

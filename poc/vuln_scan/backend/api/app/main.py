@@ -72,6 +72,8 @@ class PhaseTwoRequest(BaseModel):
     event_id: int
     analysis_types: List[str] = Field(default_factory=lambda: ["Explorative"])
     constraints: str = ""
+    auto_approve_mcp_database_requests: bool = False
+    auto_approve_all_mcp_requests: bool = False
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
@@ -190,6 +192,8 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         approval_timeout_seconds=float(
             os.environ.get("PHASE2_APPROVAL_TIMEOUT_SECONDS", "3600")
         ),
+        auto_approve_mcp_database_requests=request.auto_approve_mcp_database_requests,
+        auto_approve_all_mcp_requests=request.auto_approve_all_mcp_requests,
     )
 
     thread = threading.Thread(
@@ -211,6 +215,14 @@ def phase2_status(run_id: str) -> dict:
 def abort_phase2(run_id: str) -> dict:
     run = _analysis_run(run_id)
     run.abort()
+    return run.snapshot()
+
+
+@app.post("/phase2/{run_id}/tool/stop")
+def stop_phase2_tool(run_id: str) -> dict:
+    run = _analysis_run(run_id)
+    if not run.request_active_tool_stop():
+        raise HTTPException(status_code=409, detail="No MCP tool is currently running")
     return run.snapshot()
 
 
@@ -298,6 +310,9 @@ def _run_phase2_background(
             mcp_servers=analysis_mcp_server_specs_from_env(),
             approval_callback=run.request_tool_permission,
             progress_callback=run.add_progress,
+            tool_start_callback=run.start_tool_execution,
+            tool_stop_requested_callback=run.is_tool_stop_requested,
+            tool_finish_callback=run.finish_tool_execution,
             app_details=_optional_app_details(request),
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,

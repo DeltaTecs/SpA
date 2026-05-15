@@ -71,8 +71,19 @@
 
           <section id="vulnerabilityPanel" class="tab-panel" role="tabpanel" aria-labelledby="vulnerabilityTab">
             <div class="analysis-actions">
+              <div class="auto-approval-options">
+                <label class="auto-approval-option">
+                  <input id="autoApproveMcpDatabaseRequests" type="checkbox">
+                  <span>Auto approve MCP database requests</span>
+                </label>
+                <label class="auto-approval-option">
+                  <input id="autoApproveAllMcpRequests" type="checkbox">
+                  <span>Auto approve all MCP requests</span>
+                </label>
+              </div>
               <button id="addAnalysisButton" type="button">Add</button>
               <button id="startAnalysisButton" type="button" disabled>Start</button>
+              <button id="stopToolButton" type="button" disabled>Stop MCP Tool</button>
               <button id="abortAnalysisButton" type="button" disabled>Abort</button>
             </div>
             <div id="analysisItems" class="analysis-items"></div>
@@ -81,6 +92,10 @@
               <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>
             </label>
             <div id="analysisStatus" class="status-line"></div>
+            <div id="analysisProcess" class="analysis-process" role="status" aria-live="polite">
+              <span class="process-spinner" aria-hidden="true"></span>
+              <span id="analysisProcessText">Idle</span>
+            </div>
             <div id="toolApprovals" class="tool-approvals"></div>
             <pre id="analysisProgress" class="report analysis-progress" aria-live="polite"></pre>
           </section>

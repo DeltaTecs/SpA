@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Optional
 
@@ -15,6 +16,9 @@ from mcp_client import MCPClient, MCPToolSpec
 
 ApprovalCallback = Callable[[dict[str, Any]], bool]
 ProgressCallback = Callable[[str], None]
+ToolStartCallback = Callable[[dict[str, Any]], str]
+ToolStopRequestedCallback = Callable[[str], bool]
+ToolFinishCallback = Callable[[str], None]
 
 
 class ToolCallAborted(RuntimeError):
@@ -45,10 +49,16 @@ class PermissionedMCPToolProxy:
         *,
         approval_callback: ApprovalCallback,
         progress_callback: Optional[ProgressCallback] = None,
+        tool_start_callback: Optional[ToolStartCallback] = None,
+        tool_stop_requested_callback: Optional[ToolStopRequestedCallback] = None,
+        tool_finish_callback: Optional[ToolFinishCallback] = None,
     ):
         self.servers = list(servers)
         self.approval_callback = approval_callback
         self.progress_callback = progress_callback
+        self.tool_start_callback = tool_start_callback
+        self.tool_stop_requested_callback = tool_stop_requested_callback
+        self.tool_finish_callback = tool_finish_callback
         self.clients: dict[str, MCPClient] = {}
         self.exposed_tools: dict[str, ExposedMCPTool] = {}
 
@@ -105,11 +115,65 @@ class PermissionedMCPToolProxy:
 
         self._progress(f"Running approved tool {exposed.exposed_name}.")
         client = self.clients[exposed.server.server_id]
-        return client.call_tool(
-            exposed.spec.name,
-            arguments,
-            timeout=exposed.server.tool_timeout_seconds,
+        return self._call_tool_with_user_stop(
+            client=client,
+            exposed=exposed,
+            arguments=arguments,
+            tool_call=tool_call,
         )
+
+    def _call_tool_with_user_stop(
+        self,
+        *,
+        client: MCPClient,
+        exposed: ExposedMCPTool,
+        arguments: dict[str, Any],
+        tool_call: dict[str, Any],
+    ) -> str:
+        if (
+            self.tool_start_callback is None
+            or self.tool_stop_requested_callback is None
+            or self.tool_finish_callback is None
+        ):
+            return client.call_tool(
+                exposed.spec.name,
+                arguments,
+                timeout=exposed.server.tool_timeout_seconds,
+            )
+
+        execution_id = self.tool_start_callback(tool_call)
+        done = threading.Event()
+        result: dict[str, Any] = {}
+
+        def _worker() -> None:
+            try:
+                call_client = MCPClient(
+                    exposed.server.url,
+                    connect_timeout=30,
+                    default_timeout=exposed.server.tool_timeout_seconds,
+                )
+                result["value"] = call_client.call_tool(
+                    exposed.spec.name,
+                    arguments,
+                    timeout=exposed.server.tool_timeout_seconds,
+                )
+            except BaseException as exc:
+                result["error"] = exc
+            finally:
+                done.set()
+
+        threading.Thread(target=_worker, daemon=True).start()
+        try:
+            while not done.wait(timeout=0.25):
+                if self.tool_stop_requested_callback(execution_id):
+                    return "Tool call stopped by user."
+
+            error = result.get("error")
+            if isinstance(error, BaseException):
+                raise error
+            return str(result.get("value", ""))
+        finally:
+            self.tool_finish_callback(execution_id)
 
     def _langchain_tool(self, exposed: ExposedMCPTool) -> StructuredTool:
         args_schema = _args_schema(exposed.exposed_name, exposed.spec.input_schema)

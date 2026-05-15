@@ -1,9 +1,11 @@
 #!/opt/hexstrike-venv/bin/python
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 try:
@@ -19,6 +21,7 @@ DEFAULT_CWD = os.environ.get("HEXSTRIKE_BASH_MCP_CWD", "/workspace")
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_TIMEOUT", "60"))
 MAX_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_TIMEOUT", "300"))
 MAX_OUTPUT_BYTES = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_OUTPUT_BYTES", "65536"))
+logger = logging.getLogger(__name__)
 
 
 mcp = FastMCP(
@@ -47,6 +50,25 @@ def _text(value: str | bytes | None) -> str:
     return value
 
 
+def _log_level() -> int:
+    normalized = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    if normalized == "VERBOSE":
+        return logging.DEBUG
+    return getattr(logging, normalized, logging.INFO)
+
+
+def _log_payload(value: object) -> str:
+    try:
+        text = json.dumps(value, indent=2, sort_keys=True, default=str)
+    except TypeError:
+        text = str(value)
+
+    max_chars = int(os.environ.get("MCP_LOG_MAX_CHARS", "20000"))
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n... truncated {len(text) - max_chars} chars"
+
+
 def _working_dir(cwd: str) -> Path:
     path = Path(cwd).expanduser()
     if not path.is_absolute():
@@ -58,13 +80,17 @@ def _working_dir(cwd: str) -> Path:
 def bash(command: str, cwd: str = DEFAULT_CWD, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> str:
     """Run a Bash command inside the HexStrike container."""
 
+    arguments = {"command": command, "cwd": cwd, "timeout_seconds": timeout_seconds}
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool input name=bash arguments=%s", _log_payload(arguments))
+
     if not command or not command.strip():
-        return "Refusing to run an empty command."
+        return _log_bash_output("Refusing to run an empty command.")
 
     timeout = max(1, min(int(timeout_seconds), MAX_TIMEOUT_SECONDS))
     working_dir = _working_dir(cwd)
     if not working_dir.exists() or not working_dir.is_dir():
-        return f"Working directory does not exist or is not a directory: {cwd}"
+        return _log_bash_output(f"Working directory does not exist or is not a directory: {cwd}")
 
     try:
         completed = subprocess.run(
@@ -87,7 +113,7 @@ def bash(command: str, cwd: str = DEFAULT_CWD, timeout_seconds: int = DEFAULT_TI
             f"stdout{ ' (truncated)' if stdout_truncated else '' }:\n{stdout}",
             f"stderr{ ' (truncated)' if stderr_truncated else '' }:\n{stderr}",
         ]
-        return "\n\n".join(parts)
+        return _log_bash_output("\n\n".join(parts))
 
     stdout, stdout_truncated = _truncate(_text(completed.stdout), MAX_OUTPUT_BYTES)
     stderr, stderr_truncated = _truncate(_text(completed.stderr), MAX_OUTPUT_BYTES)
@@ -98,13 +124,28 @@ def bash(command: str, cwd: str = DEFAULT_CWD, timeout_seconds: int = DEFAULT_TI
         f"stdout{ ' (truncated)' if stdout_truncated else '' }:\n{stdout}",
         f"stderr{ ' (truncated)' if stderr_truncated else '' }:\n{stderr}",
     ]
-    return "\n\n".join(parts)
+    return _log_bash_output("\n\n".join(parts))
+
+
+def _log_bash_output(output: str) -> str:
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool output name=bash output=%s", _log_payload(output))
+    return output
 
 
 def main() -> None:
     transport = os.environ.get("HEXSTRIKE_BASH_MCP_TRANSPORT", "streamable-http").lower()
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
-    logging.getLogger(__name__).info(
+    log_level = _log_level()
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+    logging.getLogger().setLevel(log_level)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("mcp").setLevel(logging.INFO)
+    logger.info(
         "Starting HexStrike Bash MCP server (transport=%s, host=%s, port=%d)",
         transport,
         MCP_HOST,

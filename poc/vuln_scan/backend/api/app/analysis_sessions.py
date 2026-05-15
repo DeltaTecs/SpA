@@ -28,6 +28,24 @@ class ToolApprovalRequest:
         }
 
 
+@dataclass
+class ActiveToolExecution:
+    execution_id: str
+    tool_call: dict[str, Any]
+    status: str = "running"
+    started_at: float = field(default_factory=time.time)
+    stop_requested_at: Optional[float] = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "execution_id": self.execution_id,
+            "status": self.status,
+            "started_at": self.started_at,
+            "stop_requested_at": self.stop_requested_at,
+            "tool_call": self.tool_call,
+        }
+
+
 class AnalysisRun:
     def __init__(
         self,
@@ -38,6 +56,8 @@ class AnalysisRun:
         provider: str,
         model: str,
         approval_timeout_seconds: float,
+        auto_approve_mcp_database_requests: bool = False,
+        auto_approve_all_mcp_requests: bool = False,
     ):
         self.run_id = uuid.uuid4().hex
         self.event_id = event_id
@@ -46,9 +66,12 @@ class AnalysisRun:
         self.provider = provider
         self.model = model
         self.approval_timeout_seconds = approval_timeout_seconds
+        self.auto_approve_mcp_database_requests = auto_approve_mcp_database_requests
+        self.auto_approve_all_mcp_requests = auto_approve_all_mcp_requests
         self.status = "queued"
         self.progress: list[dict[str, Any]] = []
         self.tool_requests: dict[str, ToolApprovalRequest] = {}
+        self.active_tool_execution: Optional[ActiveToolExecution] = None
         self.result_markdown = ""
         self.error: Optional[str] = None
         self.abort_requested = False
@@ -98,6 +121,9 @@ class AnalysisRun:
                 if request.status == "pending":
                     request.status = "aborted"
                     request.decided_at = time.time()
+            if self.active_tool_execution and self.active_tool_execution.status == "running":
+                self.active_tool_execution.status = "stop_requested"
+                self.active_tool_execution.stop_requested_at = time.time()
             self.progress.append({"timestamp": time.time(), "message": "Abort requested."})
             self.updated_at = time.time()
             self._condition.notify_all()
@@ -110,6 +136,21 @@ class AnalysisRun:
             request_id = uuid.uuid4().hex
             request = ToolApprovalRequest(request_id=request_id, tool_call=tool_call)
             self.tool_requests[request_id] = request
+
+            auto_approval_reason = self._auto_approval_reason(tool_call)
+            if auto_approval_reason:
+                request.status = "approved"
+                request.decided_at = time.time()
+                self.progress.append(
+                    {
+                        "timestamp": time.time(),
+                        "message": f"{auto_approval_reason} tool request auto-approved: {request_id}",
+                    }
+                )
+                self.updated_at = time.time()
+                self._condition.notify_all()
+                return True
+
             self.status = "waiting_for_tool_approval"
             self.progress.append(
                 {
@@ -151,6 +192,63 @@ class AnalysisRun:
             self._condition.notify_all()
             return request.status == "approved"
 
+    def start_tool_execution(self, tool_call: dict[str, Any]) -> str:
+        with self._condition:
+            execution_id = uuid.uuid4().hex
+            self.active_tool_execution = ActiveToolExecution(
+                execution_id=execution_id,
+                tool_call=tool_call,
+            )
+            tool_name = _tool_display_name(tool_call)
+            self.progress.append(
+                {"timestamp": time.time(), "message": f"MCP tool running: {tool_name}"}
+            )
+            self.updated_at = time.time()
+            self._condition.notify_all()
+            return execution_id
+
+    def request_active_tool_stop(self) -> bool:
+        with self._condition:
+            execution = self.active_tool_execution
+            if execution is None or execution.status != "running":
+                return False
+
+            execution.status = "stop_requested"
+            execution.stop_requested_at = time.time()
+            tool_name = _tool_display_name(execution.tool_call)
+            self.progress.append(
+                {"timestamp": time.time(), "message": f"MCP tool stop requested: {tool_name}"}
+            )
+            self.updated_at = time.time()
+            self._condition.notify_all()
+            return True
+
+    def is_tool_stop_requested(self, execution_id: str) -> bool:
+        with self._condition:
+            execution = self.active_tool_execution
+            if self.abort_requested:
+                return True
+            return bool(
+                execution
+                and execution.execution_id == execution_id
+                and execution.status == "stop_requested"
+            )
+
+    def finish_tool_execution(self, execution_id: str) -> None:
+        with self._condition:
+            execution = self.active_tool_execution
+            if execution is None or execution.execution_id != execution_id:
+                return
+
+            tool_name = _tool_display_name(execution.tool_call)
+            if execution.status == "stop_requested":
+                self.progress.append(
+                    {"timestamp": time.time(), "message": f"MCP tool stopped by user: {tool_name}"}
+                )
+            self.active_tool_execution = None
+            self.updated_at = time.time()
+            self._condition.notify_all()
+
     def decide_tool_request(self, request_id: str, approved: bool) -> None:
         with self._condition:
             request = self.tool_requests.get(request_id)
@@ -176,6 +274,8 @@ class AnalysisRun:
                 "constraints": self.constraints,
                 "provider": self.provider,
                 "model": self.model,
+                "auto_approve_mcp_database_requests": self.auto_approve_mcp_database_requests,
+                "auto_approve_all_mcp_requests": self.auto_approve_all_mcp_requests,
                 "status": self.status,
                 "progress": list(self.progress),
                 "tool_requests": [
@@ -193,11 +293,23 @@ class AnalysisRun:
                     )
                     if request.status == "pending"
                 ],
+                "active_tool_execution": (
+                    self.active_tool_execution.to_dict()
+                    if self.active_tool_execution is not None
+                    else None
+                ),
                 "result_markdown": self.result_markdown,
                 "error": self.error,
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             }
+
+    def _auto_approval_reason(self, tool_call: dict[str, Any]) -> Optional[str]:
+        if self.auto_approve_all_mcp_requests:
+            return "MCP"
+        if self.auto_approve_mcp_database_requests and _is_mcp_database_tool_call(tool_call):
+            return "MCP database"
+        return None
 
 
 class AnalysisSessionStore:
@@ -214,6 +326,8 @@ class AnalysisSessionStore:
         provider: str,
         model: str,
         approval_timeout_seconds: float,
+        auto_approve_mcp_database_requests: bool = False,
+        auto_approve_all_mcp_requests: bool = False,
     ) -> AnalysisRun:
         run = AnalysisRun(
             event_id=event_id,
@@ -222,6 +336,8 @@ class AnalysisSessionStore:
             provider=provider,
             model=model,
             approval_timeout_seconds=approval_timeout_seconds,
+            auto_approve_mcp_database_requests=auto_approve_mcp_database_requests,
+            auto_approve_all_mcp_requests=auto_approve_all_mcp_requests,
         )
         with self._lock:
             self._runs[run.run_id] = run
@@ -230,3 +346,13 @@ class AnalysisSessionStore:
     def get(self, run_id: str) -> Optional[AnalysisRun]:
         with self._lock:
             return self._runs.get(run_id)
+
+
+def _is_mcp_database_tool_call(tool_call: dict[str, Any]) -> bool:
+    server_id = str(tool_call.get("server_id") or "").strip().lower()
+    server_label = str(tool_call.get("server_label") or "").strip().lower()
+    return server_id in {"packet", "packet_db", "mcp_packet_db"} or server_label == "packet db"
+
+
+def _tool_display_name(tool_call: dict[str, Any]) -> str:
+    return str(tool_call.get("exposed_tool_name") or tool_call.get("tool_name") or "MCP tool")

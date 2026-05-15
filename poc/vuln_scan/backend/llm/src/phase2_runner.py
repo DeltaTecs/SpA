@@ -10,6 +10,9 @@ from mcp_proxy_tools import (
     ApprovalCallback,
     MCPServerSpec,
     PermissionedMCPToolProxy,
+    ToolFinishCallback,
+    ToolStartCallback,
+    ToolStopRequestedCallback,
 )
 from user_context import UserAction
 
@@ -27,6 +30,9 @@ def run_phase_two_analysis(
     mcp_servers: Sequence[MCPServerSpec],
     approval_callback: ApprovalCallback,
     progress_callback: Callable[[str], None],
+    tool_start_callback: ToolStartCallback | None = None,
+    tool_stop_requested_callback: ToolStopRequestedCallback | None = None,
+    tool_finish_callback: ToolFinishCallback | None = None,
     app_details: Optional[str] = None,
     user_actions: Optional[list[UserAction]] = None,
     prescan_markdown: str = "",
@@ -41,6 +47,9 @@ def run_phase_two_analysis(
         mcp_servers,
         approval_callback=approval_callback,
         progress_callback=progress_callback,
+        tool_start_callback=tool_start_callback,
+        tool_stop_requested_callback=tool_stop_requested_callback,
+        tool_finish_callback=tool_finish_callback,
     )
     tools = proxy.build_tools()
     tool_catalog = proxy.tool_catalog()

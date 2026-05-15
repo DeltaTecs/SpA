@@ -5,6 +5,7 @@ import asyncio
 import json
 import logging
 import os
+import sys
 import uuid
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +26,25 @@ TOOL_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_MCP_HTTP_TIMEOUT", "900"))
 
 
 logger = logging.getLogger(__name__)
+
+
+def _log_level() -> int:
+    normalized = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    if normalized == "VERBOSE":
+        return logging.DEBUG
+    return getattr(logging, normalized, logging.INFO)
+
+
+def _log_payload(value: Any) -> str:
+    try:
+        text = json.dumps(value, indent=2, sort_keys=True, default=str)
+    except TypeError:
+        text = str(value)
+
+    max_chars = int(os.environ.get("MCP_LOG_MAX_CHARS", "20000"))
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n... truncated {len(text) - max_chars} chars"
 
 
 def _stdio_params() -> StdioServerParameters:
@@ -112,15 +132,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 }
             elif method == "tools/call":
                 params = payload.get("params") or {}
+                tool_name = str(params.get("name") or "")
+                tool_arguments = params.get("arguments") or {}
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "MCP tool input name=%s arguments=%s",
+                        tool_name,
+                        _log_payload(tool_arguments),
+                    )
+                result = asyncio.run(_call_tool(tool_name, tool_arguments))
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "MCP tool output name=%s output=%s",
+                        tool_name,
+                        _log_payload(result),
+                    )
                 response = {
                     "jsonrpc": "2.0",
                     "id": request_id,
-                    "result": asyncio.run(
-                        _call_tool(
-                            str(params.get("name") or ""),
-                            params.get("arguments") or {},
-                        )
-                    ),
+                    "result": result,
                 }
             else:
                 response = {
@@ -159,7 +189,14 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    log_level = _log_level()
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        stream=sys.stdout,
+        force=True,
+    )
+    logging.getLogger().setLevel(log_level)
     logger.info(
         "Starting HexStrike HTTP MCP bridge on %s:%d for %s",
         MCP_HOST,

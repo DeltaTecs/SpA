@@ -18,6 +18,8 @@ const state = {
   analysisItems: [],
   nextAnalysisItemId: 1,
   analysisConstraints: "",
+  autoApproveMcpDatabaseRequests: false,
+  autoApproveAllMcpRequests: false,
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
@@ -46,9 +48,14 @@ const vulnerabilityPanel = document.querySelector("#vulnerabilityPanel");
 const addAnalysisButton = document.querySelector("#addAnalysisButton");
 const startAnalysisButton = document.querySelector("#startAnalysisButton");
 const abortAnalysisButton = document.querySelector("#abortAnalysisButton");
+const stopToolButton = document.querySelector("#stopToolButton");
+const autoApproveMcpDatabaseRequests = document.querySelector("#autoApproveMcpDatabaseRequests");
+const autoApproveAllMcpRequests = document.querySelector("#autoApproveAllMcpRequests");
 const analysisItems = document.querySelector("#analysisItems");
 const constraintsInput = document.querySelector("#constraintsInput");
 const analysisStatus = document.querySelector("#analysisStatus");
+const analysisProcess = document.querySelector("#analysisProcess");
+const analysisProcessText = document.querySelector("#analysisProcessText");
 const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
 
@@ -59,6 +66,15 @@ vulnerabilityTab.addEventListener("click", () => setActiveTab("phase2"));
 addAnalysisButton.addEventListener("click", addAnalysisItem);
 startAnalysisButton.addEventListener("click", startPhaseTwo);
 abortAnalysisButton.addEventListener("click", abortPhaseTwo);
+stopToolButton.addEventListener("click", stopActiveTool);
+autoApproveMcpDatabaseRequests.addEventListener("change", () => {
+  state.autoApproveMcpDatabaseRequests = autoApproveMcpDatabaseRequests.checked;
+  renderPhaseTwo();
+});
+autoApproveAllMcpRequests.addEventListener("change", () => {
+  state.autoApproveAllMcpRequests = autoApproveAllMcpRequests.checked;
+  renderPhaseTwo();
+});
 constraintsInput.addEventListener("input", () => {
   state.analysisConstraints = constraintsInput.value;
   renderPhaseTwo();
@@ -204,6 +220,8 @@ async function startPhaseTwo() {
     event_id: event.event_id,
     analysis_types: state.analysisItems.map((item) => item.type),
     constraints: state.analysisConstraints,
+    auto_approve_mcp_database_requests: state.autoApproveMcpDatabaseRequests,
+    auto_approve_all_mcp_requests: state.autoApproveAllMcpRequests,
     provider: state.selectedProvider,
     model: state.selectedModel,
     ...contextPayload(),
@@ -242,6 +260,22 @@ async function abortPhaseTwo() {
     stopPhaseTwoPolling();
   } catch (error) {
     setAnalysisStatus(`Abort failed: ${error.message}`, true);
+  }
+}
+
+async function stopActiveTool() {
+  if (!state.phase2RunId || !canStopActiveTool()) {
+    return;
+  }
+  try {
+    const response = await fetch(`/api/phase2/${state.phase2RunId}/tool/stop`, {method: "POST"});
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    state.phase2Run = await response.json();
+    renderPhaseTwo();
+  } catch (error) {
+    setAnalysisStatus(`Stop tool failed: ${error.message}`, true);
   }
 }
 
@@ -478,12 +512,17 @@ function renderSelectedEvent() {
 
 function renderPhaseTwo() {
   constraintsInput.value = state.analysisConstraints;
+  const running = isPhaseTwoRunning();
+  autoApproveMcpDatabaseRequests.checked = state.autoApproveMcpDatabaseRequests || state.autoApproveAllMcpRequests;
+  autoApproveMcpDatabaseRequests.disabled = running || state.autoApproveAllMcpRequests;
+  autoApproveAllMcpRequests.checked = state.autoApproveAllMcpRequests;
+  autoApproveAllMcpRequests.disabled = running;
   renderAnalysisItems();
 
   const event = selected();
-  const running = isPhaseTwoRunning();
   startAnalysisButton.disabled = running || !event || !state.selectedProvider || !state.selectedModel || state.analysisItems.length === 0;
   abortAnalysisButton.disabled = !running;
+  stopToolButton.disabled = !canStopActiveTool();
 
   if (!event) {
     setAnalysisStatus("Select an event before starting vulnerability analysis.");
@@ -502,6 +541,7 @@ function renderPhaseTwo() {
   }
 
   renderToolApprovals();
+  renderAnalysisProcess();
   renderAnalysisProgress();
 }
 
@@ -611,6 +651,119 @@ function renderAnalysisProgress() {
   analysisProgress.textContent = lines.join("\n");
 }
 
+function renderAnalysisProcess() {
+  const process = currentAnalysisProcess();
+  analysisProcessText.textContent = process.label;
+  analysisProcess.classList.toggle("active", process.active);
+  analysisProcess.classList.toggle("terminal", process.terminal);
+  analysisProcess.classList.toggle("error", process.error);
+}
+
+function currentAnalysisProcess() {
+  const run = state.phase2Run;
+  if (!run) {
+    return {label: "Idle", active: false, terminal: false, error: false};
+  }
+
+  if (run.status === "completed") {
+    return {label: "Analysis complete", active: false, terminal: true, error: false};
+  }
+  if (run.status === "failed") {
+    return {label: `Analysis failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
+  }
+  if (run.status === "aborted") {
+    return {label: "Analysis aborted", active: false, terminal: true, error: false};
+  }
+  if (run.status === "queued") {
+    return {label: "Queued", active: true, terminal: false, error: false};
+  }
+
+  const activeTool = run.active_tool_execution;
+  if (activeTool?.status === "stop_requested") {
+    return {label: `Stopping MCP tool: ${toolDisplayName(activeTool.tool_call)}`, active: true, terminal: false, error: false};
+  }
+  if (activeTool?.status === "running") {
+    return {label: `MCP tool running: ${toolDisplayName(activeTool.tool_call)}`, active: true, terminal: false, error: false};
+  }
+
+  const pending = run.pending_tool_requests || [];
+  if (pending.length > 0) {
+    const toolName = toolDisplayName(pending[0].tool_call);
+    return {label: `Awaiting approval: ${toolName}`, active: true, terminal: false, error: false};
+  }
+
+  const latestMessage = latestProgressMessage(run);
+  return {
+    label: processLabelFromProgress(latestMessage, run.status),
+    active: isPhaseTwoRunning(),
+    terminal: false,
+    error: false,
+  };
+}
+
+function latestProgressMessage(run) {
+  const progress = Array.isArray(run.progress) ? run.progress : [];
+  return progress[progress.length - 1]?.message || "";
+}
+
+function processLabelFromProgress(message, status) {
+  const runningTool = /^Running approved tool\s+(.+)\.$/.exec(message);
+  if (runningTool) {
+    return `MCP tool running: ${runningTool[1]}`;
+  }
+
+  const awaitingTool = /^Awaiting approval for tool\s+(.+)\.$/.exec(message);
+  if (awaitingTool) {
+    return `Awaiting approval: ${awaitingTool[1]}`;
+  }
+
+  const requestedTool = /^LLM requested tool\s+(.+)\.$/.exec(message);
+  if (requestedTool) {
+    return `Preparing MCP tool: ${requestedTool[1]}`;
+  }
+
+  if (message === "Prompt prepared; invoking LLM vulnerability analysis.") {
+    return "LLM thinking";
+  }
+  if (message.startsWith("Connecting MCP server") || message.includes("loaded") || message.startsWith("Phase-two analysis has access")) {
+    return "Preparing MCP tools";
+  }
+  if (message.startsWith("Loading packet context") || message === "Loaded stored phase-one summary.") {
+    return "Loading packet context";
+  }
+  if (message.startsWith("MCP database tool request auto-approved")) {
+    return "MCP database request auto-approved";
+  }
+  if (message.startsWith("MCP tool request auto-approved")) {
+    return "MCP request auto-approved";
+  }
+  if (message.startsWith("MCP tool stop requested")) {
+    return "Stopping MCP tool";
+  }
+  if (message.startsWith("MCP tool stopped by user")) {
+    return "MCP tool stopped by user";
+  }
+  if (message.startsWith("Tool request approved")) {
+    return "Tool approved; resuming analysis";
+  }
+  if (message.startsWith("Tool request denied")) {
+    return "Tool denied; resuming analysis";
+  }
+  if (message === "Analysis started.") {
+    return "Starting analysis";
+  }
+
+  return status === "running" ? "LLM thinking" : humanizeStatus(status);
+}
+
+function toolDisplayName(toolCall) {
+  return toolCall?.exposed_tool_name || toolCall?.tool_name || "MCP tool";
+}
+
+function humanizeStatus(status) {
+  return String(status || "idle").replaceAll("_", " ");
+}
+
 function selected() {
   return state.events.find((event) => event.event_id === state.selectedEventId) || null;
 }
@@ -621,6 +774,11 @@ function isEventRunning(eventId) {
 
 function isPhaseTwoRunning() {
   return Boolean(state.phase2Run && ACTIVE_ANALYSIS_STATUSES.has(state.phase2Run.status));
+}
+
+function canStopActiveTool() {
+  const activeTool = state.phase2Run?.active_tool_execution;
+  return Boolean(isPhaseTwoRunning() && activeTool?.status === "running");
 }
 
 function firstAvailableProvider() {

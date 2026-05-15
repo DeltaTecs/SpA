@@ -66,6 +66,7 @@ services:
       - MCP_TRANSPORT=streamable-http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8765
+      - LOG_LEVEL=VERBOSE
     ports:
       - "8765:8765"
     networks:
@@ -90,6 +91,7 @@ services:
       - HEXSTRIKE_MCP_HTTP_HOST=0.0.0.0
       - HEXSTRIKE_MCP_HTTP_PORT=8767
       - HEXSTRIKE_MCP_HTTP_TIMEOUT=900
+      - LOG_LEVEL=VERBOSE
     ports:
       - "8766:8766"
       - "8767:8767"
@@ -174,6 +176,7 @@ services:
       - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://mcp-hexstrike:8767,bash=http://mcp-hexstrike:8766
       - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
+      - LOG_LEVEL=VERBOSE
     volumes:
       - ./vuln_scan/backend/api:/app
       - ./vuln_scan/backend/llm:/llm

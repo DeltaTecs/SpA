@@ -15,7 +15,23 @@ logger = logging.getLogger(__name__)
 
 
 def _trace_mcp_calls() -> bool:
-    return os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
+    log_level = os.environ.get("LOG_LEVEL", "").strip().lower()
+    return (
+        log_level == "verbose"
+        or os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
+    )
+
+
+def _log_payload(value: Any) -> str:
+    try:
+        text = json.dumps(value, indent=2, sort_keys=True, default=str)
+    except TypeError:
+        text = str(value)
+
+    max_chars = int(os.environ.get("MCP_LOG_MAX_CHARS", "20000"))
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}\n... truncated {len(text) - max_chars} chars"
 
 
 @dataclass(frozen=True)
@@ -177,7 +193,12 @@ class MCPClient:
         timeout: Optional[float] = None,
     ) -> str:
         if _trace_mcp_calls():
-            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+            logger.debug(
+                "MCP call input base_url=%s tool=%s arguments=%s",
+                self.base_url,
+                tool_name,
+                _log_payload(arguments),
+            )
 
         data = self.request(
             "tools/call",
@@ -187,12 +208,22 @@ class MCPClient:
 
         result = data.get("result", data)
         if isinstance(result, dict) and "content" in result:
-            return "\n".join(
+            output = "\n".join(
                 part.get("text", str(part))
                 for part in result["content"]
                 if isinstance(part, dict)
             )
-        return str(result)
+        else:
+            output = str(result)
+
+        if _trace_mcp_calls():
+            logger.debug(
+                "MCP call output base_url=%s tool=%s output=%s",
+                self.base_url,
+                tool_name,
+                _log_payload(output),
+            )
+        return output
 
     def event_packets(self, event_id: int) -> str:
         return self.call_tool("event_packets", {"event_id": event_id})
