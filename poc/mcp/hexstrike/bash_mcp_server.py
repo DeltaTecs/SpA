@@ -4,8 +4,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
+import threading
+from dataclasses import dataclass
 from pathlib import Path
 
 try:
@@ -22,6 +25,16 @@ DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_TIMEOUT", "60")
 MAX_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_TIMEOUT", "300"))
 MAX_OUTPUT_BYTES = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_OUTPUT_BYTES", "65536"))
 logger = logging.getLogger(__name__)
+_active_processes_lock = threading.RLock()
+_active_processes: dict[int, "ActiveBashProcess"] = {}
+
+
+@dataclass
+class ActiveBashProcess:
+    process: subprocess.Popen[str]
+    command: str
+    cwd: Path
+    stop_requested: bool = False
 
 
 mcp = FastMCP(
@@ -92,18 +105,28 @@ def bash(command: str, cwd: str = DEFAULT_CWD, timeout_seconds: int = DEFAULT_TI
     if not working_dir.exists() or not working_dir.is_dir():
         return _log_bash_output(f"Working directory does not exist or is not a directory: {cwd}")
 
+    record: ActiveBashProcess | None = None
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             ["/bin/bash", "-lc", command],
             cwd=str(working_dir),
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=timeout,
-            check=False,
+            start_new_session=True,
         )
+        record = ActiveBashProcess(process=process, command=command, cwd=working_dir)
+        with _active_processes_lock:
+            _active_processes[process.pid] = record
+
+        stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as e:
-        stdout = _text(e.stdout)
-        stderr = _text(e.stderr)
+        if record is not None:
+            _terminate_process_group(record.process)
+            stdout, stderr = record.process.communicate()
+        else:
+            stdout = _text(e.stdout)
+            stderr = _text(e.stderr)
         stdout, stdout_truncated = _truncate(stdout, MAX_OUTPUT_BYTES)
         stderr, stderr_truncated = _truncate(stderr, MAX_OUTPUT_BYTES)
         parts = [
@@ -114,17 +137,74 @@ def bash(command: str, cwd: str = DEFAULT_CWD, timeout_seconds: int = DEFAULT_TI
             f"stderr{ ' (truncated)' if stderr_truncated else '' }:\n{stderr}",
         ]
         return _log_bash_output("\n\n".join(parts))
+    finally:
+        if record is not None:
+            with _active_processes_lock:
+                _active_processes.pop(record.process.pid, None)
 
-    stdout, stdout_truncated = _truncate(_text(completed.stdout), MAX_OUTPUT_BYTES)
-    stderr, stderr_truncated = _truncate(_text(completed.stderr), MAX_OUTPUT_BYTES)
+    stdout, stdout_truncated = _truncate(_text(stdout), MAX_OUTPUT_BYTES)
+    stderr, stderr_truncated = _truncate(_text(stderr), MAX_OUTPUT_BYTES)
+    status = (
+        "Stopped by user."
+        if record is not None and record.stop_requested
+        else f"exit_code: {process.returncode}"
+    )
     parts = [
-        f"exit_code: {completed.returncode}",
+        status,
         f"cwd: {working_dir}",
         f"command: {command}",
         f"stdout{ ' (truncated)' if stdout_truncated else '' }:\n{stdout}",
         f"stderr{ ' (truncated)' if stderr_truncated else '' }:\n{stderr}",
     ]
     return _log_bash_output("\n\n".join(parts))
+
+
+@mcp.tool()
+def stop_active_bash() -> str:
+    """Stop any currently running Bash command started by this MCP server."""
+
+    with _active_processes_lock:
+        active = list(_active_processes.values())
+        for record in active:
+            record.stop_requested = True
+
+    if not active:
+        return "No active Bash process."
+
+    for record in active:
+        _terminate_process_group(record.process)
+
+    return f"Stop requested for {len(active)} active Bash process(es)."
+
+
+def _terminate_process_group(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.terminate()
+
+    try:
+        process.wait(timeout=5)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        return
+    except OSError:
+        process.kill()
+
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        logger.warning("Bash process group %d did not exit after SIGKILL", process.pid)
 
 
 def _log_bash_output(output: str) -> str:

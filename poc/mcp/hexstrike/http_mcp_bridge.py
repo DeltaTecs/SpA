@@ -5,7 +5,9 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import sys
+import time
 import uuid
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -152,6 +154,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     "id": request_id,
                     "result": result,
                 }
+            elif method == "tools/stop":
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "result": _stop_active_stdio_tools(),
+                }
             else:
                 response = {
                     "jsonrpc": "2.0",
@@ -186,6 +194,92 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+def _stop_active_stdio_tools() -> dict[str, Any]:
+    pids = _active_hexstrike_mcp_pids()
+    if not pids:
+        return {"stopped": 0, "message": "No active HexStrike MCP subprocess."}
+
+    _terminate_processes(pids)
+    return {"stopped": len(pids), "message": "Stop requested for active HexStrike MCP subprocesses."}
+
+
+def _active_hexstrike_mcp_pids() -> list[int]:
+    current_pid = os.getpid()
+    descendants = _descendant_pids(current_pid)
+    active: list[int] = []
+    script_name = HEXSTRIKE_MCP_SCRIPT.name
+    script_path = str(HEXSTRIKE_MCP_SCRIPT)
+    for pid in descendants:
+        cmdline = _cmdline(pid)
+        if script_path in cmdline or script_name in cmdline:
+            active.append(pid)
+    return active
+
+
+def _descendant_pids(root_pid: int) -> set[int]:
+    children: dict[int, list[int]] = {}
+    proc_root = Path("/proc")
+    if not proc_root.exists():
+        return set()
+
+    for stat_path in proc_root.glob("[0-9]*/stat"):
+        try:
+            pid = int(stat_path.parent.name)
+            stat = stat_path.read_text(encoding="utf-8", errors="replace")
+            closing_paren = stat.rfind(")")
+            fields = stat[closing_paren + 2 :].split()
+            ppid = int(fields[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        children.setdefault(ppid, []).append(pid)
+
+    descendants: set[int] = set()
+    stack = list(children.get(root_pid, []))
+    while stack:
+        pid = stack.pop()
+        if pid in descendants:
+            continue
+        descendants.add(pid)
+        stack.extend(children.get(pid, []))
+    return descendants
+
+
+def _cmdline(pid: int) -> str:
+    try:
+        raw = (Path("/proc") / str(pid) / "cmdline").read_bytes()
+    except OSError:
+        return ""
+    return raw.replace(b"\x00", b" ").decode("utf-8", errors="replace")
+
+
+def _terminate_processes(pids: list[int]) -> None:
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except OSError as exc:
+            logger.warning("Could not signal HexStrike MCP subprocess %d: %s", pid, exc)
+
+    _wait_for_exit(pids, timeout_seconds=5)
+    remaining = [pid for pid in pids if (Path("/proc") / str(pid)).exists()]
+    for pid in remaining:
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        except OSError as exc:
+            logger.warning("Could not kill HexStrike MCP subprocess %d: %s", pid, exc)
+
+
+def _wait_for_exit(pids: list[int], *, timeout_seconds: float) -> None:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if all(not (Path("/proc") / str(pid)).exists() for pid in pids):
+            return
+        time.sleep(0.1)
 
 
 def main() -> None:

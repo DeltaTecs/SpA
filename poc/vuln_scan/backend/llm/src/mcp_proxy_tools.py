@@ -25,6 +25,9 @@ class ToolCallAborted(RuntimeError):
     pass
 
 
+CONTROL_TOOL_NAMES = {"stop_active_bash", "stop_active_tool"}
+
+
 @dataclass(frozen=True)
 class MCPServerSpec:
     server_id: str
@@ -61,6 +64,7 @@ class PermissionedMCPToolProxy:
         self.tool_finish_callback = tool_finish_callback
         self.clients: dict[str, MCPClient] = {}
         self.exposed_tools: dict[str, ExposedMCPTool] = {}
+        self.control_stop_tools: dict[str, str] = {}
 
     def build_tools(self) -> list[StructuredTool]:
         used_names: set[str] = set()
@@ -78,6 +82,10 @@ class PermissionedMCPToolProxy:
             self._progress(f"{server.label}: loaded {len(tool_specs)} MCP tools.")
 
             for spec in tool_specs:
+                if spec.name in CONTROL_TOOL_NAMES:
+                    self.control_stop_tools[server.server_id] = spec.name
+                    continue
+
                 exposed_name = _exposed_tool_name(server.server_id, spec.name, used_names)
                 exposed = ExposedMCPTool(
                     exposed_name=exposed_name,
@@ -164,8 +172,13 @@ class PermissionedMCPToolProxy:
 
         threading.Thread(target=_worker, daemon=True).start()
         try:
+            stop_sent = False
             while not done.wait(timeout=0.25):
                 if self.tool_stop_requested_callback(execution_id):
+                    if not stop_sent:
+                        stop_sent = True
+                        self._request_server_tool_stop(exposed)
+                        done.wait(timeout=2)
                     return "Tool call stopped by user."
 
             error = result.get("error")
@@ -174,6 +187,23 @@ class PermissionedMCPToolProxy:
             return str(result.get("value", ""))
         finally:
             self.tool_finish_callback(execution_id)
+
+    def _request_server_tool_stop(self, exposed: ExposedMCPTool) -> None:
+        stop_tool_name = self.control_stop_tools.get(exposed.server.server_id)
+        try:
+            stop_client = MCPClient(
+                exposed.server.url,
+                connect_timeout=5,
+                default_timeout=5,
+            )
+            if stop_tool_name:
+                stop_client.call_tool(stop_tool_name, {}, timeout=5)
+            else:
+                stop_client.request("tools/stop", {}, timeout=5)
+        except Exception as exc:
+            self._progress(
+                f"MCP server stop request failed for {exposed.server.label}: {exc}"
+            )
 
     def _langchain_tool(self, exposed: ExposedMCPTool) -> StructuredTool:
         args_schema = _args_schema(exposed.exposed_name, exposed.spec.input_schema)
