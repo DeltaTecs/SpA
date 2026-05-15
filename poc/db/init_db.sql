@@ -83,8 +83,13 @@ CREATE TABLE IF NOT EXISTS packet (
 CREATE TABLE IF NOT EXISTS packet_event (
   packet_id bigint NOT NULL REFERENCES packet(packet_id) ON DELETE CASCADE,
   event_id bigint NOT NULL REFERENCES event(event_id) ON DELETE CASCADE,
+  reason text,
+  confidence double precision,
   PRIMARY KEY (packet_id, event_id)
 );
+
+ALTER TABLE packet_event ADD COLUMN IF NOT EXISTS reason text;
+ALTER TABLE packet_event ADD COLUMN IF NOT EXISTS confidence double precision;
 
 -- One persisted phase-one pre-scan per event.
 CREATE TABLE IF NOT EXISTS pre_scan (

@@ -26,7 +26,7 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Application code is mounted via docker-compose volumes, not copied.
-# This means grouping module changes do not trigger rebuilds.
+# Analysis module changes do not trigger rebuilds.
 
 # Set Python path
 ENV PYTHONPATH=/app/src
