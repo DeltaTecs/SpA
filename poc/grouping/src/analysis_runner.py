@@ -65,10 +65,13 @@ def run_analysis(
             packet_id,
         )
         try:
-            if not metadata.has_clear_application_payload:
+            if (
+                not metadata.has_clear_application_payload
+                and not metadata.has_http_header
+            ):
                 stats["skipped"] += 1
                 logger.info(
-                    "Skipping packet_id=%d because clear application payload is empty",
+                    "Skipping packet_id=%d because it has no clear payload or HTTP header",
                     packet_id,
                 )
                 continue
@@ -115,7 +118,7 @@ def run_analysis(
             logger.error("Packet %d analysis failed: %s", packet_id, exc)
 
     logger.info(
-        "Packet event assignment complete: processed=%d skipped_empty_payload=%d errors=%d",
+        "Packet event assignment complete: processed=%d skipped_no_content=%d errors=%d",
         stats["processed"],
         stats["skipped"],
         stats["errors"],

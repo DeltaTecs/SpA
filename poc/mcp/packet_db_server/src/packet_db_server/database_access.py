@@ -35,6 +35,7 @@ class PacketAnalysisMetadata:
     packet_id: int
     timestamp_offset_ms: Optional[int]
     has_clear_application_payload: bool
+    has_http_header: bool
 
 
 class DatabaseAccess:
@@ -229,7 +230,14 @@ def _packet_analysis_metadata(
                 ELSE p.timestamp - recording_bounds.start_timestamp
             END AS timestamp_offset_ms,
             COALESCE(OCTET_LENGTH(p.clear_application_payload), 0) > 0
-                AS has_clear_application_payload
+                AS has_clear_application_payload,
+            EXISTS (
+                SELECT 1
+                FROM packet_header_information phi
+                JOIN http_header_information hh
+                  ON hh.header_information_id = phi.header_information_id
+                WHERE phi.packet_id = p.packet_id
+            ) AS has_http_header
         FROM packet p
         LEFT JOIN LATERAL (
             SELECT MIN(timestamp) AS start_timestamp
@@ -249,6 +257,7 @@ def _packet_analysis_metadata(
         packet_id=int(row["packet_id"]),
         timestamp_offset_ms=int(offset) if offset is not None else None,
         has_clear_application_payload=bool(row["has_clear_application_payload"]),
+        has_http_header=bool(row["has_http_header"]),
     )
 
 
@@ -271,7 +280,14 @@ def _packet_analysis_metadata_for_recording(
                 ELSE p.timestamp - recording_bounds.start_timestamp
             END AS timestamp_offset_ms,
             COALESCE(OCTET_LENGTH(p.clear_application_payload), 0) > 0
-                AS has_clear_application_payload
+                AS has_clear_application_payload,
+            EXISTS (
+                SELECT 1
+                FROM packet_header_information phi
+                JOIN http_header_information hh
+                  ON hh.header_information_id = phi.header_information_id
+                WHERE phi.packet_id = p.packet_id
+            ) AS has_http_header
         FROM packet p
         CROSS JOIN recording_bounds
         WHERE p.recording_id = %s
@@ -290,6 +306,7 @@ def _packet_analysis_metadata_for_recording(
                 has_clear_application_payload=bool(
                     row["has_clear_application_payload"]
                 ),
+                has_http_header=bool(row["has_http_header"]),
             )
         )
     return metadata
