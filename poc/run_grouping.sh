@@ -1,6 +1,6 @@
 #!/bin/bash
 # run_grouping.sh
-# Run packet grouping in the grouping container
+# Run packet event assignment in the existing analysis container.
 
 # Check for required arguments
 if [ $# -lt 1 ]; then
@@ -24,17 +24,19 @@ if [ $# -lt 1 ]; then
 fi
 
 RECORDING_ID="$1"
-MODEL="${2:-}"
 APP_DETAILS=""
 USER_INTEND=""
 PROVIDER=""
 API_KEY=""
 API_BASE_URL=""
 
-# Parse optional named arguments
 shift
+MODEL=""
+
+# Parse optional positional model, then named arguments.
 if [ -n "$1" ] && ! echo "$1" | grep -q '^--'; then
-    shift  # skip model positional arg
+    MODEL="$1"
+    shift
 fi
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -88,7 +90,7 @@ if [ "$PROVIDER" = "deepseek" ] && [ -z "$API_BASE_URL" ] && [ -n "$DEEPSEEK_API
     API_BASE_URL="$DEEPSEEK_API_BASE_URL"
 fi
 
-echo "Running packet grouping for recording $RECORDING_ID..."
+echo "Running packet event assignment for recording $RECORDING_ID..."
 
 # Container-internal directory for context files
 CONTAINER_DATA_DIR="/app/data"
@@ -133,8 +135,8 @@ fi
 docker exec -it $ENV_FLAGS "$GROUPING_CONTAINER" bash -c "$CMD"
 
 if [ $? -ne 0 ]; then
-    echo "Error: Grouping failed."
+    echo "Error: packet analysis failed."
     exit 1
 fi
 
-echo "Packet grouping completed successfully!"
+echo "Packet analysis completed successfully!"

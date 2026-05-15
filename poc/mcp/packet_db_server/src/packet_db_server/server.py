@@ -18,9 +18,10 @@ from .config import DbConfig
 from .db import retry_connect_db
 from .event_queries import (
     assign_packet_to_event_record,
-    create_event_and_assign_packet_record,
+    create_event_and_assign_packet_with_metadata_record,
     create_event_record,
     events_for_recording_text,
+    update_event_description_record,
 )
 from .formatters import hexdump
 from .packet_queries import (
@@ -45,6 +46,7 @@ __all__ = [
     "packet_info",
     "packet_payload_hexdump",
     "packets_in_time_window",
+    "update_event_description",
 ]
 
 _mcp_host = os.environ.get("MCP_HOST", "0.0.0.0")
@@ -129,12 +131,12 @@ def packets_in_time_window(
 
 
 @mcp.tool()
-def events_for_recording(recording_id: int) -> str:
-    """Return all events currently associated with packets in this recording."""
+def events_for_recording(recording_id: int, packet_id: int = 0) -> str:
+    """Return recording events, optionally filtered by packet IP/port tuple."""
 
     with retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return events_for_recording_text(cursor, recording_id)
+            return events_for_recording_text(cursor, recording_id, packet_id=packet_id)
 
 
 @mcp.tool()
@@ -147,21 +149,52 @@ def create_event(description: str) -> str:
 
 
 @mcp.tool()
-def create_event_and_assign_packet(packet_id: int, description: str) -> str:
-    """Atomically create an event and assign one packet to it."""
+def create_event_and_assign_packet(
+    packet_id: int,
+    description: str,
+    reason: str = "",
+    confidence: float | None = None,
+) -> str:
+    """Create an event and assign one packet with LLM rationale metadata."""
 
     with retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return create_event_and_assign_packet_record(cursor, packet_id, description)
+            return create_event_and_assign_packet_with_metadata_record(
+                cursor,
+                packet_id,
+                description,
+                reason=reason,
+                confidence=confidence,
+            )
 
 
 @mcp.tool()
-def assign_packet_to_event(packet_id: int, event_id: int) -> str:
-    """Assign a packet to an event and widen the event time range."""
+def assign_packet_to_event(
+    packet_id: int,
+    event_id: int,
+    reason: str = "",
+    confidence: float | None = None,
+) -> str:
+    """Assign a packet to an event with LLM rationale metadata."""
 
     with retry_connect_db() as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            return assign_packet_to_event_record(cursor, packet_id, event_id)
+            return assign_packet_to_event_record(
+                cursor,
+                packet_id,
+                event_id,
+                reason=reason,
+                confidence=confidence,
+            )
+
+
+@mcp.tool()
+def update_event_description(event_id: int, description: str) -> str:
+    """Update an event description after new packets clarify the event."""
+
+    with retry_connect_db() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            return update_event_description_record(cursor, event_id, description)
 
 
 def main() -> None:
