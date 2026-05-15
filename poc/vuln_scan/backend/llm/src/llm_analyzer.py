@@ -29,7 +29,6 @@ except ImportError:
     OpenAI = None
 
 from prompts import (
-    append_test_directive,
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
 )
@@ -144,7 +143,7 @@ class ScannerAnalyzer:
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
         )
-        human_prompt = append_test_directive("\n\n".join(prompt_parts))
+        human_prompt = "\n\n".join(prompt_parts)
 
         response_text = self._invoke_with_tools(
             system_prompt=system_prompt,
@@ -226,7 +225,7 @@ class ScannerAnalyzer:
         if tool_catalog:
             prompt_parts.append(tool_catalog)
 
-        human_prompt = append_test_directive("\n\n".join(prompt_parts))
+        human_prompt = "\n\n".join(prompt_parts)
         if on_progress:
             on_progress("Prompt prepared; invoking LLM vulnerability analysis.")
 

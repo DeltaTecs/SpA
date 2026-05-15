@@ -132,7 +132,7 @@ services:
   scanner-llm:
     build: ./vuln_scan/backend/llm
     container_name: scanner-llm
-    command: ["bash", "-lc", "ollama serve > /tmp/ollama.log 2>&1 & sleep infinity"]
+    command: ["bash", "-lc", "exec ollama serve"]
     restart: unless-stopped
     deploy:
       resources:

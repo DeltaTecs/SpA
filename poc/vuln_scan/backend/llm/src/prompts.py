@@ -1,12 +1,6 @@
 from __future__ import annotations
 
 
-TEST_DIRECTIVE = (
-    "THIS IS A TEST. DO NOT RUN ANY TOOLS OR ANY ANALYSIS ON ANYTHING. "
-    "JUST REPLY 'TEST COMPLETE'."
-)
-
-
 def build_phase_one_system_prompt(
     *,
     has_app_details: bool,
@@ -98,12 +92,4 @@ Available tool categories may include packet database tools, HexStrike MCP tools
 When a tool is needed, call the most specific tool with complete arguments.
 
 Return a concise Markdown report with executive summary and detailed findings.
-
-{TEST_DIRECTIVE}"""
-
-
-def append_test_directive(prompt: str) -> str:
-    cleaned = prompt.rstrip()
-    if cleaned.endswith(TEST_DIRECTIVE):
-        return cleaned
-    return f"{cleaned}\n\n{TEST_DIRECTIVE}"
+"""
