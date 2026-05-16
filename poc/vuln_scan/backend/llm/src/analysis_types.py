@@ -109,6 +109,44 @@ RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS = (
     "http_intruder",
 )
 
+AUTHENTICATION_HEXSTRIKE_MCP_TOOLS = (
+    "bugbounty_authentication_bypass_testing",
+    "bugbounty_business_logic_testing",
+    "bugbounty_comprehensive_assessment",
+    "bugbounty_vulnerability_hunting",
+    "api_fuzzer",
+    "graphql_scanner",
+    "jwt_analyzer",
+    "api_schema_analyzer",
+    "comprehensive_api_audit",
+    "http_framework_test",
+    "browser_agent_inspect",
+    "http_set_rules",
+    "http_set_scope",
+    "http_repeater",
+    "http_intruder",
+    "burpsuite_scan",
+    "burpsuite_alternative_scan",
+    "zap_scan",
+    "nuclei_scan",
+    "jaeles_vulnerability_scan",
+    "dalfox_xss_scan",
+    "arjun_parameter_discovery",
+    "arjun_scan",
+    "paramspider_discovery",
+    "paramspider_mining",
+    "x8_parameter_discovery",
+    "qsreplace_parameter_replacement",
+    "ai_test_payload",
+    "ai_generate_attack_suite",
+    "analyze_target_intelligence",
+    "select_optimal_tools_ai",
+    "optimize_tool_parameters_ai",
+    "create_attack_chain_ai",
+    "intelligent_smart_scan",
+    "ai_vulnerability_assessment",
+)
+
 
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
@@ -129,7 +167,7 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
         label="Authentication",
         description="Evaluate authentication, session, authorization, and access-control behavior in the event. Also, look specifically for an authentication bypass.",
-        hexstrike_mcp_tools=(),
+        hexstrike_mcp_tools=AUTHENTICATION_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Configuration",

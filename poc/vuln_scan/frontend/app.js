@@ -22,10 +22,14 @@ const ANALYSIS_TYPES = [
 ];
 const DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label;
 const ACTIVE_ANALYSIS_STATUSES = new Set(["queued", "running", "waiting_for_tool_approval"]);
+const PREFERRED_PROVIDER_MODELS = {
+  deepseek: "deepseek-v4-pro",
+};
 
 const state = {
   events: [],
   selectedEventId: null,
+  selectedReportKey: null,
   providers: [],
   selectedProvider: null,
   selectedModel: null,
@@ -37,8 +41,7 @@ const state = {
   results: {},
   configError: null,
   activeTab: "phase1",
-  analysisItems: [],
-  nextAnalysisItemId: 1,
+  analysisType: DEFAULT_ANALYSIS_TYPE,
   analysisConstraints: "",
   autoApproveMcpDatabaseRequests: false,
   autoApproveAllMcpRequests: false,
@@ -46,7 +49,6 @@ const state = {
   phase2Run: null,
   phase2PollTimer: null,
   storedReportsByEvent: {},
-  storedReportIndexByEvent: {},
   loadingReportEventIds: new Set(),
   reportErrorsByEvent: {},
 };
@@ -54,12 +56,15 @@ const state = {
 const eventList = document.querySelector("#eventList");
 const eventCount = document.querySelector("#eventCount");
 const storedReportPosition = document.querySelector("#storedReportPosition");
-const previousStoredReportButton = document.querySelector("#previousStoredReportButton");
-const nextStoredReportButton = document.querySelector("#nextStoredReportButton");
 const refreshStoredReportsButton = document.querySelector("#refreshStoredReportsButton");
-const storedReportMeta = document.querySelector("#storedReportMeta");
-const storedReportBody = document.querySelector("#storedReportBody");
+const storedReportList = document.querySelector("#storedReportList");
+const detailPaneTitle = document.querySelector("#detailPaneTitle");
+const eventDetail = document.querySelector("#eventDetail");
+const reportDetail = document.querySelector("#reportDetail");
 const selectedEvent = document.querySelector("#selectedEvent");
+const selectedReportLabel = document.querySelector("#selectedReport");
+const selectedReportMeta = document.querySelector("#selectedReportMeta");
+const selectedReportBody = document.querySelector("#selectedReportBody");
 const statusLine = document.querySelector("#statusLine");
 const report = document.querySelector("#report");
 const startButton = document.querySelector("#startButton");
@@ -77,13 +82,12 @@ const phaseOneTab = document.querySelector("#phaseOneTab");
 const vulnerabilityTab = document.querySelector("#vulnerabilityTab");
 const phaseOnePanel = document.querySelector("#phaseOnePanel");
 const vulnerabilityPanel = document.querySelector("#vulnerabilityPanel");
-const addAnalysisButton = document.querySelector("#addAnalysisButton");
+const analysisTypeSelect = document.querySelector("#analysisTypeSelect");
 const startAnalysisButton = document.querySelector("#startAnalysisButton");
 const abortAnalysisButton = document.querySelector("#abortAnalysisButton");
 const stopToolButton = document.querySelector("#stopToolButton");
 const autoApproveMcpDatabaseRequests = document.querySelector("#autoApproveMcpDatabaseRequests");
 const autoApproveAllMcpRequests = document.querySelector("#autoApproveAllMcpRequests");
-const analysisItems = document.querySelector("#analysisItems");
 const constraintsInput = document.querySelector("#constraintsInput");
 const analysisStatus = document.querySelector("#analysisStatus");
 const analysisProcess = document.querySelector("#analysisProcess");
@@ -92,13 +96,14 @@ const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
 
 refreshButton.addEventListener("click", loadEvents);
-previousStoredReportButton.addEventListener("click", () => cycleStoredReport(-1));
-nextStoredReportButton.addEventListener("click", () => cycleStoredReport(1));
 refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
 startButton.addEventListener("click", startPhaseOne);
 phaseOneTab.addEventListener("click", () => setActiveTab("phase1"));
 vulnerabilityTab.addEventListener("click", () => setActiveTab("phase2"));
-addAnalysisButton.addEventListener("click", addAnalysisItem);
+analysisTypeSelect.addEventListener("change", () => {
+  state.analysisType = analysisTypeSelect.value;
+  renderPhaseTwo();
+});
 startAnalysisButton.addEventListener("click", startPhaseTwo);
 abortAnalysisButton.addEventListener("click", abortPhaseTwo);
 stopToolButton.addEventListener("click", stopActiveTool);
@@ -116,7 +121,7 @@ constraintsInput.addEventListener("input", () => {
 });
 providerSelect.addEventListener("change", () => {
   state.selectedProvider = providerSelect.value;
-  state.selectedModel = modelsForProvider(state.selectedProvider)[0] || "";
+  state.selectedModel = defaultModelForProvider(state.selectedProvider);
   renderConfig();
 });
 modelSelect.addEventListener("change", () => {
@@ -142,7 +147,7 @@ async function loadConfig() {
     state.configError = null;
     state.providers = Array.isArray(config.providers) ? config.providers : [];
     state.selectedProvider = config.provider || firstAvailableProvider()?.id || null;
-    state.selectedModel = config.model || modelsForProvider(state.selectedProvider)[0] || null;
+    state.selectedModel = defaultModelForProvider(state.selectedProvider, config.model);
     state.appDetailsFileName = "";
     state.appDetailsContent = null;
     state.userIntendFileName = "";
@@ -172,9 +177,9 @@ async function loadEvents() {
     state.events = await response.json();
     if (!state.events.some((event) => event.event_id === state.selectedEventId)) {
       state.selectedEventId = state.events[0]?.event_id ?? null;
+      state.selectedReportKey = null;
     }
     renderEvents();
-    renderSelectedEvent();
     loadStoredReportsForSelectedEvent({force: true});
     setStatus(state.events.length ? "Select an event and evaluate it." : "No events found.");
   } catch (error) {
@@ -199,7 +204,6 @@ async function loadPrescans() {
       };
     }
     renderEvents();
-    renderSelectedEvent();
   } catch (error) {
     setStatus(`Could not load stored evaluations: ${error.message}`, true);
   }
@@ -220,7 +224,8 @@ async function refreshStoredReportsForSelectedEvent() {
 
 async function loadStoredReports(eventId, options = {}) {
   if (!options.force && state.storedReportsByEvent[eventId]) {
-    renderStoredReports();
+    syncSelectedReportForEvent(eventId);
+    renderEvents();
     return;
   }
   if (state.loadingReportEventIds.has(eventId)) {
@@ -237,17 +242,12 @@ async function loadStoredReports(eventId, options = {}) {
     }
     const reports = await response.json();
     state.storedReportsByEvent[eventId] = Array.isArray(reports) ? reports : [];
-    const maxIndex = Math.max(0, state.storedReportsByEvent[eventId].length - 1);
-    state.storedReportIndexByEvent[eventId] = Math.min(
-      storedReportIndex(eventId),
-      maxIndex,
-    );
+    syncSelectedReportForEvent(eventId);
   } catch (error) {
     state.reportErrorsByEvent[eventId] = error.message;
   } finally {
     state.loadingReportEventIds.delete(eventId);
     renderEvents();
-    renderStoredReports();
   }
 }
 
@@ -260,8 +260,8 @@ async function startPhaseOne() {
   state.runningEventIds.add(event.event_id);
   renderConfig();
   renderEvents();
-  renderSelectedEvent();
-  setStatus(`Evaluating event ${event.event_id} with ${providerLabel(state.selectedProvider)} ${state.selectedModel}...`);
+  renderDetailPane();
+  setStatus(`Running pre-scan for event ${event.event_id} with ${providerLabel(state.selectedProvider)} ${state.selectedModel}...`);
 
   try {
     const payload = {
@@ -280,27 +280,27 @@ async function startPhaseOne() {
     }
     const result = await response.json();
     state.results[event.event_id] = result;
-    renderSelectedEvent();
-    setStatus(`Evaluation complete for event ${event.event_id}.`);
+    renderDetailPane();
+    setStatus(`Pre-scan complete for event ${event.event_id}.`);
   } catch (error) {
-    setStatus(`Evaluation failed for event ${event.event_id}: ${error.message}`, true);
+    setStatus(`Pre-scan failed for event ${event.event_id}: ${error.message}`, true);
   } finally {
     state.runningEventIds.delete(event.event_id);
     renderConfig();
     renderEvents();
-    renderSelectedEvent();
+    renderDetailPane();
   }
 }
 
 async function startPhaseTwo() {
   const event = selected();
-  if (!event || isPhaseTwoRunning()) {
+  if (!event || isPhaseTwoRunning() || !state.analysisType) {
     return;
   }
 
   const payload = {
     event_id: event.event_id,
-    analysis_types: state.analysisItems.map((item) => item.type),
+    analysis_types: [state.analysisType],
     constraints: state.analysisConstraints,
     auto_approve_mcp_database_requests: state.autoApproveMcpDatabaseRequests,
     auto_approve_all_mcp_requests: state.autoApproveAllMcpRequests,
@@ -429,18 +429,6 @@ function setActiveTab(tab) {
   vulnerabilityPanel.classList.toggle("active", !phaseOneActive);
 }
 
-function addAnalysisItem() {
-  if (state.analysisItems.length > 0) {
-    setAnalysisStatus("Only one vulnerability analysis type can be selected.");
-    return;
-  }
-  state.analysisItems.push({
-    id: state.nextAnalysisItemId++,
-    type: DEFAULT_ANALYSIS_TYPE,
-  });
-  renderPhaseTwo();
-}
-
 async function readSelectedFile(input, target) {
   const file = input.files?.[0];
   if (!file) {
@@ -490,11 +478,12 @@ function renderConfig() {
 
   if (!availableProviders.some((provider) => provider.id === state.selectedProvider)) {
     state.selectedProvider = availableProviders[0]?.id || null;
+    state.selectedModel = defaultModelForProvider(state.selectedProvider);
   }
 
   const models = modelsForProvider(state.selectedProvider);
   if (!models.includes(state.selectedModel)) {
-    state.selectedModel = models[0] || null;
+    state.selectedModel = defaultModelForProvider(state.selectedProvider);
   }
 
   modelSelect.innerHTML = "";
@@ -514,7 +503,7 @@ function renderConfig() {
 
   if (state.configError) {
     configText.textContent = state.configError;
-    renderSelectedEvent();
+    renderDetailPane();
     return;
   }
 
@@ -527,7 +516,7 @@ function renderConfig() {
   configText.textContent = missingProviders.length
     ? `${selectedText}. Additional providers need keys: ${missingProviders.join(", ")}.`
     : selectedText;
-  renderSelectedEvent();
+  renderDetailPane();
 }
 
 function renderEvents() {
@@ -540,8 +529,8 @@ function renderEvents() {
     button.className = `event-row${event.event_id === state.selectedEventId ? " selected" : ""}`;
     button.addEventListener("click", () => {
       state.selectedEventId = event.event_id;
+      state.selectedReportKey = null;
       renderEvents();
-      renderSelectedEvent();
       loadStoredReportsForSelectedEvent();
       setStatus("Ready.");
     });
@@ -577,11 +566,21 @@ function renderEvents() {
     eventList.append(button);
   }
 
-  renderSelectedEvent();
+  renderDetailPane();
   renderStoredReports();
 }
 
-function renderSelectedEvent() {
+function renderDetailPane() {
+  const reportItem = selectedReport();
+  const showingReport = Boolean(reportItem);
+  detailPaneTitle.textContent = showingReport ? "Report" : "Event";
+  eventDetail.classList.toggle("active", !showingReport);
+  reportDetail.classList.toggle("active", showingReport);
+  renderEventDetail();
+  renderSelectedReport(reportItem);
+}
+
+function renderEventDetail() {
   const event = selected();
   const isRunning = event ? isEventRunning(event.event_id) : false;
   startButton.textContent = isRunning ? "Evaluating..." : "Evaluate";
@@ -592,31 +591,39 @@ function renderSelectedEvent() {
 
   if (!event) {
     report.textContent = "";
-    renderStoredReports();
     renderPhaseTwo();
     return;
   }
   if (isRunning) {
-    report.textContent = `Evaluation is running for event ${event.event_id}.`;
-    renderStoredReports();
+    report.textContent = `Pre-scan is running for event ${event.event_id}.`;
     renderPhaseTwo();
     return;
   }
   const result = state.results[event.event_id];
   report.textContent = result?.markdown || "No stored evaluation for this event.";
-  renderStoredReports();
   renderPhaseTwo();
+}
+
+function renderSelectedReport(reportItem) {
+  if (!reportItem) {
+    selectedReportLabel.textContent = "Select a report from the reports list.";
+    selectedReportMeta.textContent = "";
+    selectedReportBody.textContent = "";
+    return;
+  }
+
+  selectedReportLabel.textContent = `Selected report ${reportItem.scan_id} for event ${reportItem.event_id}.`;
+  selectedReportMeta.textContent = storedReportMetaText(reportItem);
+  selectedReportBody.textContent = reportItem.summary || "(empty report)";
 }
 
 function renderStoredReports() {
   const event = selected();
+  storedReportList.innerHTML = "";
   if (!event) {
-    storedReportPosition.textContent = "0 / 0";
-    storedReportMeta.textContent = "Select an event.";
-    storedReportBody.textContent = "";
-    previousStoredReportButton.disabled = true;
-    nextStoredReportButton.disabled = true;
+    storedReportPosition.textContent = "0 reports";
     refreshStoredReportsButton.disabled = true;
+    appendReportListMessage("Select an event.");
     return;
   }
 
@@ -625,57 +632,66 @@ function renderStoredReports() {
   const error = state.reportErrorsByEvent[eventId];
   const reports = state.storedReportsByEvent[eventId] || [];
   const reportCount = reports.length;
-  const index = storedReportIndex(eventId);
-  const current = reports[index] || null;
 
-  storedReportPosition.textContent = reportCount
-    ? `${index + 1} / ${reportCount}`
-    : "0 / 0";
-  previousStoredReportButton.disabled = isLoading || reportCount < 2;
-  nextStoredReportButton.disabled = isLoading || reportCount < 2;
+  storedReportPosition.textContent = `${reportCount} ${reportCount === 1 ? "report" : "reports"}`;
   refreshStoredReportsButton.disabled = isLoading;
 
   if (isLoading) {
-    storedReportMeta.textContent = `Loading reports for event ${eventId}...`;
-    storedReportBody.textContent = "";
+    appendReportListMessage(`Loading reports for event ${eventId}...`);
     return;
   }
   if (error) {
-    storedReportMeta.textContent = `Could not load reports for event ${eventId}: ${error}`;
-    storedReportBody.textContent = "";
+    appendReportListMessage(`Could not load reports for event ${eventId}: ${error}`, true);
     return;
   }
-  if (!current) {
-    storedReportMeta.textContent = `No stored reports for event ${eventId}.`;
-    storedReportBody.textContent = "";
+  if (reportCount === 0) {
+    appendReportListMessage(`No stored reports for event ${eventId}.`);
     return;
   }
 
-  storedReportMeta.textContent = storedReportMetaText(current);
-  storedReportBody.textContent = current.summary || "(empty report)";
+  for (const reportItem of reports) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `report-row${reportKey(reportItem) === state.selectedReportKey ? " selected" : ""}`;
+    button.addEventListener("click", () => {
+      state.selectedEventId = eventId;
+      state.selectedReportKey = reportKey(reportItem);
+      renderEvents();
+    });
+
+    const title = document.createElement("div");
+    title.className = "report-row-title";
+
+    const type = document.createElement("div");
+    type.className = "report-type";
+    type.textContent = reportItem.scan_type_title || "Unknown scan type";
+
+    const id = document.createElement("div");
+    id.className = "event-id";
+    id.textContent = `#${reportItem.scan_id}`;
+
+    const meta = document.createElement("div");
+    meta.className = "event-meta";
+    meta.textContent = reportRowMetaText(reportItem);
+
+    title.append(type, id);
+    button.append(title, meta);
+    storedReportList.append(button);
+  }
 }
 
-function cycleStoredReport(delta) {
-  const event = selected();
-  if (!event) {
-    return;
-  }
-  const reports = state.storedReportsByEvent[event.event_id] || [];
-  if (reports.length < 2) {
-    return;
-  }
-  const index = storedReportIndex(event.event_id);
-  state.storedReportIndexByEvent[event.event_id] = (index + delta + reports.length) % reports.length;
-  renderStoredReports();
+function appendReportListMessage(message, isError = false) {
+  const empty = document.createElement("div");
+  empty.className = `report-list-message${isError ? " error" : ""}`;
+  empty.textContent = message;
+  storedReportList.append(empty);
 }
 
-function storedReportIndex(eventId) {
-  const index = state.storedReportIndexByEvent[eventId] || 0;
-  const reports = state.storedReportsByEvent[eventId] || [];
-  if (reports.length === 0) {
-    return 0;
-  }
-  return Math.min(Math.max(index, 0), reports.length - 1);
+function reportRowMetaText(reportItem) {
+  const provider = reportItem.llm_provider || "provider";
+  const model = reportItem.llm_model || "model";
+  const tools = reportItem.tools_used?.trim();
+  return tools ? `${provider} / ${model}, tools: ${tools}` : `${provider} / ${model}`;
 }
 
 function storedReportMetaText(reportItem) {
@@ -692,15 +708,14 @@ function storedReportMetaText(reportItem) {
 function renderPhaseTwo() {
   constraintsInput.value = state.analysisConstraints;
   const running = isPhaseTwoRunning();
+  renderAnalysisTypeSelect(running);
   autoApproveMcpDatabaseRequests.checked = state.autoApproveMcpDatabaseRequests || state.autoApproveAllMcpRequests;
   autoApproveMcpDatabaseRequests.disabled = running || state.autoApproveAllMcpRequests;
   autoApproveAllMcpRequests.checked = state.autoApproveAllMcpRequests;
   autoApproveAllMcpRequests.disabled = running;
-  renderAnalysisItems();
 
   const event = selected();
-  addAnalysisButton.disabled = running || state.analysisItems.length >= 1;
-  startAnalysisButton.disabled = running || !event || !state.selectedProvider || !state.selectedModel || state.analysisItems.length === 0;
+  startAnalysisButton.disabled = running || !event || !state.selectedProvider || !state.selectedModel || !state.analysisType;
   abortAnalysisButton.disabled = !running;
   stopToolButton.disabled = !canStopActiveTool();
 
@@ -714,7 +729,7 @@ function renderPhaseTwo() {
     setAnalysisStatus(`Analysis failed: ${state.phase2Run.error || "unknown error"}`, true);
   } else if (state.phase2Run?.status === "aborted") {
     setAnalysisStatus("Analysis aborted.");
-  } else if (state.analysisItems.length === 0) {
+  } else if (!state.analysisType) {
     setAnalysisStatus("Select a vulnerability analysis type.");
   } else {
     setAnalysisStatus("Ready to start vulnerability analysis.");
@@ -725,50 +740,24 @@ function renderPhaseTwo() {
   renderAnalysisProgress();
 }
 
-function renderAnalysisItems() {
-  analysisItems.innerHTML = "";
-  if (state.analysisItems.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "event-meta";
-    empty.textContent = "No analysis type selected.";
-    analysisItems.append(empty);
-    return;
+function renderAnalysisTypeSelect(running) {
+  if (!ANALYSIS_TYPES.some((type) => type.label === state.analysisType)) {
+    state.analysisType = DEFAULT_ANALYSIS_TYPE;
   }
 
-  for (const item of state.analysisItems) {
-    const row = document.createElement("div");
-    row.className = "analysis-item";
-
-    const label = document.createElement("label");
-    const caption = document.createElement("span");
-    caption.textContent = "Type";
-    const select = document.createElement("select");
+  if (analysisTypeSelect.options.length !== ANALYSIS_TYPES.length) {
+    analysisTypeSelect.innerHTML = "";
     for (const type of ANALYSIS_TYPES) {
       const option = document.createElement("option");
       option.value = type.label;
       option.textContent = type.label;
-      select.append(option);
+      option.title = type.description;
+      analysisTypeSelect.append(option);
     }
-    select.value = item.type;
-    select.disabled = isPhaseTwoRunning();
-    select.addEventListener("change", () => {
-      item.type = select.value;
-      renderPhaseTwo();
-    });
-    label.append(caption, select);
-
-    const remove = document.createElement("button");
-    remove.type = "button";
-    remove.textContent = "Remove";
-    remove.disabled = isPhaseTwoRunning();
-    remove.addEventListener("click", () => {
-      state.analysisItems = state.analysisItems.filter((candidate) => candidate.id !== item.id);
-      renderPhaseTwo();
-    });
-
-    row.append(label, remove);
-    analysisItems.append(row);
   }
+
+  analysisTypeSelect.value = state.analysisType;
+  analysisTypeSelect.disabled = running;
 }
 
 function renderToolApprovals() {
@@ -948,6 +937,30 @@ function selected() {
   return state.events.find((event) => event.event_id === state.selectedEventId) || null;
 }
 
+function selectedReport() {
+  const event = selected();
+  if (!event || !state.selectedReportKey) {
+    return null;
+  }
+  return (state.storedReportsByEvent[event.event_id] || [])
+    .find((reportItem) => reportKey(reportItem) === state.selectedReportKey) || null;
+}
+
+function syncSelectedReportForEvent(eventId) {
+  if (eventId !== state.selectedEventId || !state.selectedReportKey) {
+    return;
+  }
+
+  const reports = state.storedReportsByEvent[eventId] || [];
+  if (!reports.some((reportItem) => reportKey(reportItem) === state.selectedReportKey)) {
+    state.selectedReportKey = null;
+  }
+}
+
+function reportKey(reportItem) {
+  return String(reportItem.scan_id);
+}
+
 function isEventRunning(eventId) {
   return state.runningEventIds.has(eventId);
 }
@@ -968,6 +981,23 @@ function firstAvailableProvider() {
 function modelsForProvider(providerId) {
   const provider = state.providers.find((item) => item.id === providerId);
   return provider && Array.isArray(provider.models) ? provider.models : [];
+}
+
+function defaultModelForProvider(providerId, fallbackModel = null) {
+  const models = modelsForProvider(providerId);
+  const preferredModel = PREFERRED_PROVIDER_MODELS[providerId];
+  if (preferredModel && models.includes(preferredModel)) {
+    return preferredModel;
+  }
+  if (fallbackModel && models.includes(fallbackModel)) {
+    return fallbackModel;
+  }
+
+  const providerDefault = state.providers.find((provider) => provider.id === providerId)?.default_model;
+  if (providerDefault && models.includes(providerDefault)) {
+    return providerDefault;
+  }
+  return models[0] || null;
 }
 
 function providerLabel(providerId) {

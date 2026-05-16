@@ -44,6 +44,10 @@ def run_phase_two_analysis(
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
     external_context = prepared.external_context(app_details, user_actions)
     allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(analysis_types)
+    if _is_authentication_only_analysis(analysis_types):
+        mcp_servers = [server for server in mcp_servers if _is_hexstrike_server(server)]
+        progress_callback("Authentication analysis exposes HexStrike MCP tools only.")
+
     hexstrike_server_ids = {
         server.server_id for server in mcp_servers if _is_hexstrike_server(server)
     }
@@ -93,3 +97,7 @@ def _is_hexstrike_server(server: MCPServerSpec) -> bool:
         "hexstrike" in server.server_id.lower()
         or "hexstrike" in server.label.lower()
     )
+
+
+def _is_authentication_only_analysis(analysis_types: Sequence[str]) -> bool:
+    return {analysis_type.strip() for analysis_type in analysis_types} == {"Authentication"}

@@ -26,91 +26,98 @@
           <section class="stored-reports" aria-label="Stored reports">
             <div class="stored-reports-header">
               <h2>Reports</h2>
-              <span id="storedReportPosition">0 / 0</span>
+              <span id="storedReportPosition">0 reports</span>
             </div>
             <div class="stored-reports-actions">
-              <button id="previousStoredReportButton" type="button" disabled>Previous</button>
-              <button id="nextStoredReportButton" type="button" disabled>Next</button>
               <button id="refreshStoredReportsButton" type="button" disabled>Refresh</button>
             </div>
-            <div id="storedReportMeta" class="stored-report-meta">Select an event.</div>
-            <pre id="storedReportBody" class="stored-report-body" aria-live="polite"></pre>
+            <div id="storedReportList" class="report-list" aria-live="polite"></div>
           </section>
         </div>
 
         <div class="scan-pane">
           <div class="pane-header">
-            <h2>Evaluation</h2>
+            <h2 id="detailPaneTitle">Event</h2>
           </div>
-          <div class="scan-config" aria-label="LLM configuration">
-            <label>
-              <span>Provider</span>
-              <select id="providerSelect" disabled></select>
-            </label>
-            <label>
-              <span>Model</span>
-              <select id="modelSelect" disabled></select>
-            </label>
-            <label>
-              <span>User actions / intend file</span>
-              <div class="file-field">
-                <button id="userIntendBrowseButton" type="button">Browse</button>
-                <span id="userIntendFileName" class="file-selected">Using configured default</span>
+          <div id="eventDetail" class="detail-view active">
+            <div class="scan-config" aria-label="LLM configuration">
+              <label>
+                <span>Provider</span>
+                <select id="providerSelect" disabled></select>
+              </label>
+              <label>
+                <span>Model</span>
+                <select id="modelSelect" disabled></select>
+              </label>
+              <label>
+                <span>User actions / intend file</span>
+                <div class="file-field">
+                  <button id="userIntendBrowseButton" type="button">Browse</button>
+                  <span id="userIntendFileName" class="file-selected">Using configured default</span>
+                </div>
+                <input id="userIntendFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
+              </label>
+              <label>
+                <span>Application description file</span>
+                <div class="file-field">
+                  <button id="appDetailsBrowseButton" type="button">Browse</button>
+                  <span id="appDetailsFileName" class="file-selected">Using configured default</span>
+                </div>
+                <input id="appDetailsFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
+              </label>
+            </div>
+            <div id="selectedEvent" class="selected-event">Select an event.</div>
+            <div class="tabs" role="tablist" aria-label="Event phases">
+              <button id="phaseOneTab" class="tab active" type="button" role="tab" aria-selected="true">Pre-Scan</button>
+              <button id="vulnerabilityTab" class="tab" type="button" role="tab" aria-selected="false">Vulnerability Analysis</button>
+            </div>
+
+            <section id="phaseOnePanel" class="tab-panel active" role="tabpanel" aria-labelledby="phaseOneTab">
+              <div class="panel-actions">
+                <button id="startButton" type="button" disabled>Evaluate</button>
               </div>
-              <input id="userIntendFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
-            </label>
-            <label>
-              <span>Application description file</span>
-              <div class="file-field">
-                <button id="appDetailsBrowseButton" type="button">Browse</button>
-                <span id="appDetailsFileName" class="file-selected">Using configured default</span>
+              <div id="statusLine" class="status-line"></div>
+              <pre id="report" class="report" aria-live="polite"></pre>
+            </section>
+
+            <section id="vulnerabilityPanel" class="tab-panel" role="tabpanel" aria-labelledby="vulnerabilityTab">
+              <div class="analysis-actions">
+                <label class="analysis-type-field">
+                  <span>Type</span>
+                  <select id="analysisTypeSelect"></select>
+                </label>
+                <div class="auto-approval-options">
+                  <label class="auto-approval-option">
+                    <input id="autoApproveMcpDatabaseRequests" type="checkbox">
+                    <span>Auto approve MCP database requests</span>
+                  </label>
+                  <label class="auto-approval-option">
+                    <input id="autoApproveAllMcpRequests" type="checkbox">
+                    <span>Auto approve all MCP requests</span>
+                  </label>
+                </div>
+                <button id="startAnalysisButton" type="button" disabled>Start</button>
+                <button id="stopToolButton" type="button" disabled>Stop MCP Tool</button>
+                <button id="abortAnalysisButton" type="button" disabled>Abort</button>
               </div>
-              <input id="appDetailsFileInput" class="hidden-file-input" type="file" accept=".txt,text/plain">
-            </label>
-          </div>
-          <div id="selectedEvent" class="selected-event">Select an event.</div>
-          <div class="tabs" role="tablist" aria-label="Evaluation phases">
-            <button id="phaseOneTab" class="tab active" type="button" role="tab" aria-selected="true">Pre-Scan</button>
-            <button id="vulnerabilityTab" class="tab" type="button" role="tab" aria-selected="false">Vulnerability Analysis</button>
+              <label class="constraints-field">
+                <span>Constraints</span>
+                <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>
+              </label>
+              <div id="analysisStatus" class="status-line"></div>
+              <div id="analysisProcess" class="analysis-process" role="status" aria-live="polite">
+                <span class="process-spinner" aria-hidden="true"></span>
+                <span id="analysisProcessText">Idle</span>
+              </div>
+              <div id="toolApprovals" class="tool-approvals"></div>
+              <pre id="analysisProgress" class="report analysis-progress" aria-live="polite"></pre>
+            </section>
           </div>
 
-          <section id="phaseOnePanel" class="tab-panel active" role="tabpanel" aria-labelledby="phaseOneTab">
-            <div class="panel-actions">
-              <button id="startButton" type="button" disabled>Evaluate</button>
-            </div>
-            <div id="statusLine" class="status-line"></div>
-            <pre id="report" class="report" aria-live="polite"></pre>
-          </section>
-
-          <section id="vulnerabilityPanel" class="tab-panel" role="tabpanel" aria-labelledby="vulnerabilityTab">
-            <div class="analysis-actions">
-              <div class="auto-approval-options">
-                <label class="auto-approval-option">
-                  <input id="autoApproveMcpDatabaseRequests" type="checkbox">
-                  <span>Auto approve MCP database requests</span>
-                </label>
-                <label class="auto-approval-option">
-                  <input id="autoApproveAllMcpRequests" type="checkbox">
-                  <span>Auto approve all MCP requests</span>
-                </label>
-              </div>
-              <button id="addAnalysisButton" type="button">Add</button>
-              <button id="startAnalysisButton" type="button" disabled>Start</button>
-              <button id="stopToolButton" type="button" disabled>Stop MCP Tool</button>
-              <button id="abortAnalysisButton" type="button" disabled>Abort</button>
-            </div>
-            <div id="analysisItems" class="analysis-items"></div>
-            <label class="constraints-field">
-              <span>Constraints</span>
-              <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>
-            </label>
-            <div id="analysisStatus" class="status-line"></div>
-            <div id="analysisProcess" class="analysis-process" role="status" aria-live="polite">
-              <span class="process-spinner" aria-hidden="true"></span>
-              <span id="analysisProcessText">Idle</span>
-            </div>
-            <div id="toolApprovals" class="tool-approvals"></div>
-            <pre id="analysisProgress" class="report analysis-progress" aria-live="polite"></pre>
+          <section id="reportDetail" class="detail-view report-detail" aria-label="Selected report">
+            <div id="selectedReport" class="selected-event">Select a report.</div>
+            <div id="selectedReportMeta" class="stored-report-meta"></div>
+            <pre id="selectedReportBody" class="report report-viewer" aria-live="polite"></pre>
           </section>
         </div>
       </section>
