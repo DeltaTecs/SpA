@@ -113,12 +113,12 @@ RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS = (
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
         label="Recon: Domain",
-        description="Perform a security analysis and discovery of all domains mentioned in the event.",
+        description="Perform a security analysis and discovery of all domains mentioned in the event. Do not go beyond domain level scanning.",
         hexstrike_mcp_tools=RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Recon: Ports",
-        description="Perform extensive port scans on the machines mentioned in the event.",
+        description="Perform extensive port scans on the machines mentioned in the event. Do not go beyond network level scanning.",
         hexstrike_mcp_tools=RECON_PORTS_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
@@ -128,7 +128,7 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     ),
     AnalysisType(
         label="Authentication",
-        description="Evaluate authentication, session, authorization, and access-control behavior in the event.",
+        description="Evaluate authentication, session, authorization, and access-control behavior in the event. Also, look specifically for an authentication bypass.",
         hexstrike_mcp_tools=(),
     ),
     AnalysisType(
