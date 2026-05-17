@@ -210,8 +210,16 @@ class AnalysisTypesTest(unittest.TestCase):
         self.assertIn("nmap_scan", tools)
         self.assertNotIn("sqlmap_scan", tools)
 
-    def test_unspecified_analysis_type_has_no_hexstrike_tools(self) -> None:
-        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(["Authentication"])
+    def test_configuration_analysis_type_exposes_configuration_tools(self) -> None:
+        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(["Configuration"])
+
+        self.assertIn("nuclei_scan", tools)
+        self.assertIn("checkov_iac_scan", tools)
+        self.assertIn("prowler_scan", tools)
+        self.assertIn("format_tool_output_visual", tools)
+
+    def test_unknown_analysis_type_has_no_hexstrike_tools(self) -> None:
+        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(["Unknown"])
 
         self.assertEqual(tools, frozenset())
 

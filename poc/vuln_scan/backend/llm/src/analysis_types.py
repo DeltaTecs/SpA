@@ -147,6 +147,45 @@ AUTHENTICATION_HEXSTRIKE_MCP_TOOLS = (
     "ai_vulnerability_assessment",
 )
 
+CONFIGURATION_HEXSTRIKE_MCP_TOOLS = (
+    "nuclei_scan",
+    "nikto_scan",
+    "wpscan_analyze",
+    "wafw00f_scan",
+    "httpx_probe",
+    "http_framework_test",
+    "browser_agent_inspect",
+    "http_set_rules",
+    "http_set_scope",
+    "http_repeater",
+    "burpsuite_scan",
+    "burpsuite_alternative_scan",
+    "zap_scan",
+    "graphql_scanner",
+    "api_schema_analyzer",
+    "jwt_analyzer",
+    "comprehensive_api_audit",
+    "api_fuzzer",
+    "checkov_iac_scan",
+    "terrascan_iac_scan",
+    "prowler_scan",
+    "scout_suite_assessment",
+    "cloudmapper_analysis",
+    "trivy_scan",
+    "clair_vulnerability_scan",
+    "docker_bench_security_scan",
+    "kube_hunter_scan",
+    "kube_bench_cis",
+    "falco_runtime_monitoring",
+    "exiftool_extract",
+    "analyze_target_intelligence",
+    "detect_technologies_ai",
+    "ai_vulnerability_assessment",
+    "create_vulnerability_report",
+    "create_scan_summary",
+    "format_tool_output_visual",
+)
+
 
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
@@ -175,7 +214,7 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
             "Evaluate endpoint/cloud configuration of all remote endpoints in the event. "
             "Look for HTTP configuration, exposed storage/database, exposed secrets, etc."
         ),
-        hexstrike_mcp_tools=(),
+        hexstrike_mcp_tools=CONFIGURATION_HEXSTRIKE_MCP_TOOLS,
     ),
 )
 
