@@ -218,6 +218,13 @@ class AnalysisTypesTest(unittest.TestCase):
         self.assertIn("prowler_scan", tools)
         self.assertIn("format_tool_output_visual", tools)
 
+    def test_post_recon_explorative_is_allowed_without_hexstrike_tools(self) -> None:
+        label = "Post Recon - Explorative"
+        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types([label])
+
+        self.assertIn(label, analysis_types.ALLOWED_ANALYSIS_TYPES)
+        self.assertEqual(tools, frozenset())
+
     def test_unknown_analysis_type_has_no_hexstrike_tools(self) -> None:
         tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(["Unknown"])
 

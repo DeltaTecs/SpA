@@ -216,6 +216,16 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
         ),
         hexstrike_mcp_tools=CONFIGURATION_HEXSTRIKE_MCP_TOOLS,
     ),
+    AnalysisType(
+        label="Post Recon - Explorative",
+        description=(
+            "Do not perform network scans or http analysis. "
+            "Do not focus on authentication mechanisms. "
+            "Perform a broad, explorative analysis of the remote service. "
+            "Look for intricate, high impact vulnerabilities."
+        ),
+        hexstrike_mcp_tools=(),
+    ),
 )
 
 DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label

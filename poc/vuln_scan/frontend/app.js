@@ -12,6 +12,10 @@ const ANALYSIS_TYPES = [
     description: "Perform discovery on any HTTP API or path found in the event.",
   },
   {
+    label: "Post Recon - Explorative",
+    description: "Do not perform network scans or http analysis. Do not focus on authentication mechanisms. Perform a broad, explorative analysis of the remote service. Look for intricate, high impact vulnerabilities.",
+  },
+  {
     label: "Authentication",
     description: "Evaluate authentication, session, authorization, and access-control behavior in the event.",
   },

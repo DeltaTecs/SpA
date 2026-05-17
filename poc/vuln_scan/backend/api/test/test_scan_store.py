@@ -87,7 +87,7 @@ class ScanStoreTest(unittest.TestCase):
         self.assertIn(
             (
                 "Recon: Domain",
-                "Perform a security analysis and discovery of all domains mentioned in the event.",
+                "Perform a security analysis and discovery of all domains mentioned in the event. Do not go beyond domain level scanning.",
             ),
             seed_params,
         )
@@ -95,6 +95,13 @@ class ScanStoreTest(unittest.TestCase):
             (
                 "Recon: HTTP Path/API",
                 "Perform discovery on any HTTP API or path found in the event.",
+            ),
+            seed_params,
+        )
+        self.assertIn(
+            (
+                "Post Recon - Explorative",
+                "Do not perform network scans or http analysis. Do not focus on authentication mechanisms. Perform a broad, explorative analysis of the remote service. Look for intricate, high impact vulnerabilities.",
             ),
             seed_params,
         )
