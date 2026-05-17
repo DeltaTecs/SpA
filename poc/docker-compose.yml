@@ -100,6 +100,20 @@ services:
     tty: true
     stdin_open: true
 
+  # web search MCP tools backed by Tavily
+  mcp-search-engine:
+    build: ./mcp/search_engine
+    container_name: mcp-search-engine
+    restart: unless-stopped
+    environment:
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - TAVILY_HUMAN_ID=${TAVILY_HUMAN_ID:-}
+      - TAVILY_DEFAULT_PARAMETERS=${TAVILY_DEFAULT_PARAMETERS:-}
+    ports:
+      - "8768:8768"
+    networks:
+      - app-network
+
   # LLM based network packet grouping/aggregation into events
   grouping:
     build: ./grouping
@@ -117,6 +131,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MCP_URL=http://mcp-packet-db:8765
+      - SEARCH_MCP_URL=http://mcp-search-engine:8768
       - PYTHONPATH=/app/src:/app/mcp_packet_db_server/src
     volumes:
       - ./grouping:/app
@@ -127,6 +142,7 @@ services:
       - app-network
     depends_on:
       - mcp-packet-db
+      - mcp-search-engine
     tty: true
     stdin_open: true
 
@@ -147,6 +163,7 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MCP_URL=http://mcp-packet-db:8765
+      - SEARCH_MCP_URL=http://mcp-search-engine:8768
     volumes:
       - ./vuln_scan/backend/llm:/app
       - ./vuln_scan/data:/app/data
@@ -156,6 +173,7 @@ services:
       - app-network
     depends_on:
       - mcp-packet-db
+      - mcp-search-engine
     tty: true
     stdin_open: true
 
@@ -173,7 +191,8 @@ services:
       - OLLAMA_HOST=http://scanner-llm:11434
       - APP_DETAILS=/data/app_details.txt
       - USER_INTEND=/data/user_intend.txt
-      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://mcp-hexstrike:8767,bash=http://mcp-hexstrike:8766
+      - SEARCH_MCP_URL=http://mcp-search-engine:8768
+      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,search_engine=http://mcp-search-engine:8768,hexstrike=http://mcp-hexstrike:8767,bash=http://mcp-hexstrike:8766
       - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
       - LOG_LEVEL=VERBOSE
@@ -187,6 +206,7 @@ services:
       - app-network
     depends_on:
       - mcp-packet-db
+      - mcp-search-engine
       - mcp-hexstrike
       - scanner-llm
 

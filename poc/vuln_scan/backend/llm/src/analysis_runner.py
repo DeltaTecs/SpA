@@ -7,6 +7,10 @@ from typing import List, Optional
 from event_context import load_prepared_event_context
 from llm_analyzer import ScannerAnalyzer
 from mcp_client import MCPClient
+from mcp_proxy_tools import (
+    build_auto_approved_mcp_tools,
+    search_mcp_server_specs_from_env,
+)
 from packet_tools import build_langchain_tools
 from scanner_models import ScanSummary
 from user_context import UserAction, format_user_context
@@ -34,13 +38,20 @@ def run_phase_one_summary(
         prepared.event_end_offset_ms,
     )
 
-    tools = build_langchain_tools(mcp_client, recording_id)
+    search_tools, search_tool_catalog = build_auto_approved_mcp_tools(
+        search_mcp_server_specs_from_env()
+    )
+    tools = [
+        *build_langchain_tools(mcp_client, recording_id),
+        *search_tools,
+    ]
 
     summary = analyzer.summarize_event(
         event_id=event_id,
         recording_id=recording_id,
         event_context=prepared.text,
         tools=tools,
+        tool_catalog=search_tool_catalog,
         user_context=user_context,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
@@ -58,5 +69,5 @@ def run_phase_one_summary(
             output_file.write("\n")
         logger.info("Wrote phase-one summary to %s", output_path)
 
-    logger.info("Phase 1 complete; phase 2 is TODO and was not run")
+    logger.info("Phase 1 complete; phase 2 is was not run")
     return summary

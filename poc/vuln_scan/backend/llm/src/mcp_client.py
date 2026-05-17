@@ -7,6 +7,7 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -54,7 +55,7 @@ class MCPClient:
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self._session_id: Optional[str] = None
-        self._endpoint = f"{self.base_url}/mcp"
+        self._endpoint = _mcp_endpoint(self.base_url)
         self._connect_timeout = connect_timeout
         self._default_timeout = default_timeout
         self._connect()
@@ -270,3 +271,19 @@ class MCPClient:
                 "max_packets": max_packets,
             },
         )
+
+
+def _mcp_endpoint(base_url: str) -> str:
+    """Return the streamable-http MCP endpoint for a base URL or full endpoint."""
+
+    parsed = urlsplit(base_url.rstrip("/"))
+    path = parsed.path.rstrip("/")
+    if path.endswith("/mcp"):
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment)
+        )
+
+    endpoint_path = f"{path}/mcp" if path else "/mcp"
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
+    )

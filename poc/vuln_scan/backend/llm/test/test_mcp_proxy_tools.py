@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import types
 import unittest
@@ -85,6 +86,13 @@ import analysis_types  # noqa: E402
 import mcp_proxy_tools  # noqa: E402
 
 
+def _restore_env(name: str, value: str | None) -> None:
+    if value is None:
+        os.environ.pop(name, None)
+    else:
+        os.environ[name] = value
+
+
 class _FakeMCPClient:
     tool_specs: list[_MCPToolSpec] = []
     tool_specs_by_url: dict[str, list[_MCPToolSpec]] = {}
@@ -156,6 +164,9 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
             "http://bash.example": [
                 _MCPToolSpec("bash", "visible", {"type": "object"}),
             ],
+            "http://search.example": [
+                _MCPToolSpec("tavily_search", "visible", {"type": "object"}),
+            ],
         }
         proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
             [
@@ -177,6 +188,12 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
                     url="http://bash.example",
                     tool_timeout_seconds=30,
                 ),
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="search_engine",
+                    label="Search Engine",
+                    url="http://search.example",
+                    tool_timeout_seconds=30,
+                ),
             ],
             approval_callback=lambda _call: True,
             allowed_tool_names_by_server_id={
@@ -193,10 +210,54 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
                 "hexstrike__nmap_scan",
                 "hexstrike__httpx_probe",
                 "bash__bash",
+                "search_engine__tavily_search",
             ],
         )
         self.assertEqual(proxy.control_stop_tools, {"hexstrike": "stop_active_tool"})
         self.assertNotIn("sqlmap_scan", proxy.tool_catalog())
+
+    def test_search_mcp_server_specs_from_env_uses_search_url(self) -> None:
+        original_url = os.environ.pop("SEARCH_MCP_URL", None)
+        original_servers = os.environ.pop("SEARCH_MCP_SERVERS", None)
+        original_timeout = os.environ.pop("SEARCH_MCP_TOOL_TIMEOUT_SECONDS", None)
+        try:
+            self.assertEqual(mcp_proxy_tools.search_mcp_server_specs_from_env(), [])
+
+            os.environ["SEARCH_MCP_URL"] = "http://search.example"
+            os.environ["SEARCH_MCP_TOOL_TIMEOUT_SECONDS"] = "12"
+
+            specs = mcp_proxy_tools.search_mcp_server_specs_from_env()
+
+            self.assertEqual(len(specs), 1)
+            self.assertEqual(specs[0].server_id, "search_engine")
+            self.assertEqual(specs[0].label, "Search Engine")
+            self.assertEqual(specs[0].url, "http://search.example")
+            self.assertEqual(specs[0].tool_timeout_seconds, 12)
+        finally:
+            _restore_env("SEARCH_MCP_URL", original_url)
+            _restore_env("SEARCH_MCP_SERVERS", original_servers)
+            _restore_env("SEARCH_MCP_TOOL_TIMEOUT_SECONDS", original_timeout)
+
+    def test_auto_approved_mcp_tools_expose_search_server_tools(self) -> None:
+        _FakeMCPClient.tool_specs_by_url = {
+            "http://search.example": [
+                _MCPToolSpec("tavily_search", "visible", {"type": "object"}),
+            ],
+        }
+
+        tools, catalog = mcp_proxy_tools.build_auto_approved_mcp_tools(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="search_engine",
+                    label="Search Engine",
+                    url="http://search.example",
+                    tool_timeout_seconds=30,
+                )
+            ]
+        )
+
+        self.assertEqual([tool.name for tool in tools], ["search_engine__tavily_search"])
+        self.assertIn("Search Engine.tavily_search", catalog)
 
 
 class AnalysisTypesTest(unittest.TestCase):
@@ -218,12 +279,23 @@ class AnalysisTypesTest(unittest.TestCase):
         self.assertIn("prowler_scan", tools)
         self.assertIn("format_tool_output_visual", tools)
 
-    def test_post_recon_explorative_is_allowed_without_hexstrike_tools(self) -> None:
-        label = "Post Recon - Explorative"
-        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types([label])
+    def test_post_recon_analysis_types_expose_post_recon_tools(self) -> None:
+        labels = ("Post Recon - Explorative", "Post Recon - High Impact")
 
-        self.assertIn(label, analysis_types.ALLOWED_ANALYSIS_TYPES)
-        self.assertEqual(tools, frozenset())
+        for label in labels:
+            with self.subTest(label=label):
+                tools = analysis_types.hexstrike_mcp_tools_for_analysis_types([label])
+
+                self.assertIn(label, analysis_types.ALLOWED_ANALYSIS_TYPES)
+                self.assertIn("gobuster_scan", tools)
+                self.assertIn("create_file", tools)
+                self.assertIn("execute_python_script", tools)
+                self.assertIn("metasploit_run", tools)
+                self.assertIn("bugbounty_file_upload_testing", tools)
+                self.assertIn("burpsuite_alternative_scan", tools)
+                self.assertEqual(
+                    tools, frozenset(analysis_types.POST_RECON_HEXSTRIKE_MCP_TOOLS)
+                )
 
     def test_unknown_analysis_type_has_no_hexstrike_tools(self) -> None:
         tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(["Unknown"])

@@ -30,6 +30,11 @@ Available read-only packet tools:
 - conversation_packets(conversation_id, packet_id, before, after)
 - packets_in_time_window(recording_id, start_ms, end_ms, max_packets)
 
+Optional search-engine MCP tools may also be listed in the prompt. Use them
+only for public reference material that clarifies technologies, endpoints,
+standards, CVEs, or current vulnerability context. Packet evidence remains the
+source of truth for this event.
+
 Triage priorities:
 - Prefer outbound client requests, API calls, authenticated actions, WebSocket messages,
   state-changing operations, login/session/token flows, small file uploads, and unusual payloads.
@@ -99,7 +104,8 @@ Analysis tracks requested:
 Context handling:
 {extra_context}
 
-Available tool categories may include packet database tools, HexStrike MCP tools, and a Bash MCP server.
+Available tool categories may include packet database tools, search-engine tools,
+HexStrike MCP tools, and a Bash MCP server.
 When a tool is needed, call the most specific tool with complete arguments.
 
 Return a concise Markdown report with executive summary and detailed findings.

@@ -121,6 +121,7 @@ class ScannerAnalyzer:
         recording_id: Optional[int],
         event_context: str,
         tools: Sequence[Any],
+        tool_catalog: str = "",
         user_context: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
@@ -138,6 +139,8 @@ class ScannerAnalyzer:
             f"recording_id: {recording_id if recording_id is not None else 'null'}"
         )
         prompt_parts.append(event_context)
+        if tool_catalog:
+            prompt_parts.append(tool_catalog)
 
         system_prompt = build_phase_one_system_prompt(
             has_app_details=has_app_details,

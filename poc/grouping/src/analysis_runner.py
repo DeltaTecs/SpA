@@ -10,6 +10,7 @@ from typing import List, Optional
 from llm_analyzer import PacketAnalyzer
 from mcp_client import MCPClient
 from packet_tools import build_langchain_tools
+from search_mcp_tools import build_search_mcp_tools_from_env
 from user_context import UserAction, format_user_context
 
 try:
@@ -55,6 +56,7 @@ def run_analysis(
 
     logger.info("Found %d packets for recording %d", len(packet_ids), recording_id)
     stats = {"processed": 0, "skipped": 0, "errors": 0}
+    search_tools, search_tool_catalog = build_search_mcp_tools_from_env()
 
     for index, metadata in enumerate(packet_metadata, start=1):
         packet_id = metadata.packet_id
@@ -85,6 +87,7 @@ def run_analysis(
                 current_packet_id=packet_id,
                 mutation_state=mutation_state,
             )
+            tools.extend(search_tools)
             user_context = format_user_context(
                 app_details,
                 user_actions,
@@ -96,6 +99,7 @@ def run_analysis(
                 tools=tools,
                 recording_id=recording_id,
                 user_context=user_context,
+                tool_catalog=search_tool_catalog,
                 has_app_details=app_details is not None,
                 has_user_actions=bool(user_actions),
             )

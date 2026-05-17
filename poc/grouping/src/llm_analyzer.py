@@ -124,6 +124,7 @@ class PacketAnalyzer:
         tools: list,
         recording_id: int,
         user_context: str = "",
+        tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
         max_rounds: int = 6,
@@ -142,6 +143,7 @@ class PacketAnalyzer:
             packet_info_text=packet_info_text,
             recording_id=recording_id,
             user_context=user_context,
+            tool_catalog=tool_catalog,
         )
 
         if self.provider == "deepseek":
@@ -192,6 +194,7 @@ class PacketAnalyzer:
             tools=tools,
             recording_id=int(kwargs.get("recording_id", 0)),
             user_context=str(kwargs.get("user_context") or ""),
+            tool_catalog=str(kwargs.get("tool_catalog") or ""),
             has_app_details=bool(kwargs.get("has_app_details", False)),
             has_user_actions=bool(kwargs.get("has_user_actions", False)),
             max_rounds=int(kwargs.get("max_rounds", 6)),
@@ -326,12 +329,15 @@ def _packet_prompt(
     packet_info_text: str,
     recording_id: int,
     user_context: str,
+    tool_catalog: str,
 ) -> str:
     """Build the human prompt for the current packet."""
 
     parts: List[str] = [f"Recording ID: {recording_id}"]
     if user_context:
         parts.append(user_context)
+    if tool_catalog:
+        parts.append(tool_catalog)
     parts.append(f"Assign packet_id={packet_id} to an event.\n\n{packet_info_text}")
     return "\n\n".join(parts)
 

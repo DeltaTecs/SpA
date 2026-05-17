@@ -296,6 +296,64 @@ def analysis_mcp_server_specs_from_env() -> list[MCPServerSpec]:
     return specs
 
 
+def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
+    """Return optional search-engine MCP servers for non-permissioned stages."""
+
+    timeout = float(os.environ.get("SEARCH_MCP_TOOL_TIMEOUT_SECONDS", "60"))
+    raw = os.environ.get("SEARCH_MCP_SERVERS")
+    if raw:
+        return [
+            MCPServerSpec(
+                server_id=server_id,
+                label=label,
+                url=url,
+                tool_timeout_seconds=timeout,
+            )
+            for server_id, label, url in _parse_server_list(raw)
+        ]
+
+    url = os.environ.get("SEARCH_MCP_URL")
+    if not url:
+        return []
+
+    return [
+        MCPServerSpec(
+            server_id="search_engine",
+            label="Search Engine",
+            url=url.strip(),
+            tool_timeout_seconds=timeout,
+        )
+    ]
+
+
+def build_auto_approved_mcp_tools(
+    servers: Iterable[MCPServerSpec],
+    *,
+    progress_callback: Optional[ProgressCallback] = None,
+    strict: bool = False,
+) -> tuple[list[StructuredTool], str]:
+    """Build MCP-backed LangChain tools for stages that do not require UI approval."""
+
+    server_list = list(servers)
+    if not server_list:
+        return [], ""
+
+    proxy = PermissionedMCPToolProxy(
+        server_list,
+        approval_callback=lambda _tool_call: True,
+        progress_callback=progress_callback,
+    )
+    try:
+        tools = proxy.build_tools()
+    except Exception:
+        if strict:
+            raise
+        logger.warning("MCP tools unavailable; continuing without them.", exc_info=True)
+        return [], ""
+
+    return tools, proxy.tool_catalog()
+
+
 def _parse_server_list(raw: str) -> list[tuple[str, str, str]]:
     servers: list[tuple[str, str, str]] = []
     for item in raw.split(","):

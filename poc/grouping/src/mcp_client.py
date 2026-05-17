@@ -12,7 +12,9 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -22,6 +24,13 @@ logger = logging.getLogger(__name__)
 def _trace_mcp_calls() -> bool:
     """Return true only when per-call MCP debug logging is explicitly enabled."""
     return os.environ.get("MCP_TRACE_CALLS", "").lower() in {"1", "true", "yes", "on"}
+
+
+@dataclass(frozen=True)
+class MCPToolSpec:
+    name: str
+    description: str
+    input_schema: Dict[str, Any]
 
 
 class MCPClient:
@@ -38,7 +47,7 @@ class MCPClient:
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self._session_id: Optional[str] = None
-        self._endpoint = f"{self.base_url}/mcp"
+        self._endpoint = _mcp_endpoint(self.base_url)
         self._connect()
 
     # ------------------------------------------------------------------
@@ -101,41 +110,86 @@ class MCPClient:
                     return json.loads(data)
         raise RuntimeError(f"No JSON data in response: {text[:200]}")
 
-    def call_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: float = 30) -> str:
-        """Invoke an MCP tool via JSON-RPC over HTTP and return the text result."""
+    def request(
+        self,
+        method: str,
+        params: Optional[Dict[str, Any]] = None,
+        *,
+        timeout: float = 30,
+    ) -> dict:
+        """Invoke one MCP JSON-RPC method and return the parsed response."""
         if not self._session_id:
             raise RuntimeError("MCP client not connected")
-
-        if _trace_mcp_calls():
-            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
 
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
             "Mcp-Session-Id": self._session_id,
         }
-        
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
-            "method": "tools/call",
-            "params": {
-                "name": tool_name,
-                "arguments": arguments,
-            },
+            "method": method,
+            "params": params or {},
         }
 
-        resp = self.session.post(self._endpoint, json=payload, headers=headers, timeout=timeout)
+        resp = self.session.post(
+            self._endpoint,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+        )
         if resp.status_code >= 400:
             raise RuntimeError(
-                f"MCP tool call failed ({resp.status_code}): {resp.text[:200]}"
+                f"MCP request {method} failed ({resp.status_code}): {resp.text[:200]}"
             )
 
         data = self._parse_sse_response(resp.text)
-        
         if "error" in data:
             raise RuntimeError(f"MCP error: {data['error']}")
+        return data
 
+    def list_tools(self, timeout: float = 30) -> list[MCPToolSpec]:
+        """Return tool metadata advertised by the MCP server."""
+        tools: list[MCPToolSpec] = []
+        cursor: Optional[str] = None
+
+        while True:
+            params = {"cursor": cursor} if cursor else {}
+            data = self.request("tools/list", params, timeout=timeout)
+            result = data.get("result", data)
+            if not isinstance(result, dict):
+                raise RuntimeError(f"Unexpected tools/list result: {result}")
+
+            for raw_tool in result.get("tools", []) or []:
+                if not isinstance(raw_tool, dict):
+                    continue
+                tools.append(
+                    MCPToolSpec(
+                        name=str(raw_tool.get("name") or ""),
+                        description=str(raw_tool.get("description") or ""),
+                        input_schema=(
+                            raw_tool.get("inputSchema")
+                            or raw_tool.get("input_schema")
+                            or {"type": "object", "properties": {}}
+                        ),
+                    )
+                )
+
+            cursor = result.get("nextCursor") or result.get("next_cursor")
+            if not cursor:
+                return [tool for tool in tools if tool.name]
+
+    def call_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: float = 30) -> str:
+        """Invoke an MCP tool via JSON-RPC over HTTP and return the text result."""
+        if _trace_mcp_calls():
+            logger.debug("MCP tool call: %s(%s)", tool_name, arguments)
+
+        data = self.request(
+            "tools/call",
+            {"name": tool_name, "arguments": arguments},
+            timeout=timeout,
+        )
         result = data.get("result", data)
         # MCP tool results are wrapped in {"content": [{"text": "..."}]}
         if isinstance(result, dict) and "content" in result:
@@ -235,3 +289,19 @@ class MCPClient:
                 "max_packets": max_packets,
             },
         )
+
+
+def _mcp_endpoint(base_url: str) -> str:
+    """Return the streamable-http MCP endpoint for a base URL or full endpoint."""
+
+    parsed = urlsplit(base_url.rstrip("/"))
+    path = parsed.path.rstrip("/")
+    if path.endswith("/mcp"):
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment)
+        )
+
+    endpoint_path = f"{path}/mcp" if path else "/mcp"
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
+    )

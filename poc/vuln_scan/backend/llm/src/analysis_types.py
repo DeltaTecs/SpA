@@ -79,8 +79,6 @@ RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS = (
     "wfuzz_scan",
     "dirsearch_scan",
     "katana_crawl",
-    "gau_discovery",
-    "waybackurls_discovery",
     "arjun_parameter_discovery",
     "paramspider_mining",
     "x8_parameter_discovery",
@@ -173,9 +171,6 @@ CONFIGURATION_HEXSTRIKE_MCP_TOOLS = (
     "cloudmapper_analysis",
     "trivy_scan",
     "clair_vulnerability_scan",
-    "docker_bench_security_scan",
-    "kube_hunter_scan",
-    "kube_bench_cis",
     "falco_runtime_monitoring",
     "exiftool_extract",
     "analyze_target_intelligence",
@@ -186,33 +181,98 @@ CONFIGURATION_HEXSTRIKE_MCP_TOOLS = (
     "format_tool_output_visual",
 )
 
+POST_RECON_HEXSTRIKE_MCP_TOOLS = (
+    "gobuster_scan",
+    "checkov_iac_scan",
+    "terrascan_iac_scan",
+    "create_file",
+    "modify_file",
+    "delete_file",
+    "list_files",
+    "generate_payload",
+    "install_python_package",
+    "execute_python_script",
+    "dirb_scan",
+    "nikto_scan",
+    "sqlmap_scan",
+    "metasploit_run",
+    "hydra_attack",
+    "wpscan_analyze",
+    "ffuf_scan",
+    "subfinder_scan",
+    "rustscan_fast_scan",
+    "autorecon_comprehensive",
+    "msfvenom_generate",
+    "feroxbuster_scan",
+    "dotdotpwn_scan",
+    "xsser_scan",
+    "wfuzz_scan",
+    "dirsearch_scan",
+    "katana_crawl",
+    "arjun_parameter_discovery",
+    "paramspider_mining",
+    "x8_parameter_discovery",
+    "jaeles_vulnerability_scan",
+    "dalfox_xss_scan",
+    "httpx_probe",
+    "anew_data_processing",
+    "qsreplace_parameter_replacement",
+    "uro_url_filtering",
+    "api_fuzzer",
+    "graphql_scanner",
+    "jwt_analyzer",
+    "api_schema_analyzer",
+    "comprehensive_api_audit",
+    "hakrawler_crawl",
+    "paramspider_discovery",
+    "burpsuite_scan",
+    "zap_scan",
+    "arjun_scan",
+    "wafw00f_scan",
+    "fierce_scan",
+    "generate_exploit_from_cve",
+    "discover_attack_chains",
+    "advanced_payload_generation",
+    "bugbounty_reconnaissance_workflow",
+    "bugbounty_vulnerability_hunting",
+    "bugbounty_file_upload_testing",
+    "bugbounty_comprehensive_assessment",
+    "bugbounty_authentication_bypass_testing",
+    "browser_agent_inspect",
+    "http_set_rules",
+    "http_set_scope",
+    "http_repeater",
+    "http_intruder",
+    "burpsuite_alternative_scan",
+)
+
 
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
         label="Recon: Domain",
-        description="Perform a security analysis and discovery of all domains mentioned in the event. Do not go beyond domain level scanning.",
+        description="Perform a security analysis and discovery of all domains mentioned in the event. Do not go beyond domain level scanning. Give a detailed domain level report.",
         hexstrike_mcp_tools=RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Recon: Ports",
-        description="Perform extensive port scans on the machines mentioned in the event. Do not go beyond network level scanning.",
+        description="Perform extensive port scans on the machines mentioned in the event. Do not go beyond network level scanning. Give a detailed network level report.",
         hexstrike_mcp_tools=RECON_PORTS_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Recon: HTTP Path/API",
-        description="Perform discovery on any HTTP API or path found in the event.",
+        description="Perform discovery on any HTTP API or path found in the event. Give a detailed HTTP path/API level report.",
         hexstrike_mcp_tools=RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Authentication",
-        description="Evaluate authentication, session, authorization, and access-control behavior in the event. Also, look specifically for an authentication bypass.",
+        description="Evaluate authentication, session, authorization, and access-control behavior in the event. Also, look specifically for an authentication bypass. Give a detailed authentication focues report.",
         hexstrike_mcp_tools=AUTHENTICATION_HEXSTRIKE_MCP_TOOLS,
     ),
     AnalysisType(
         label="Configuration",
         description=(
             "Evaluate endpoint/cloud configuration of all remote endpoints in the event. "
-            "Look for HTTP configuration, exposed storage/database, exposed secrets, etc."
+            "Look for HTTP configuration, exposed storage/database, exposed secrets, etc. Give a detailed configuration report."
         ),
         hexstrike_mcp_tools=CONFIGURATION_HEXSTRIKE_MCP_TOOLS,
     ),
@@ -222,9 +282,16 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
             "Do not perform network scans or http analysis. "
             "Do not focus on authentication mechanisms. "
             "Perform a broad, explorative analysis of the remote service. "
-            "Look for intricate, high impact vulnerabilities."
+            "Think outside the box and try new approaches. Do not get stuck in one finding. Findings do not need to be quaranteed confirmed, suspicions are sufficient. Give a detailed explorative report."
         ),
-        hexstrike_mcp_tools=(),
+        hexstrike_mcp_tools=POST_RECON_HEXSTRIKE_MCP_TOOLS,
+    ),
+    AnalysisType(
+        label="Post Recon - High Impact",
+        description=(
+            "Do not perform network scans or http analysis. "
+            "Preform an in-depth analysis on a single finding. Try to confirm the finding and find an exploit path."),
+        hexstrike_mcp_tools=POST_RECON_HEXSTRIKE_MCP_TOOLS,
     ),
 )
 
