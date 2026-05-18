@@ -12,7 +12,7 @@ PCAP_FILE="$1"
 KEYLOG_FILE="${2:-}"
 FILTERED_PCAP="/tmp/filtered.pcap"
 
-# DB Settings (from /app/.env, mounted by docker-compose)
+# DB settings are provided by docker compose env_file or the host environment.
 if [ -f "/app/.env" ]; then
     ENV_TMP="/tmp/dotenv.$$"
     tr -d '\r' < "/app/.env" > "$ENV_TMP"
@@ -22,11 +22,11 @@ if [ -f "/app/.env" ]; then
     rm -f "$ENV_TMP"
 fi
 
-: "${DB_HOST:?Missing DB_HOST (set in /app/.env)}"
-: "${DB_PORT:?Missing DB_PORT (set in /app/.env)}"
-: "${DB_NAME:?Missing DB_NAME (set in /app/.env)}"
-: "${DB_USER:?Missing DB_USER (set in /app/.env)}"
-: "${DB_PASSWORD:?Missing DB_PASSWORD (set in /app/.env)}"
+: "${DB_HOST:?Missing DB_HOST environment variable}"
+: "${DB_PORT:?Missing DB_PORT environment variable}"
+: "${DB_NAME:?Missing DB_NAME environment variable}"
+: "${DB_USER:?Missing DB_USER environment variable}"
+: "${DB_PASSWORD:?Missing DB_PASSWORD environment variable}"
 
 # Ensure we are in /app
 cd /app
