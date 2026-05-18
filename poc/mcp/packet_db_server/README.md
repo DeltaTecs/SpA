@@ -43,11 +43,13 @@ MCP server that provides packet metadata/payload lookup tools and event persiste
 
 ## Configuration
 
-The server uses the same environment variables as the rest of the PoC:
+The server uses the runtime database role from the PoC environment:
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
 
 Optionally you can set `DB_DSN` (psycopg2 DSN string) instead.
+`DB_USER` should be the least-privileged runtime role (`dbuser` by default),
+not the reset/bootstrap admin role.
 
 Transport:
 

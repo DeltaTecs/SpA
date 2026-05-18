@@ -28,6 +28,6 @@ class DbConfig:
             host=os.environ.get("DB_HOST", "localhost"),
             port=int(os.environ.get("DB_PORT", "5432")),
             name=os.environ.get("DB_NAME", "main"),
-            user=os.environ.get("DB_USER", "appuser"),
-            password=os.environ.get("DB_PASSWORD", "appuser_password"),
+            user=os.environ.get("DB_USER", "dbuser"),
+            password=os.environ.get("DB_PASSWORD", "dbuser"),
         )

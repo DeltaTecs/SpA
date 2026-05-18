@@ -9,6 +9,7 @@ ENV_FILE="${ENV_FILE:-"${POC_ROOT}/.env"}"
 usage() {
   echo "Usage: $(basename "$0") dump|load <file>" >&2
   echo "  Reads settings from: $ENV_FILE" >&2
+  echo "  dump uses DB_USER; load uses DB_ADMIN_USER" >&2
 }
 
 if [[ -z "$ACTION" || -z "$FILE" ]]; then
@@ -32,13 +33,23 @@ set +a
 : "${DB_NAME:?Missing DB_NAME in $ENV_FILE}"
 : "${DB_USER:?Missing DB_USER in $ENV_FILE}"
 : "${DB_PASSWORD:?Missing DB_PASSWORD in $ENV_FILE}"
+: "${DB_ADMIN_USER:?Missing DB_ADMIN_USER in $ENV_FILE}"
+: "${DB_ADMIN_PASSWORD:?Missing DB_ADMIN_PASSWORD in $ENV_FILE}"
 : "${DB_HOST:?Missing DB_HOST in $ENV_FILE}"
 : "${DB_PORT:?Missing DB_PORT in $ENV_FILE}"
 
 CONTAINER_NAME="$DB_CONTAINER_NAME"
 
 exec_in_postgres() {
-  docker exec -e "PGPASSWORD=${DB_PASSWORD}" "${CONTAINER_NAME}" sh -lc "$1"
+  local password="$1"
+  local command="$2"
+  docker exec \
+    -e "PGPASSWORD=${password}" \
+    -e "POSTGRES_USER=${DB_ADMIN_USER}" \
+    -e "POSTGRES_DB=${DB_NAME}" \
+    -e "DB_USER=${DB_USER}" \
+    -e "DB_PASSWORD=${DB_PASSWORD}" \
+    "${CONTAINER_NAME}" sh -lc "$command"
 }
 
 if [[ "$FILE" != /* ]]; then
@@ -52,16 +63,20 @@ mkdir -p "$(dirname "$FILE")" 2>/dev/null || true
 
 case "$ACTION" in
   dump)
+    ACTION_DB_USER="${DB_USER}"
+    ACTION_DB_PASSWORD="${DB_PASSWORD}"
     TMP="/tmp/${DB_NAME}_dump.dump"
     echo "Dumping database '${DB_NAME}' from container '${CONTAINER_NAME}' to '${FILE}'..."
     rm -f "$FILE" || true
-    exec_in_postgres "pg_dump -U '${DB_USER}' -d '${DB_NAME}' -Fc -f '${TMP}'"
+    exec_in_postgres "$ACTION_DB_PASSWORD" "pg_dump -U '${ACTION_DB_USER}' -d '${DB_NAME}' -Fc -f '${TMP}'"
     docker cp "${CONTAINER_NAME}:${TMP}" "$FILE"
-    exec_in_postgres "rm -f '${TMP}'"
+    exec_in_postgres "$ACTION_DB_PASSWORD" "rm -f '${TMP}'"
     echo "Done."
     ;;
 
   load)
+    ACTION_DB_USER="${DB_ADMIN_USER}"
+    ACTION_DB_PASSWORD="${DB_ADMIN_PASSWORD}"
     if [[ ! -f "$FILE" ]]; then
       echo "Input file not found: $FILE" >&2
       exit 1
@@ -77,15 +92,15 @@ case "$ACTION" in
 
     docker cp "$FILE" "${CONTAINER_NAME}:${TMP}"
 
-    exec_in_postgres "psql -U '${DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+    exec_in_postgres "$ACTION_DB_PASSWORD" "psql -U '${ACTION_DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
 
     if [[ "${EXT,,}" == "sql" ]]; then
-      exec_in_postgres "psql -U '${DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -f '${TMP}'"
+      exec_in_postgres "$ACTION_DB_PASSWORD" "psql -U '${ACTION_DB_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -f '${TMP}'"
     else
-      exec_in_postgres "pg_restore -U '${DB_USER}' -d '${DB_NAME}' --no-owner --no-privileges --exit-on-error '${TMP}'"
+      exec_in_postgres "$ACTION_DB_PASSWORD" "pg_restore -U '${ACTION_DB_USER}' -d '${DB_NAME}' --no-owner --no-privileges --exit-on-error '${TMP}'"
     fi
 
-    exec_in_postgres "rm -f '${TMP}'"
+    exec_in_postgres "$ACTION_DB_PASSWORD" "rm -f '${TMP}'"
     echo "Done."
     ;;
 

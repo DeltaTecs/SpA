@@ -16,15 +16,6 @@ import psycopg2
 HERE = Path(__file__).resolve()
 PROJECT_ROOT = HERE.parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
-INIT_SQL_PATH = next(
-    (
-        parent / "db" / "init_db.sql"
-        for parent in HERE.parents
-        if (parent / "db" / "init_db.sql").exists()
-    ),
-    None,
-)
-
 sys.path.insert(0, str(SRC_DIR))
 
 
@@ -87,11 +78,11 @@ def _configure_db_env() -> None:
     if os.environ.get("DB_DSN"):
         return
 
-    os.environ.setdefault("DB_HOST", "postgres")
+    os.environ.setdefault("DB_HOST", "db")
     os.environ.setdefault("DB_PORT", "5432")
     os.environ.setdefault("DB_NAME", "main")
-    os.environ.setdefault("DB_USER", "appuser")
-    os.environ.setdefault("DB_PASSWORD", "appuser")
+    os.environ.setdefault("DB_USER", "dbuser")
+    os.environ.setdefault("DB_PASSWORD", "dbuser")
 
 
 _configure_db_env()
@@ -207,16 +198,13 @@ class TestPacketDbServerTools(unittest.TestCase):
 
     @classmethod
     def _ensure_schema(cls, cursor) -> None:
-        if INIT_SQL_PATH is not None:
-            with open(INIT_SQL_PATH, "r", encoding="utf-8") as sql_file:
-                cursor.execute(sql_file.read())
+        cursor.execute("SELECT to_regclass('public.packet')")
+        if cursor.fetchone()[0] is not None:
             return
 
-        cursor.execute("SELECT to_regclass('public.packet')")
-        if cursor.fetchone()[0] is None:
-            raise RuntimeError(
-                "Database schema is missing and init_db.sql was not available to the test runtime."
-            )
+        raise RuntimeError(
+            "Database schema is missing; run the database reset/admin migration before tests."
+        )
 
     @staticmethod
     def _protocol_ids(cursor) -> Dict[str, int]:

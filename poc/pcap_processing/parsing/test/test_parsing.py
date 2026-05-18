@@ -17,8 +17,10 @@ class TestParsing(unittest.TestCase):
         cls.db_host = os.environ.get('DB_HOST', 'localhost')
         cls.db_port = os.environ.get('DB_PORT', '5432')
         cls.db_name = os.environ.get('DB_NAME', 'main')
-        cls.db_user = os.environ.get('DB_USER', 'appuser')
-        cls.db_password = os.environ.get('DB_PASSWORD', 'appuser_password')
+        cls.db_admin_user = os.environ.get('DB_ADMIN_USER', 'dbadmin')
+        cls.db_admin_password = os.environ.get('DB_ADMIN_PASSWORD', 'dbadmin')
+        cls.db_user = os.environ.get('DB_USER', 'dbuser')
+        cls.db_password = os.environ.get('DB_PASSWORD', 'dbuser')
         
         # Paths
         cls.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -29,7 +31,16 @@ class TestParsing(unittest.TestCase):
 
         # Reset DB
         print(f"Resetting database {cls.db_name}...")
-        reset_db(cls.db_host, cls.db_port, cls.db_name, cls.db_user, cls.db_password, cls.init_sql_path)
+        reset_db(
+            cls.db_host,
+            cls.db_port,
+            cls.db_name,
+            cls.db_admin_user,
+            cls.db_admin_password,
+            cls.init_sql_path,
+            cls.db_user,
+            cls.db_password,
+        )
 
         # Run pcap_to_db.py
         print("Running pcap_to_db.py...")
@@ -290,8 +301,10 @@ if __name__ == '__main__':
     parser.add_argument("--db-host", default="localhost", help="Database host")
     parser.add_argument("--db-port", default="5432", help="Database port")
     parser.add_argument("--db-name", default="main", help="Database name")
-    parser.add_argument("--db-user", default="appuser", help="Database user")
-    parser.add_argument("--db-password", default="appuser_password", help="Database password")
+    parser.add_argument("--db-admin-user", default="dbadmin", help="Database admin user")
+    parser.add_argument("--db-admin-password", default="dbadmin", help="Database admin password")
+    parser.add_argument("--db-user", default="dbuser", help="Database user")
+    parser.add_argument("--db-password", default="dbuser", help="Database password")
     
     args, remaining_argv = parser.parse_known_args()
     
@@ -299,6 +312,8 @@ if __name__ == '__main__':
     os.environ['DB_HOST'] = args.db_host
     os.environ['DB_PORT'] = str(args.db_port)
     os.environ['DB_NAME'] = args.db_name
+    os.environ['DB_ADMIN_USER'] = args.db_admin_user
+    os.environ['DB_ADMIN_PASSWORD'] = args.db_admin_password
     os.environ['DB_USER'] = args.db_user
     os.environ['DB_PASSWORD'] = args.db_password
     

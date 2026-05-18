@@ -25,6 +25,23 @@ if [ -f "./.env" ]; then
     fi
 fi
 
+DB_HOST="${DB_HOST:-db}"
+DB_PORT="${DB_PORT:-5432}"
+DB_NAME="${DB_NAME:-main}"
+DB_ADMIN_USER="${DB_ADMIN_USER:-dbadmin}"
+DB_ADMIN_PASSWORD="${DB_ADMIN_PASSWORD:-dbadmin}"
+DB_USER="${DB_USER:-dbuser}"
+DB_PASSWORD="${DB_PASSWORD:-dbuser}"
+DB_ENV_ARGS=(
+    -e "DB_HOST=$DB_HOST"
+    -e "DB_PORT=$DB_PORT"
+    -e "DB_NAME=$DB_NAME"
+    -e "DB_ADMIN_USER=$DB_ADMIN_USER"
+    -e "DB_ADMIN_PASSWORD=$DB_ADMIN_PASSWORD"
+    -e "DB_USER=$DB_USER"
+    -e "DB_PASSWORD=$DB_PASSWORD"
+)
+
 # Container paths
 CONTAINER_PCAP="/tmp/input.pcapng"
 CONTAINER_KEYLOG="/tmp/keylog.log"
@@ -55,7 +72,7 @@ fi
 
 # Run the internal pipeline script
 if [ -n "$KEYLOG_FILE" ]; then
-    docker exec -it "$PROCESSOR_CONTAINER" bash /app/run_pipeline_internal.sh "$CONTAINER_PCAP" "$CONTAINER_KEYLOG"
+    docker exec -it "${DB_ENV_ARGS[@]}" "$PROCESSOR_CONTAINER" bash /app/run_pipeline_internal.sh "$CONTAINER_PCAP" "$CONTAINER_KEYLOG"
 else
-    docker exec -it "$PROCESSOR_CONTAINER" bash /app/run_pipeline_internal.sh "$CONTAINER_PCAP"
+    docker exec -it "${DB_ENV_ARGS[@]}" "$PROCESSOR_CONTAINER" bash /app/run_pipeline_internal.sh "$CONTAINER_PCAP"
 fi

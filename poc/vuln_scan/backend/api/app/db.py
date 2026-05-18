@@ -14,11 +14,11 @@ def connection() -> Iterator:
         conn = psycopg2.connect(dsn)
     else:
         conn = psycopg2.connect(
-            host=os.environ.get("DB_HOST", "postgres"),
+            host=os.environ.get("DB_HOST", "db"),
             port=int(os.environ.get("DB_PORT", "5432")),
             dbname=os.environ.get("DB_NAME", "main"),
-            user=os.environ.get("DB_USER", "appuser"),
-            password=os.environ.get("DB_PASSWORD", "appuser_password"),
+            user=os.environ.get("DB_USER", "dbuser"),
+            password=os.environ.get("DB_PASSWORD", "dbuser"),
         )
     try:
         yield conn

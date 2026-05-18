@@ -22,7 +22,13 @@ param(
   [string]$DbUser,
 
   [Parameter(Mandatory = $false)]
-  [string]$DbPassword
+  [string]$DbPassword,
+
+  [Parameter(Mandatory = $false)]
+  [string]$DbAdminUser,
+
+  [Parameter(Mandatory = $false)]
+  [string]$DbAdminPassword
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,11 +36,12 @@ $ErrorActionPreference = 'Stop'
 function Print-Usage {
   Write-Host "Usage:" -ForegroundColor Cyan
   Write-Host "  ./db/dump_load_db.ps1 dump <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
-  Write-Host "  ./db/dump_load_db.ps1 load <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
+  Write-Host "  ./db/dump_load_db.ps1 load <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbAdminUser <user>] [-DbAdminPassword <password>]"
   Write-Host "  ./db/dump_load_db.ps1 --help"
   Write-Host ""
   Write-Host "Defaults:" -ForegroundColor Cyan
   Write-Host "  Reads missing connection/container settings from ../.env (poc/.env)."
+  Write-Host "  dump uses DB_USER; load uses DB_ADMIN_USER."
   Write-Host ""
   Write-Host "Examples:" -ForegroundColor Cyan
   Write-Host "  ./db/dump_load_db.ps1 dump ./db/dumps/main.dump"
@@ -83,13 +90,10 @@ function Read-DotEnv([string]$path) {
   return $map
 }
 
-$User = $null
-$Password = $null
-
-if (-not $ContainerName -or -not $Database -or -not $DbUser -or -not $DbPassword) {
+if (-not $ContainerName -or -not $Database -or -not $DbUser -or -not $DbPassword -or -not $DbAdminUser -or -not $DbAdminPassword) {
   $envMap = Read-DotEnv $EnvFile
 
-  foreach ($requiredKey in @('DB_CONTAINER_NAME','DB_NAME','DB_USER','DB_PASSWORD','DB_HOST','DB_PORT')) {
+  foreach ($requiredKey in @('DB_CONTAINER_NAME','DB_NAME','DB_ADMIN_USER','DB_ADMIN_PASSWORD','DB_USER','DB_PASSWORD','DB_HOST','DB_PORT')) {
     if (-not $envMap.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace($envMap[$requiredKey])) {
       throw "Missing required key '$requiredKey' in $EnvFile"
     }
@@ -99,10 +103,12 @@ if (-not $ContainerName -or -not $Database -or -not $DbUser -or -not $DbPassword
   if (-not $Database) { $Database = $envMap['DB_NAME'] }
   if (-not $DbUser) { $DbUser = $envMap['DB_USER'] }
   if (-not $DbPassword) { $DbPassword = $envMap['DB_PASSWORD'] }
+  if (-not $DbAdminUser) { $DbAdminUser = $envMap['DB_ADMIN_USER'] }
+  if (-not $DbAdminPassword) { $DbAdminPassword = $envMap['DB_ADMIN_PASSWORD'] }
 }
 
-$User = $DbUser
-$Password = $DbPassword
+$User = if ($Action -eq 'load') { $DbAdminUser } else { $DbUser }
+$Password = if ($Action -eq 'load') { $DbAdminPassword } else { $DbPassword }
 
 $PocRoot = Split-Path -Parent $PSScriptRoot
 
@@ -138,7 +144,13 @@ function Ensure-ParentDir([string]$path) {
 }
 
 function Exec-InPostgres([string]$cmd) {
-  & docker exec -e "PGPASSWORD=$Password" $ContainerName sh -lc $cmd
+  & docker exec `
+    -e "PGPASSWORD=$Password" `
+    -e "POSTGRES_USER=$DbAdminUser" `
+    -e "POSTGRES_DB=$Database" `
+    -e "DB_USER=$DbUser" `
+    -e "DB_PASSWORD=$DbPassword" `
+    $ContainerName sh -lc $cmd
   if ($LASTEXITCODE -ne 0) {
     throw "Command failed (exit $LASTEXITCODE): $cmd"
   }

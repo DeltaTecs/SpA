@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 from psycopg2.extras import RealDictCursor
 
@@ -10,43 +10,13 @@ from scanner_models import ScanSummary
 from .db import connection
 
 
-MIGRATE_LEGACY_PRESCAN_TABLE = """
-DO $$
-BEGIN
-  IF EXISTS (
-    SELECT 1
-    FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'PreScan'
-  ) AND NOT EXISTS (
-    SELECT 1
-    FROM information_schema.tables
-    WHERE table_schema = 'public' AND table_name = 'pre_scan'
-  ) THEN
-    ALTER TABLE "PreScan" RENAME TO pre_scan;
-  END IF;
-END $$;
-"""
-
-
-CREATE_PRESCAN_TABLE = """
-CREATE TABLE IF NOT EXISTS pre_scan (
-  event_id bigint PRIMARY KEY REFERENCES event(event_id) ON DELETE CASCADE,
-  recording_id bigint REFERENCES recording(recording_id) ON DELETE SET NULL,
-  most_interesting_packet_id bigint REFERENCES packet(packet_id) ON DELETE SET NULL,
-  packet_content text NOT NULL DEFAULT '',
-  event_summary text NOT NULL DEFAULT '',
-  suspected_trigger text NOT NULL DEFAULT '',
-  entrypoint_rationale text NOT NULL DEFAULT '',
-  supporting_packet_ids bigint[] NOT NULL DEFAULT ARRAY[]::bigint[]
-)
-"""
+REQUIRED_PRESCAN_TABLES = ("pre_scan",)
 
 
 def ensure_prescan_table() -> None:
     with connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(MIGRATE_LEGACY_PRESCAN_TABLE)
-            cursor.execute(CREATE_PRESCAN_TABLE)
+            _assert_tables_exist(cursor, REQUIRED_PRESCAN_TABLES)
 
 
 def save_prescan(summary: ScanSummary) -> None:
@@ -138,3 +108,26 @@ def get_prescan(event_id: int) -> Optional[ScanSummary]:
 
 def prescan_dict(summary: ScanSummary) -> dict:
     return asdict(summary)
+
+
+def _assert_tables_exist(cursor, table_names: Sequence[str]) -> None:
+    cursor.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ANY(%s)
+        """,
+        (list(table_names),),
+    )
+    present = {
+        row["table_name"] if isinstance(row, dict) else row[0]
+        for row in cursor.fetchall() or []
+    }
+    missing = set(table_names) - present
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "Database schema is missing required table(s): "
+            f"{missing_text}; run the database reset/admin migration"
+        )

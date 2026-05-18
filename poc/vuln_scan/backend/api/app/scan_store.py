@@ -9,40 +9,13 @@ from analysis_types import phase_two_scan_type_rows
 from .db import connection
 
 
-CREATE_SCAN_TYPE_TABLE = """
-CREATE TABLE IF NOT EXISTS scan_type (
-  scan_type_id bigserial PRIMARY KEY,
-  title text NOT NULL UNIQUE,
-  prompt text NOT NULL DEFAULT ''
-)
-"""
-
-
-CREATE_SCANS_TABLE = """
-CREATE TABLE IF NOT EXISTS scans (
-  scan_id bigserial PRIMARY KEY,
-  scan_type_id bigint NOT NULL REFERENCES scan_type(scan_type_id),
-  event_id bigint NOT NULL REFERENCES event(event_id) ON DELETE CASCADE,
-  llm_provider text NOT NULL DEFAULT '',
-  llm_model text NOT NULL DEFAULT '',
-  user_constrains text NOT NULL DEFAULT '',
-  tools_used text NOT NULL DEFAULT '',
-  summary text NOT NULL DEFAULT ''
-)
-"""
-
-
-CREATE_SCANS_EVENT_INDEX = """
-CREATE INDEX IF NOT EXISTS idx_scans_event_id ON scans(event_id)
-"""
+REQUIRED_SCAN_TABLES = ("scan_type", "scans")
 
 
 def ensure_scan_tables() -> None:
     with connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(CREATE_SCAN_TYPE_TABLE)
-            cursor.execute(CREATE_SCANS_TABLE)
-            cursor.execute(CREATE_SCANS_EVENT_INDEX)
+            _assert_tables_exist(cursor, REQUIRED_SCAN_TABLES)
             _seed_scan_types(cursor)
 
 
@@ -125,6 +98,29 @@ def _seed_scan_types(cursor) -> None:
         """,
         phase_two_scan_type_rows(),
     )
+
+
+def _assert_tables_exist(cursor, table_names: Sequence[str]) -> None:
+    cursor.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ANY(%s)
+        """,
+        (list(table_names),),
+    )
+    present = {
+        row["table_name"] if isinstance(row, dict) else row[0]
+        for row in cursor.fetchall() or []
+    }
+    missing = set(table_names) - present
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "Database schema is missing required table(s): "
+            f"{missing_text}; run the database reset/admin migration"
+        )
 
 
 def _scan_type_id(cursor, title: str) -> int:
