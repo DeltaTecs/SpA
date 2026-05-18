@@ -337,6 +337,7 @@ class ScannerAnalyzer:
                     )
                 return None
 
+            tool_calls = getattr(response, "tool_calls", None) or []
             messages.append(response)
             if scan_logger is not None:
                 scan_logger.log_llm_response(
@@ -345,14 +346,14 @@ class ScannerAnalyzer:
                         "content": _content_to_text(response.content),
                         "tool_calls": [
                             {"name": call.get("name"), "args": call.get("args")}
-                            for call in (getattr(response, "tool_calls", None) or [])
+                            for call in tool_calls
                         ],
                     },
                 )
-            if not getattr(response, "tool_calls", None):
+            if not tool_calls:
                 return _content_to_text(response.content)
 
-            for tool_call in response.tool_calls:
+            for tool_call in tool_calls:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
@@ -375,6 +376,7 @@ class ScannerAnalyzer:
                 messages.append(
                     ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
+            _emit_tool_results_received(on_progress, len(tool_calls))
 
         logger.warning("Max tool-call rounds reached for event %d", event_id)
         if scan_logger is not None:
@@ -444,7 +446,7 @@ class ScannerAnalyzer:
                     },
                 )
 
-            tool_calls = getattr(message, "tool_calls", None)
+            tool_calls = list(getattr(message, "tool_calls", None) or [])
             if not tool_calls:
                 return str(getattr(message, "content", "") or "")
 
@@ -480,6 +482,7 @@ class ScannerAnalyzer:
                         "content": str(result),
                     }
                 )
+            _emit_tool_results_received(on_progress, len(tool_calls))
 
         logger.warning("Max DeepSeek tool-call rounds reached for event %d", event_id)
         if scan_logger is not None:
@@ -502,6 +505,18 @@ def _content_to_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
+
+
+def _emit_tool_results_received(
+    on_progress: Optional[Callable[[str], None]],
+    tool_count: int,
+) -> None:
+    if on_progress is None or tool_count <= 0:
+        return
+    if tool_count == 1:
+        on_progress("MCP tool result received; invoking LLM.")
+        return
+    on_progress(f"{tool_count} MCP tool results received; invoking LLM.")
 
 
 def _openai_tool_spec(tool: Any) -> Dict[str, Any]:

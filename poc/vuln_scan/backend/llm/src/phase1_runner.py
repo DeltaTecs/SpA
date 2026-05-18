@@ -112,7 +112,7 @@ def run_phase_one_summary(
         user_context=user_context,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
-        on_progress=progress_callback,
+        on_progress=_progress,
         scan_logger=scan_logger,
     )
 

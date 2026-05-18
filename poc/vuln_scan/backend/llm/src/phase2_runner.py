@@ -217,7 +217,7 @@ def run_phase_two_analysis(
         tool_catalog=tool_catalog,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
-        on_progress=progress_callback,
+        on_progress=_progress,
         scan_logger=scan_logger,
     )
     _progress("LLM vulnerability analysis finished.")

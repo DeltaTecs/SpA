@@ -692,45 +692,23 @@ function currentPrescanProcess() {
     return {label: "Idle", active: false, terminal: false, error: false};
   }
 
+  const latestMessage = latestProgressMessage(run);
   if (run.status === "completed") {
-    return {label: "Pre-scan complete", active: false, terminal: true, error: false};
+    return {label: latestMessage || "Pre-scan completed.", active: false, terminal: true, error: false};
   }
   if (run.status === "failed") {
-    return {label: `Pre-scan failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
+    return {label: latestMessage || `Pre-scan failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
   }
   if (run.status === "queued") {
-    return {label: "Queued", active: true, terminal: false, error: false};
+    return {label: latestMessage || "Queued", active: true, terminal: false, error: false};
   }
 
-  const latestMessage = latestProgressMessage(run);
   return {
-    label: prescanLabelFromProgress(latestMessage, run.status),
+    label: latestMessage || humanizeStatus(run.status),
     active: isPhaseOneRunning(),
     terminal: false,
     error: false,
   };
-}
-
-function prescanLabelFromProgress(message, status) {
-  const requestedTool = /^LLM requested tool\s+(.+)\.$/.exec(message);
-  if (requestedTool) {
-    return `MCP tool running: ${requestedTool[1]}`;
-  }
-
-  if (message === "Prompt prepared; invoking LLM pre-scan.") {
-    return "LLM thinking";
-  }
-  if (message.startsWith("Pre-scan has access to") || message.startsWith("Connecting MCP")) {
-    return "Preparing MCP tools";
-  }
-  if (message.startsWith("Loading packet context")) {
-    return "Loading packet context";
-  }
-  if (message === "Pre-scan started.") {
-    return "Starting pre-scan";
-  }
-
-  return status === "running" ? "LLM thinking" : humanizeStatus(status);
 }
 
 function renderSelectedReport(reportItem) {
@@ -1077,36 +1055,22 @@ function currentAnalysisProcess() {
     return {label: "Idle", active: false, terminal: false, error: false};
   }
 
+  const latestMessage = latestProgressMessage(run);
   if (run.status === "completed") {
-    return {label: "Analysis complete", active: false, terminal: true, error: false};
+    return {label: latestMessage || "Analysis completed.", active: false, terminal: true, error: false};
   }
   if (run.status === "failed") {
-    return {label: `Analysis failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
+    return {label: latestMessage || `Analysis failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
   }
   if (run.status === "aborted") {
-    return {label: "Analysis aborted", active: false, terminal: true, error: false};
+    return {label: latestMessage || "Analysis aborted.", active: false, terminal: true, error: false};
   }
   if (run.status === "queued") {
-    return {label: "Queued", active: true, terminal: false, error: false};
+    return {label: latestMessage || "Queued", active: true, terminal: false, error: false};
   }
 
-  const activeTool = run.active_tool_execution;
-  if (activeTool?.status === "stop_requested") {
-    return {label: `Stopping MCP tool: ${toolDisplayName(activeTool.tool_call)}`, active: true, terminal: false, error: false};
-  }
-  if (activeTool?.status === "running") {
-    return {label: `MCP tool running: ${toolDisplayName(activeTool.tool_call)}`, active: true, terminal: false, error: false};
-  }
-
-  const pending = run.pending_tool_requests || [];
-  if (pending.length > 0) {
-    const toolName = toolDisplayName(pending[0].tool_call);
-    return {label: `Awaiting approval: ${toolName}`, active: true, terminal: false, error: false};
-  }
-
-  const latestMessage = latestProgressMessage(run);
   return {
-    label: processLabelFromProgress(latestMessage, run.status),
+    label: latestMessage || humanizeStatus(run.status),
     active: isPhaseTwoRunning(),
     terminal: false,
     error: false,
@@ -1116,60 +1080,6 @@ function currentAnalysisProcess() {
 function latestProgressMessage(run) {
   const progress = Array.isArray(run.progress) ? run.progress : [];
   return progress[progress.length - 1]?.message || "";
-}
-
-function processLabelFromProgress(message, status) {
-  const runningTool = /^Running approved tool\s+(.+)\.$/.exec(message);
-  if (runningTool) {
-    return `MCP tool running: ${runningTool[1]}`;
-  }
-
-  const awaitingTool = /^Awaiting approval for tool\s+(.+)\.$/.exec(message);
-  if (awaitingTool) {
-    return `Awaiting approval: ${awaitingTool[1]}`;
-  }
-
-  const requestedTool = /^LLM requested tool\s+(.+)\.$/.exec(message);
-  if (requestedTool) {
-    return `Preparing MCP tool: ${requestedTool[1]}`;
-  }
-
-  if (message === "Prompt prepared; invoking LLM vulnerability analysis.") {
-    return "LLM thinking";
-  }
-  if (message.startsWith("Connecting MCP server") || message.includes("loaded") || message.startsWith("Phase-two analysis has access")) {
-    return "Preparing MCP tools";
-  }
-  if (message.startsWith("Loading packet context") || message === "Loaded stored phase-one summary.") {
-    return "Loading packet context";
-  }
-  if (message.startsWith("MCP database tool request auto-approved")) {
-    return "MCP database request auto-approved";
-  }
-  if (message.startsWith("MCP tool request auto-approved")) {
-    return "MCP request auto-approved";
-  }
-  if (message.startsWith("MCP tool stop requested")) {
-    return "Stopping MCP tool";
-  }
-  if (message.startsWith("MCP tool stopped by user")) {
-    return "MCP tool stopped by user";
-  }
-  if (message.startsWith("Tool request approved")) {
-    return "Tool approved; resuming analysis";
-  }
-  if (message.startsWith("Tool request denied")) {
-    return "Tool denied; resuming analysis";
-  }
-  if (message === "Analysis started.") {
-    return "Starting analysis";
-  }
-
-  return status === "running" ? "LLM thinking" : humanizeStatus(status);
-}
-
-function toolDisplayName(toolCall) {
-  return toolCall?.exposed_tool_name || toolCall?.tool_name || "MCP tool";
 }
 
 function humanizeStatus(status) {
