@@ -209,15 +209,15 @@ class ScannerAnalyzer:
             prompt_parts.append(external_context)
         if constraints.strip():
             prompt_parts.append(
-                "=== Bug Bounty Program Constraints ===\n"
+                "=== Analysis Constraints ===\n"
                 f"{constraints.strip()}\n"
-                "=== End Bug Bounty Program Constraints ==="
+                "=== End Analysis Constraints ==="
             )
         if prescan_markdown.strip():
             prompt_parts.append(
-                "=== Phase One Summary ===\n"
+                "=== Event Summary ===\n"
                 f"{prescan_markdown.strip()}\n"
-                "=== End Phase One Summary ==="
+                "=== End Event Summary ==="
             )
         prompt_parts.append(
             "=== Target Event ===\n"
