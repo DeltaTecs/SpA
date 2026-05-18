@@ -22,11 +22,9 @@ You have these MCP-backed tools:
   event and assign the current packet to it atomically.
 * update_event_description(event_id, description) - refine the event description
   after assigning the current packet when the new packet clarifies the event.
-
-The only non-database tool the grouping LLM may receive is the external search
-tool search_engine__tavily_search. Use it only when public reference material
-would clarify application, protocol, or endpoint semantics. Packet evidence
-remains the source of truth for grouping.
+* search_engine__tavily_search(query) - external public web search for
+  application, protocol, endpoint, standard, or vulnerability reference context.
+  Packet evidence remains the source of truth for grouping!
 """
 
 

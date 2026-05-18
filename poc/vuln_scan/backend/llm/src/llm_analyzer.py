@@ -126,6 +126,7 @@ class ScannerAnalyzer:
         has_app_details: bool = False,
         has_user_actions: bool = False,
         max_rounds: int = 12,
+        on_progress: Optional[Callable[[str], None]] = None,
     ) -> ScanSummary:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
@@ -154,6 +155,7 @@ class ScannerAnalyzer:
             tools=list(tools),
             event_id=event_id,
             max_rounds=max_rounds,
+            on_progress=on_progress,
         )
         if response_text is None:
             response_text = ""

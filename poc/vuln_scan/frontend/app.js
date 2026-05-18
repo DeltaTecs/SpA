@@ -26,6 +26,7 @@ const ANALYSIS_TYPES = [
 ];
 const DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label;
 const ACTIVE_ANALYSIS_STATUSES = new Set(["queued", "running", "waiting_for_tool_approval"]);
+const ACTIVE_PRESCAN_STATUSES = new Set(["queued", "running"]);
 const PREFERRED_PROVIDER_MODELS = {
   deepseek: "deepseek-v4-pro",
 };
@@ -52,6 +53,9 @@ const state = {
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
+  phase1RunId: null,
+  phase1Run: null,
+  phase1PollTimer: null,
   storedReportsByEvent: {},
   loadingReportEventIds: new Set(),
   reportErrorsByEvent: {},
@@ -97,6 +101,8 @@ const constraintsInput = document.querySelector("#constraintsInput");
 const analysisStatus = document.querySelector("#analysisStatus");
 const analysisProcess = document.querySelector("#analysisProcess");
 const analysisProcessText = document.querySelector("#analysisProcessText");
+const prescanProcess = document.querySelector("#prescanProcess");
+const prescanProcessText = document.querySelector("#prescanProcessText");
 const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
 const priorReportsList = document.querySelector("#priorReportsList");
@@ -260,7 +266,7 @@ async function loadStoredReports(eventId, options = {}) {
 
 async function startPhaseOne() {
   const event = selected();
-  if (!event || isEventRunning(event.event_id)) {
+  if (!event || isEventRunning(event.event_id) || isPhaseOneRunning()) {
     return;
   }
 
@@ -268,7 +274,7 @@ async function startPhaseOne() {
   renderConfig();
   renderEvents();
   renderDetailPane();
-  setStatus(`Running pre-scan for event ${event.event_id} with ${providerLabel(state.selectedProvider)} ${state.selectedModel}...`);
+  setStatus(`Starting pre-scan for event ${event.event_id} with ${providerLabel(state.selectedProvider)} ${state.selectedModel}...`);
 
   try {
     const payload = {
@@ -285,17 +291,66 @@ async function startPhaseOne() {
     if (!response.ok) {
       throw new Error(await errorText(response));
     }
-    const result = await response.json();
-    state.results[event.event_id] = result;
+    state.phase1Run = await response.json();
+    state.phase1RunId = state.phase1Run.run_id;
     renderDetailPane();
-    setStatus(`Pre-scan complete for event ${event.event_id}.`);
+    schedulePhaseOnePolling();
   } catch (error) {
-    setStatus(`Pre-scan failed for event ${event.event_id}: ${error.message}`, true);
-  } finally {
     state.runningEventIds.delete(event.event_id);
+    setStatus(`Pre-scan failed for event ${event.event_id}: ${error.message}`, true);
     renderConfig();
     renderEvents();
     renderDetailPane();
+  }
+}
+
+function schedulePhaseOnePolling() {
+  stopPhaseOnePolling();
+  state.phase1PollTimer = window.setInterval(refreshPhaseOneRun, 1500);
+  refreshPhaseOneRun();
+}
+
+function stopPhaseOnePolling() {
+  if (state.phase1PollTimer) {
+    window.clearInterval(state.phase1PollTimer);
+    state.phase1PollTimer = null;
+  }
+}
+
+async function refreshPhaseOneRun() {
+  if (!state.phase1RunId) {
+    stopPhaseOnePolling();
+    return;
+  }
+  try {
+    const response = await fetch(`/api/phase1/${state.phase1RunId}`);
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    const run = await response.json();
+    state.phase1Run = run;
+    if (run.status === "completed") {
+      state.results[run.event_id] = {
+        event_id: run.event_id,
+        recording_id: run.recording_id,
+        markdown: run.result_markdown,
+        summary: run.summary,
+      };
+      state.runningEventIds.delete(run.event_id);
+      setStatus(`Pre-scan complete for event ${run.event_id}.`);
+    } else if (run.status === "failed") {
+      state.runningEventIds.delete(run.event_id);
+      setStatus(`Pre-scan failed for event ${run.event_id}: ${run.error || "unknown error"}`, true);
+    }
+    if (!isPhaseOneRunning()) {
+      stopPhaseOnePolling();
+    }
+    renderConfig();
+    renderEvents();
+    renderDetailPane();
+  } catch (error) {
+    setStatus(`Could not refresh pre-scan: ${error.message}`, true);
+    stopPhaseOnePolling();
   }
 }
 
@@ -597,6 +652,8 @@ function renderEventDetail() {
     ? `Selected event ${event.event_id}: ${event.description || "(no description)"}`
     : "Select an event.";
 
+  renderPrescanProcess();
+
   if (!event) {
     report.textContent = "";
     renderPhaseTwo();
@@ -610,6 +667,61 @@ function renderEventDetail() {
   const result = state.results[event.event_id];
   report.textContent = result?.markdown || "No stored evaluation for this event.";
   renderPhaseTwo();
+}
+
+function renderPrescanProcess() {
+  const process = currentPrescanProcess();
+  prescanProcessText.textContent = process.label;
+  prescanProcess.classList.toggle("active", process.active);
+  prescanProcess.classList.toggle("terminal", process.terminal);
+  prescanProcess.classList.toggle("error", process.error);
+}
+
+function currentPrescanProcess() {
+  const run = state.phase1Run;
+  if (!run) {
+    return {label: "Idle", active: false, terminal: false, error: false};
+  }
+
+  if (run.status === "completed") {
+    return {label: "Pre-scan complete", active: false, terminal: true, error: false};
+  }
+  if (run.status === "failed") {
+    return {label: `Pre-scan failed: ${run.error || "unknown error"}`, active: false, terminal: true, error: true};
+  }
+  if (run.status === "queued") {
+    return {label: "Queued", active: true, terminal: false, error: false};
+  }
+
+  const latestMessage = latestProgressMessage(run);
+  return {
+    label: prescanLabelFromProgress(latestMessage, run.status),
+    active: isPhaseOneRunning(),
+    terminal: false,
+    error: false,
+  };
+}
+
+function prescanLabelFromProgress(message, status) {
+  const requestedTool = /^LLM requested tool\s+(.+)\.$/.exec(message);
+  if (requestedTool) {
+    return `MCP tool running: ${requestedTool[1]}`;
+  }
+
+  if (message === "Prompt prepared; invoking LLM pre-scan.") {
+    return "LLM thinking";
+  }
+  if (message.startsWith("Pre-scan has access to") || message.startsWith("Connecting MCP")) {
+    return "Preparing MCP tools";
+  }
+  if (message.startsWith("Loading packet context")) {
+    return "Loading packet context";
+  }
+  if (message === "Pre-scan started.") {
+    return "Starting pre-scan";
+  }
+
+  return status === "running" ? "LLM thinking" : humanizeStatus(status);
 }
 
 function renderSelectedReport(reportItem) {
@@ -1089,6 +1201,10 @@ function isEventRunning(eventId) {
 
 function isPhaseTwoRunning() {
   return Boolean(state.phase2Run && ACTIVE_ANALYSIS_STATUSES.has(state.phase2Run.status));
+}
+
+function isPhaseOneRunning() {
+  return Boolean(state.phase1Run && ACTIVE_PRESCAN_STATUSES.has(state.phase1Run.status));
 }
 
 function canStopActiveTool() {

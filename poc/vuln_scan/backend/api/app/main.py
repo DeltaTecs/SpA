@@ -28,6 +28,7 @@ from scanner_config import (
 from user_context import load_app_details, parse_intend_file, parse_intend_text
 
 from .analysis_sessions import AnalysisRun, AnalysisSessionStore
+from .prescan_sessions import PrescanRun, PrescanSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
 from .scan_store import (
     get_phase_two_scans,
@@ -118,6 +119,7 @@ class StoredScanReportItem(BaseModel):
 
 
 analysis_runs = AnalysisSessionStore()
+prescan_runs = PrescanSessionStore()
 
 
 @app.get("/health")
@@ -172,36 +174,27 @@ def stored_scan_reports(event_id: int) -> List[StoredScanReportItem]:
     return [StoredScanReportItem(**row) for row in list_phase_two_scans(event_id)]
 
 
-@app.post("/phase1", response_model=ScanResponse)
-def run_phase1(request: ScanRequest) -> ScanResponse:
+@app.post("/phase1")
+def start_phase1(request: ScanRequest) -> dict:
     provider, model, api_key, api_base_url = _llm_settings(request)
-
-    try:
-        analyzer = create_analyzer(
-            provider=provider,
-            model=model,
-            api_key=api_key,
-            api_base_url=api_base_url,
-        )
-        summary = run_phase_one_summary(
-            mcp_client=_mcp_client(),
-            analyzer=analyzer,
-            event_id=request.event_id,
-            app_details=_optional_app_details(request),
-            user_actions=_optional_user_actions(request),
-        )
-        save_prescan(summary)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-
-    return ScanResponse(
-        event_id=summary.event_id,
-        recording_id=summary.recording_id,
-        markdown=summary.to_markdown(),
-        summary=prescan_dict(summary),
+    run = prescan_runs.create(
+        event_id=request.event_id,
+        provider=provider,
+        model=model,
     )
+    thread = threading.Thread(
+        target=_run_phase1_background,
+        args=(run, request, provider, model, api_key, api_base_url),
+        daemon=True,
+    )
+    thread.start()
+    return run.snapshot()
+
+
+@app.get("/phase1/{run_id}")
+def phase1_status(run_id: str) -> dict:
+    run = _prescan_run(run_id)
+    return run.snapshot()
 
 
 @app.post("/phase2")
@@ -318,6 +311,47 @@ def _analysis_run(run_id: str) -> AnalysisRun:
     if run is None:
         raise HTTPException(status_code=404, detail="Analysis run not found")
     return run
+
+
+def _prescan_run(run_id: str) -> PrescanRun:
+    run = prescan_runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Pre-scan run not found")
+    return run
+
+
+def _run_phase1_background(
+    run: PrescanRun,
+    request: ScanRequest,
+    provider: str,
+    model: str,
+    api_key: Optional[str],
+    api_base_url: Optional[str],
+) -> None:
+    run.start()
+    try:
+        analyzer = create_analyzer(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            api_base_url=api_base_url,
+        )
+        summary = run_phase_one_summary(
+            mcp_client=_mcp_client(),
+            analyzer=analyzer,
+            event_id=request.event_id,
+            app_details=_optional_app_details(request),
+            user_actions=_optional_user_actions(request),
+            progress_callback=run.add_progress,
+        )
+        save_prescan(summary)
+        run.complete(
+            result_markdown=summary.to_markdown(),
+            summary=prescan_dict(summary),
+            recording_id=summary.recording_id,
+        )
+    except Exception as exc:
+        run.fail(str(exc))
 
 
 def _run_phase2_background(
