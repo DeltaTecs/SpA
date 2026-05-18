@@ -439,6 +439,88 @@ h2 {
   padding: 12px 16px 0;
 }
 
+.prior-reports-field {
+  border-top: 1px solid #e3e7ed;
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+
+.prior-reports-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.prior-reports-label {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prior-reports-summary {
+  color: #2f6feb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prior-reports-list {
+  border: 1px solid #e3e7ed;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.prior-report-row {
+  align-items: start;
+  border-bottom: 1px solid #edf0f4;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.prior-report-row:last-child {
+  border-bottom: 0;
+}
+
+.prior-report-row:hover {
+  background: #f5f8ff;
+}
+
+.prior-report-row:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.prior-report-row input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 3px;
+  width: 16px;
+}
+
+.prior-report-row-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prior-report-row-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.prior-report-row-title .report-type {
+  font-size: 13px;
+}
+
 .tool-approvals {
   display: grid;
   gap: 10px;

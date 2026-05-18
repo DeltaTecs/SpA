@@ -29,7 +29,11 @@ from user_context import load_app_details, parse_intend_file, parse_intend_text
 
 from .analysis_sessions import AnalysisRun, AnalysisSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
-from .scan_store import list_phase_two_scans, save_completed_phase_two_scan
+from .scan_store import (
+    get_phase_two_scans,
+    list_phase_two_scans,
+    save_completed_phase_two_scan,
+)
 
 
 configure_logging()
@@ -82,6 +86,7 @@ class PhaseTwoRequest(BaseModel):
     api_base_url: Optional[str] = None
     app_details_content: Optional[str] = None
     user_intend_content: Optional[str] = None
+    prior_report_ids: List[int] = Field(default_factory=list)
 
 
 class ToolDecisionRequest(BaseModel):
@@ -203,6 +208,14 @@ def run_phase1(request: ScanRequest) -> ScanResponse:
 def start_phase2(request: PhaseTwoRequest) -> dict:
     provider, model, api_key, api_base_url = _llm_settings(request)
     analysis_types = _analysis_types(request.analysis_types)
+    if get_prescan(request.event_id) is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Event {request.event_id} has no completed pre-scan; "
+                "run the pre-scan before starting vulnerability analysis."
+            ),
+        )
     run = analysis_runs.create(
         event_id=request.event_id,
         analysis_types=analysis_types,
@@ -328,6 +341,12 @@ def _run_phase2_background(
         if prescan_markdown:
             run.add_progress("Loaded stored phase-one summary.")
 
+        prior_reports_markdown = _prior_reports_markdown(request.prior_report_ids)
+        if prior_reports_markdown:
+            run.add_progress(
+                f"Loaded {len(request.prior_report_ids)} prior scan report(s) into the prompt."
+            )
+
         packet_mcp_client = MCPClient(
             base_url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"),
             connect_timeout=30,
@@ -348,6 +367,7 @@ def _run_phase2_background(
             app_details=_optional_app_details(request),
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
+            prior_reports_markdown=prior_reports_markdown,
         )
         if run.abort_requested:
             run.complete("")
@@ -370,6 +390,27 @@ def _run_phase2_background(
             run.complete("")
             return
         run.fail(str(exc))
+
+
+def _prior_reports_markdown(scan_ids: List[int]) -> str:
+    if not scan_ids:
+        return ""
+    rows = get_phase_two_scans(scan_ids)
+    rows_by_id = {int(row["scan_id"]): row for row in rows}
+    sections: List[str] = []
+    for scan_id in scan_ids:
+        row = rows_by_id.get(int(scan_id))
+        if row is None:
+            continue
+        title = row.get("scan_type_title") or "Unknown scan type"
+        provider = row.get("llm_provider") or "provider"
+        model = row.get("llm_model") or "model"
+        body = (row.get("summary") or "").strip() or "(empty report)"
+        sections.append(
+            f"--- Prior report #{row['scan_id']} ({title}; {provider} / {model}; event {row['event_id']}) ---\n"
+            f"{body}"
+        )
+    return "\n\n".join(sections)
 
 
 def _optional_app_details(request: ScanRequest | PhaseTwoRequest) -> Optional[str]:

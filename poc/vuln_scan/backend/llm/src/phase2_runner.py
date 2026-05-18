@@ -37,6 +37,7 @@ def run_phase_two_analysis(
     app_details: Optional[str] = None,
     user_actions: Optional[list[UserAction]] = None,
     prescan_markdown: str = "",
+    prior_reports_markdown: str = "",
 ) -> str:
     logger.info("Starting vulnerability scan phase 2 for event %d", event_id)
     progress_callback(f"Loading packet context for event {event_id}.")
@@ -80,6 +81,7 @@ def run_phase_two_analysis(
         tools=tools,
         external_context=external_context,
         prescan_markdown=prescan_markdown,
+        prior_reports_markdown=prior_reports_markdown,
         tool_catalog=tool_catalog,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check e:/workspaces/SpA/poc/vuln_scan/frontend/app.js)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('e:/workspaces/SpA/poc/vuln_scan/backend/api/app/main.py', encoding='utf-8'\\).read\\(\\)\\)\")"
+    ]
+  }
+}

@@ -188,6 +188,7 @@ class ScannerAnalyzer:
         tools: Sequence[Any],
         external_context: str = "",
         prescan_markdown: str = "",
+        prior_reports_markdown: str = "",
         tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
@@ -202,6 +203,7 @@ class ScannerAnalyzer:
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
             has_prescan=bool(prescan_markdown.strip()),
+            has_prior_reports=bool(prior_reports_markdown.strip()),
         )
 
         prompt_parts: list[str] = []
@@ -218,6 +220,12 @@ class ScannerAnalyzer:
                 "=== Event Summary ===\n"
                 f"{prescan_markdown.strip()}\n"
                 "=== End Event Summary ==="
+            )
+        if prior_reports_markdown.strip():
+            prompt_parts.append(
+                "=== Prior Scan Reports ===\n"
+                f"{prior_reports_markdown.strip()}\n"
+                "=== End Prior Scan Reports ==="
             )
         prompt_parts.append(
             "=== Target Event ===\n"

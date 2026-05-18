@@ -67,6 +67,7 @@ def build_phase_two_system_prompt(
     has_app_details: bool,
     has_user_actions: bool,
     has_prescan: bool,
+    has_prior_reports: bool = False,
 ) -> str:
     context_notes = []
     if has_app_details:
@@ -75,6 +76,12 @@ def build_phase_two_system_prompt(
         context_notes.append("Use nearby user actions when choosing investigation steps.")
     if has_prescan:
         context_notes.append("Use the phase-one summary as the initial traffic entrypoint.")
+    if has_prior_reports:
+        context_notes.append(
+            "Use findings from the supplied prior scan reports as input: build on confirmed hosts, "
+            "endpoints, ports, technologies and paths; avoid repeating work "
+            "they already completed."
+        )
 
     extra_context = "\n".join(f"- {note}" for note in context_notes)
     if not extra_context:

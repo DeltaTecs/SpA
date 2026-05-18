@@ -55,6 +55,7 @@ const state = {
   storedReportsByEvent: {},
   loadingReportEventIds: new Set(),
   reportErrorsByEvent: {},
+  priorReportIdsByEvent: {},
 };
 
 const eventList = document.querySelector("#eventList");
@@ -98,6 +99,8 @@ const analysisProcess = document.querySelector("#analysisProcess");
 const analysisProcessText = document.querySelector("#analysisProcessText");
 const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
+const priorReportsList = document.querySelector("#priorReportsList");
+const priorReportsSummary = document.querySelector("#priorReportsSummary");
 
 refreshButton.addEventListener("click", loadEvents);
 refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
@@ -310,6 +313,7 @@ async function startPhaseTwo() {
     auto_approve_all_mcp_requests: state.autoApproveAllMcpRequests,
     provider: state.selectedProvider,
     model: state.selectedModel,
+    prior_report_ids: selectedPriorReportIdsForEvent(event.event_id),
     ...contextPayload(),
   };
 
@@ -719,7 +723,8 @@ function renderPhaseTwo() {
   autoApproveAllMcpRequests.disabled = running;
 
   const event = selected();
-  startAnalysisButton.disabled = running || !event || !state.selectedProvider || !state.selectedModel || !state.analysisType;
+  const hasPrescan = Boolean(event && state.results[event.event_id]);
+  startAnalysisButton.disabled = running || !event || !hasPrescan || !state.selectedProvider || !state.selectedModel || !state.analysisType;
   abortAnalysisButton.disabled = !running;
   stopToolButton.disabled = !canStopActiveTool();
 
@@ -733,6 +738,11 @@ function renderPhaseTwo() {
     setAnalysisStatus(`Analysis failed: ${state.phase2Run.error || "unknown error"}`, true);
   } else if (state.phase2Run?.status === "aborted") {
     setAnalysisStatus("Analysis aborted.");
+  } else if (!hasPrescan) {
+    setAnalysisStatus(
+      `Run the pre-scan for event ${event.event_id} before starting vulnerability analysis.`,
+      true,
+    );
   } else if (!state.analysisType) {
     setAnalysisStatus("Select a vulnerability analysis type.");
   } else {
@@ -742,6 +752,114 @@ function renderPhaseTwo() {
   renderToolApprovals();
   renderAnalysisProcess();
   renderAnalysisProgress();
+  renderPriorReports(running);
+}
+
+function renderPriorReports(running) {
+  priorReportsList.innerHTML = "";
+
+  const event = selected();
+  if (!event) {
+    priorReportsSummary.textContent = "Select an event to see its prior reports.";
+    appendPriorReportListMessage("Select an event.");
+    return;
+  }
+
+  pruneSelectedPriorReportIds(event.event_id);
+
+  const eventId = event.event_id;
+  const reports = state.storedReportsByEvent[eventId];
+  const loading = state.loadingReportEventIds.has(eventId);
+  const error = state.reportErrorsByEvent[eventId];
+  const selectedIds = state.priorReportIdsByEvent[eventId] || new Set();
+
+  priorReportsSummary.textContent = selectedIds.size
+    ? `${selectedIds.size} selected`
+    : "None selected";
+
+  if (loading && !reports) {
+    appendPriorReportListMessage(`Loading reports for event ${eventId}...`);
+    return;
+  }
+  if (error && !reports) {
+    appendPriorReportListMessage(`Could not load reports: ${error}`, true);
+    return;
+  }
+  if (!reports || reports.length === 0) {
+    appendPriorReportListMessage("No stored reports available for this event yet.");
+    return;
+  }
+
+  for (const reportItem of reports) {
+    const row = document.createElement("label");
+    row.className = "prior-report-row";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedIds.has(reportItem.scan_id);
+    checkbox.disabled = running;
+    checkbox.addEventListener("change", () => {
+      togglePriorReportSelection(eventId, reportItem.scan_id, checkbox.checked);
+    });
+
+    const text = document.createElement("div");
+    text.className = "prior-report-row-text";
+
+    const title = document.createElement("div");
+    title.className = "prior-report-row-title";
+    const type = document.createElement("span");
+    type.className = "report-type";
+    type.textContent = reportItem.scan_type_title || "Unknown scan type";
+    const id = document.createElement("span");
+    id.className = "event-id";
+    id.textContent = `#${reportItem.scan_id}`;
+    title.append(type, id);
+
+    const meta = document.createElement("div");
+    meta.className = "event-meta";
+    meta.textContent = reportRowMetaText(reportItem);
+
+    text.append(title, meta);
+    row.append(checkbox, text);
+    priorReportsList.append(row);
+  }
+}
+
+function appendPriorReportListMessage(message, isError = false) {
+  const empty = document.createElement("div");
+  empty.className = `report-list-message${isError ? " error" : ""}`;
+  empty.textContent = message;
+  priorReportsList.append(empty);
+}
+
+function togglePriorReportSelection(eventId, scanId, checked) {
+  const selectedIds = state.priorReportIdsByEvent[eventId] || new Set();
+  if (checked) {
+    selectedIds.add(scanId);
+  } else {
+    selectedIds.delete(scanId);
+  }
+  state.priorReportIdsByEvent[eventId] = selectedIds;
+  renderPhaseTwo();
+}
+
+function pruneSelectedPriorReportIds(eventId) {
+  const selectedIds = state.priorReportIdsByEvent[eventId];
+  const reports = state.storedReportsByEvent[eventId];
+  if (!selectedIds || selectedIds.size === 0 || !reports) {
+    return;
+  }
+  const availableIds = new Set(reports.map((item) => item.scan_id));
+  for (const scanId of [...selectedIds]) {
+    if (!availableIds.has(scanId)) {
+      selectedIds.delete(scanId);
+    }
+  }
+}
+
+function selectedPriorReportIdsForEvent(eventId) {
+  const selectedIds = state.priorReportIdsByEvent[eventId];
+  return selectedIds ? [...selectedIds] : [];
 }
 
 function renderAnalysisTypeSelect(running) {

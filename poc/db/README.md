@@ -21,8 +21,7 @@ Bash (Linux/WSL/macOS):
 ```
 
 Notes:
-- `load` clears existing table content in the `public` schema and restores dump
-  data. It preserves schema objects, so empty tables are not dropped.
+- `load` does not clear existing table content, but simply inserts into the tables.
 - The scripts read DB/container settings from `poc/.env` by default.
 
 Notes:

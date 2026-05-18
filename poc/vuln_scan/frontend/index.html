@@ -104,6 +104,13 @@
                 <span>Constraints</span>
                 <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>
               </label>
+              <section class="prior-reports-field" aria-label="Prior scan reports to include">
+                <div class="prior-reports-header">
+                  <span class="prior-reports-label">Include prior scan reports in prompt</span>
+                  <span id="priorReportsSummary" class="prior-reports-summary">None selected</span>
+                </div>
+                <div id="priorReportsList" class="prior-reports-list" aria-live="polite"></div>
+              </section>
               <div id="analysisStatus" class="status-line"></div>
               <div id="analysisProcess" class="analysis-process" role="status" aria-live="polite">
                 <span class="process-spinner" aria-hidden="true"></span>

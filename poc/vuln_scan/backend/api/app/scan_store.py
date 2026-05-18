@@ -88,6 +88,36 @@ def list_phase_two_scans(event_id: int) -> list[dict]:
             return [dict(row) for row in cursor.fetchall()]
 
 
+def get_phase_two_scans(scan_ids: Sequence[int]) -> list[dict]:
+    unique_ids = sorted({int(scan_id) for scan_id in scan_ids})
+    if not unique_ids:
+        return []
+    ensure_scan_tables()
+    with connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  scans.scan_id,
+                  scans.scan_type_id,
+                  scan_type.title AS scan_type_title,
+                  scan_type.prompt AS scan_type_prompt,
+                  scans.event_id,
+                  scans.llm_provider,
+                  scans.llm_model,
+                  scans.user_constrains,
+                  scans.tools_used,
+                  scans.summary
+                FROM scans
+                JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
+                WHERE scans.scan_id = ANY(%s)
+                ORDER BY scans.scan_id ASC
+                """,
+                (unique_ids,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+
 def _seed_scan_types(cursor) -> None:
     cursor.executemany(
         """
