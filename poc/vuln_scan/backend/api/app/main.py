@@ -16,6 +16,7 @@ from logging_setup import configure_logging
 from mcp_client import MCPClient
 from mcp_proxy_tools import analysis_mcp_server_specs_from_env
 from phase2_runner import run_phase_two_analysis
+from scan_logger import ScanRunLogger, create_scan_run_logger
 from scanner_config import (
     PROVIDERS,
     create_analyzer,
@@ -60,6 +61,7 @@ class EventItem(BaseModel):
 
 class ScanRequest(BaseModel):
     event_id: int
+    enable_web_search: bool = False
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
@@ -120,6 +122,8 @@ class StoredScanReportItem(BaseModel):
 
 analysis_runs = AnalysisSessionStore()
 prescan_runs = PrescanSessionStore()
+_phase1_loggers: dict[str, ScanRunLogger] = {}
+_phase2_loggers: dict[str, ScanRunLogger] = {}
 
 
 @app.get("/health")
@@ -240,6 +244,9 @@ def phase2_status(run_id: str) -> dict:
 @app.post("/phase2/{run_id}/abort")
 def abort_phase2(run_id: str) -> dict:
     run = _analysis_run(run_id)
+    scan_logger = _phase2_loggers.get(run_id)
+    if scan_logger is not None:
+        scan_logger.log_user_action("abort_requested", {"run_id": run_id})
     run.abort()
     return run.snapshot()
 
@@ -249,6 +256,9 @@ def stop_phase2_tool(run_id: str) -> dict:
     run = _analysis_run(run_id)
     if not run.request_active_tool_stop():
         raise HTTPException(status_code=409, detail="No MCP tool is currently running")
+    scan_logger = _phase2_loggers.get(run_id)
+    if scan_logger is not None:
+        scan_logger.log_user_action("tool_stop_requested_via_api", {"run_id": run_id})
     return run.snapshot()
 
 
@@ -265,6 +275,16 @@ def decide_phase2_tool(
         raise HTTPException(status_code=404, detail="Tool request not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    scan_logger = _phase2_loggers.get(run_id)
+    if scan_logger is not None:
+        scan_logger.log_user_action(
+            "tool_decision",
+            {
+                "run_id": run_id,
+                "request_id": request_id,
+                "approved": request.approved,
+            },
+        )
     return run.snapshot()
 
 
@@ -329,6 +349,25 @@ def _run_phase1_background(
     api_base_url: Optional[str],
 ) -> None:
     run.start()
+    scan_logger = create_scan_run_logger(
+        phase="phase1",
+        run_id=run.run_id,
+        event_id=request.event_id,
+    )
+    if scan_logger is not None:
+        _phase1_loggers[run.run_id] = scan_logger
+        scan_logger.log_input(
+            "request",
+            {
+                "event_id": request.event_id,
+                "enable_web_search": request.enable_web_search,
+                "provider": provider,
+                "model": model,
+                "api_base_url": api_base_url,
+                "has_app_details_content": request.app_details_content is not None,
+                "has_user_intend_content": request.user_intend_content is not None,
+            },
+        )
     try:
         analyzer = create_analyzer(
             provider=provider,
@@ -343,6 +382,8 @@ def _run_phase1_background(
             app_details=_optional_app_details(request),
             user_actions=_optional_user_actions(request),
             progress_callback=run.add_progress,
+            scan_logger=scan_logger,
+            enable_web_search=request.enable_web_search,
         )
         save_prescan(summary)
         run.complete(
@@ -350,8 +391,16 @@ def _run_phase1_background(
             summary=prescan_dict(summary),
             recording_id=summary.recording_id,
         )
+        if scan_logger is not None:
+            scan_logger.info("Phase 1 run completed successfully.")
     except Exception as exc:
+        if scan_logger is not None:
+            scan_logger.error("Phase 1 run failed: %s", exc)
         run.fail(str(exc))
+    finally:
+        if scan_logger is not None:
+            _phase1_loggers.pop(run.run_id, None)
+            scan_logger.close()
 
 
 def _run_phase2_background(
@@ -363,6 +412,29 @@ def _run_phase2_background(
     api_base_url: Optional[str],
 ) -> None:
     run.start()
+    scan_logger = create_scan_run_logger(
+        phase="phase2",
+        run_id=run.run_id,
+        event_id=request.event_id,
+    )
+    if scan_logger is not None:
+        _phase2_loggers[run.run_id] = scan_logger
+        scan_logger.log_input(
+            "request",
+            {
+                "event_id": request.event_id,
+                "analysis_types": list(run.analysis_types),
+                "constraints": request.constraints,
+                "provider": provider,
+                "model": model,
+                "api_base_url": api_base_url,
+                "auto_approve_mcp_database_requests": request.auto_approve_mcp_database_requests,
+                "auto_approve_all_mcp_requests": request.auto_approve_all_mcp_requests,
+                "prior_report_ids": list(request.prior_report_ids),
+                "has_app_details_content": request.app_details_content is not None,
+                "has_user_intend_content": request.user_intend_content is not None,
+            },
+        )
     try:
         analyzer = create_analyzer(
             provider=provider,
@@ -402,9 +474,12 @@ def _run_phase2_background(
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
             prior_reports_markdown=prior_reports_markdown,
+            scan_logger=scan_logger,
         )
         if run.abort_requested:
             run.complete("")
+            if scan_logger is not None:
+                scan_logger.info("Phase 2 run aborted before completion.")
             return
         scan_id = save_completed_phase_two_scan(
             scan_type_title=(
@@ -419,11 +494,25 @@ def _run_phase2_background(
         )
         run.add_progress(f"Stored phase-two scan report: scan_id {scan_id}.")
         run.complete(result)
+        if scan_logger is not None:
+            scan_logger.info(
+                "Phase 2 run completed successfully (scan_id=%s).", scan_id
+            )
     except Exception as exc:
         if run.abort_requested:
             run.complete("")
+            if scan_logger is not None:
+                scan_logger.info(
+                    "Phase 2 run aborted after exception: %s", exc
+                )
             return
+        if scan_logger is not None:
+            scan_logger.error("Phase 2 run failed: %s", exc)
         run.fail(str(exc))
+    finally:
+        if scan_logger is not None:
+            _phase2_loggers.pop(run.run_id, None)
+            scan_logger.close()
 
 
 def _prior_reports_markdown(scan_ids: List[int]) -> str:

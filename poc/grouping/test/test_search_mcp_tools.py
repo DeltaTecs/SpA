@@ -114,7 +114,7 @@ class SearchMCPToolsTest(unittest.TestCase):
     def tearDown(self) -> None:
         search_mcp_tools.MCPClient = self.original_client
 
-    def test_grouping_exposes_only_tavily_search(self) -> None:
+    def test_grouping_exposes_only_allowed_tavily_tools(self) -> None:
         _FakeMCPClient.tool_specs = [
             _MCPToolSpec(
                 "tavily_search",
@@ -138,11 +138,15 @@ class SearchMCPToolsTest(unittest.TestCase):
             progress_callback=progress.append,
         )
 
-        self.assertEqual([tool.name for tool in tools], ["search_engine__tavily_search"])
+        self.assertEqual(
+            [tool.name for tool in tools],
+            ["search_engine__tavily_search", "search_engine__tavily_extract"],
+        )
         self.assertIn("Search Engine.tavily_search", catalog)
-        self.assertNotIn("tavily_extract", catalog)
+        self.assertIn("Search Engine.tavily_extract", catalog)
+        self.assertNotIn("tavily_crawl", catalog)
         self.assertTrue(
-            any("MCP tool hidden from grouping: tavily_extract" in item for item in progress)
+            any("MCP tool hidden from grouping: tavily_crawl" in item for item in progress)
         )
 
 

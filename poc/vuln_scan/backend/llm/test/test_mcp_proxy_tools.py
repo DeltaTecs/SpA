@@ -310,6 +310,8 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         _FakeMCPClient.tool_specs_by_url = {
             "http://search.example": [
                 _MCPToolSpec("tavily_search", "visible", {"type": "object"}),
+                _MCPToolSpec("tavily_extract", "visible", {"type": "object"}),
+                _MCPToolSpec("tavily_crawl", "hidden", {"type": "object"}),
             ],
         }
 
@@ -324,8 +326,13 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
             ]
         )
 
-        self.assertEqual([tool.name for tool in tools], ["search_engine__tavily_search"])
+        self.assertEqual(
+            [tool.name for tool in tools],
+            ["search_engine__tavily_search", "search_engine__tavily_extract"],
+        )
         self.assertIn("Search Engine.tavily_search", catalog)
+        self.assertIn("Search Engine.tavily_extract", catalog)
+        self.assertNotIn("tavily_crawl", catalog)
 
 
 class AnalysisTypesTest(unittest.TestCase):

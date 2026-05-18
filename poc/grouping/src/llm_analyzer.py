@@ -127,6 +127,7 @@ class PacketAnalyzer:
         tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
+        include_search_tools: bool = False,
         max_rounds: int = 6,
     ) -> str:
         """Let the model assign the current packet to a database event."""
@@ -137,6 +138,7 @@ class PacketAnalyzer:
         system_prompt = build_event_assignment_system_prompt(
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
+            include_search_tools=include_search_tools,
         )
         human_prompt = _packet_prompt(
             packet_id=packet_id,
@@ -197,6 +199,7 @@ class PacketAnalyzer:
             tool_catalog=str(kwargs.get("tool_catalog") or ""),
             has_app_details=bool(kwargs.get("has_app_details", False)),
             has_user_actions=bool(kwargs.get("has_user_actions", False)),
+            include_search_tools=bool(kwargs.get("include_search_tools", False)),
             max_rounds=int(kwargs.get("max_rounds", 6)),
         )
 

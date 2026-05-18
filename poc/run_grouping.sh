@@ -4,7 +4,7 @@
 
 # Check for required arguments
 if [ $# -lt 1 ]; then
-    echo "Usage: $0 <recording_id> [model_name] [--app-details <path>] [--user-intend <path>] [--provider <ollama|gemini|openai|deepseek>] [--api-key <key>] [--api-base-url <url>]"
+    echo "Usage: $0 <recording_id> [model_name] [--app-details <path>] [--user-intend <path>] [--provider <ollama|gemini|openai|deepseek>] [--api-key <key>] [--api-base-url <url>] [--web-search]"
     echo "  recording_id   - The recording ID to analyze (required)"
     echo "  model_name     - Model to use (optional, default depends on provider)"
     echo "  --app-details  - Path to app_details.txt (optional)"
@@ -12,6 +12,7 @@ if [ $# -lt 1 ]; then
     echo "  --provider     - LLM provider: ollama, gemini, openai, or deepseek (optional, default: ollama)"
     echo "  --api-key      - API key for the chosen provider (required for gemini/openai/deepseek)"
     echo "  --api-base-url - Override API base URL for OpenAI-compatible providers (optional)"
+    echo "  --web-search   - Enable the external web-search MCP tool (Tavily) during grouping (optional, default: off)"
     echo ""
     echo "Example:"
     echo "  $0 1"
@@ -20,6 +21,7 @@ if [ $# -lt 1 ]; then
     echo "  $0 1 --provider gemini --api-key YOUR_KEY"
     echo "  $0 1 --provider deepseek --api-key YOUR_KEY"
     echo "  $0 1 --provider openai --api-key YOUR_KEY --model gpt-4o-mini"
+    echo "  $0 1 --web-search"
     exit 1
 fi
 
@@ -29,6 +31,7 @@ USER_INTEND=""
 PROVIDER=""
 API_KEY=""
 API_BASE_URL=""
+WEB_SEARCH=0
 
 shift
 MODEL=""
@@ -63,6 +66,10 @@ while [ $# -gt 0 ]; do
         --model)
             MODEL="$2"
             shift 2
+            ;;
+        --web-search)
+            WEB_SEARCH=1
+            shift
             ;;
         *)
             shift
@@ -123,6 +130,10 @@ fi
 if [ -n "$API_BASE_URL" ]; then
     ENV_FLAGS="$ENV_FLAGS -e API_BASE_URL=$API_BASE_URL"
     echo "  API base URL: $API_BASE_URL"
+fi
+if [ "$WEB_SEARCH" = "1" ]; then
+    ENV_FLAGS="$ENV_FLAGS -e GROUPING_ENABLE_WEB_SEARCH=1"
+    echo "  Web search: enabled"
 fi
 
 # Build the command

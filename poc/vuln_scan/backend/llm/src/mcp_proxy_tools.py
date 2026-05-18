@@ -37,6 +37,9 @@ PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES = {
     "packets_in_time_window",
 }
 TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
+# Project-wide cap on Tavily MCP tools the LLM may ever see. Other Tavily tools
+# (crawl, map, research, ...) are hidden regardless of stage or approval mode.
+TAVILY_ALLOWED_TOOL_NAMES = frozenset({"tavily_search", "tavily_extract"})
 
 
 @dataclass(frozen=True)
@@ -111,6 +114,14 @@ class PermissionedMCPToolProxy:
                 ):
                     self._progress(
                         f"{server.label}: MCP tool hidden from phase two: {spec.name}"
+                    )
+                    continue
+                if (
+                    _is_search_engine_server(server)
+                    and spec.name not in TAVILY_ALLOWED_TOOL_NAMES
+                ):
+                    self._progress(
+                        f"{server.label}: search tool not in project allowlist: {spec.name}"
                     )
                     continue
                 allowed_tool_names = self.allowed_tool_names_by_server_id.get(

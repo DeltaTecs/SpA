@@ -69,3 +69,6 @@ poc/vuln_scan/data
 .tmp/
 .tmp.*
 *.tmp
+
+# logs
+logs/

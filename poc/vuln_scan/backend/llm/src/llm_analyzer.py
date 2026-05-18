@@ -32,6 +32,7 @@ from prompts import (
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
 )
+from scan_logger import ScanRunLogger
 from scanner_models import ScanSummary
 
 
@@ -127,6 +128,7 @@ class ScannerAnalyzer:
         has_user_actions: bool = False,
         max_rounds: int = 12,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> ScanSummary:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
@@ -149,6 +151,11 @@ class ScannerAnalyzer:
         )
         human_prompt = "\n\n".join(prompt_parts)
 
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 1 PROMPT")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
         response_text = self._invoke_with_tools(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
@@ -156,9 +163,14 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             on_progress=on_progress,
+            scan_logger=scan_logger,
         )
         if response_text is None:
             response_text = ""
+
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 1 FINAL RESPONSE")
+            scan_logger.log_llm_response("final_summary_text", response_text)
 
         try:
             raw = _parse_json_object(response_text)
@@ -169,6 +181,10 @@ class ScannerAnalyzer:
             )
         except Exception as exc:
             logger.warning("Could not parse phase-one JSON summary: %s", exc)
+            if scan_logger is not None:
+                scan_logger.warning(
+                    "Could not parse phase-one JSON summary: %s", exc
+                )
             return ScanSummary(
                 event_id=event_id,
                 recording_id=recording_id,
@@ -196,6 +212,7 @@ class ScannerAnalyzer:
         has_user_actions: bool = False,
         max_rounds: int = 24,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
@@ -242,6 +259,11 @@ class ScannerAnalyzer:
         if on_progress:
             on_progress("Prompt prepared; invoking LLM vulnerability analysis.")
 
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 2 PROMPT")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
         response_text = self._invoke_with_tools(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
@@ -249,7 +271,11 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             on_progress=on_progress,
+            scan_logger=scan_logger,
         )
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 2 FINAL RESPONSE")
+            scan_logger.log_llm_response("final_analysis_text", response_text or "")
         return (response_text or "").strip() or "(LLM returned no analysis)"
 
     def _invoke_with_tools(
@@ -261,6 +287,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         if self.provider == "deepseek":
             return self._run_deepseek_tool_conversation(
@@ -270,6 +297,7 @@ class ScannerAnalyzer:
                 event_id=event_id,
                 max_rounds=max_rounds,
                 on_progress=on_progress,
+                scan_logger=scan_logger,
             )
 
         llm_with_tools = self.llm.bind_tools(tools)
@@ -284,6 +312,7 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             on_progress=on_progress,
+            scan_logger=scan_logger,
         )
 
     def _run_tool_conversation(
@@ -295,15 +324,31 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         for round_num in range(max_rounds):
             try:
                 response = llm_with_tools.invoke(messages)
             except Exception as exc:
                 logger.error("LLM invocation failed (round %d): %s", round_num, exc)
+                if scan_logger is not None:
+                    scan_logger.error(
+                        "LLM invocation failed (round %d): %s", round_num, exc
+                    )
                 return None
 
             messages.append(response)
+            if scan_logger is not None:
+                scan_logger.log_llm_response(
+                    f"round_{round_num}",
+                    {
+                        "content": _content_to_text(response.content),
+                        "tool_calls": [
+                            {"name": call.get("name"), "args": call.get("args")}
+                            for call in (getattr(response, "tool_calls", None) or [])
+                        ],
+                    },
+                )
             if not getattr(response, "tool_calls", None):
                 return _content_to_text(response.content)
 
@@ -313,6 +358,8 @@ class ScannerAnalyzer:
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
                 if on_progress:
                     on_progress(f"LLM requested tool {tool_name}.")
+                if scan_logger is not None:
+                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
 
                 result = "(tool not found)"
                 for tool in tools:
@@ -322,12 +369,18 @@ class ScannerAnalyzer:
                         except Exception as exc:
                             result = f"Error: {exc}"
                         break
+                if scan_logger is not None:
+                    scan_logger.log_tool_response(tool_name, result)
 
                 messages.append(
                     ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
 
         logger.warning("Max tool-call rounds reached for event %d", event_id)
+        if scan_logger is not None:
+            scan_logger.warning(
+                "Max tool-call rounds reached for event %d", event_id
+            )
         return _content_to_text(messages[-1].content) if messages else None
 
     def _run_deepseek_tool_conversation(
@@ -339,6 +392,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         """Run DeepSeek V4 thinking mode while preserving reasoning_content."""
         if self.deepseek_client is None:
@@ -362,11 +416,33 @@ class ScannerAnalyzer:
                 )
             except Exception as exc:
                 logger.error("DeepSeek invocation failed (round %d): %s", round_num, exc)
+                if scan_logger is not None:
+                    scan_logger.error(
+                        "DeepSeek invocation failed (round %d): %s", round_num, exc
+                    )
                 return None
 
             message = response.choices[0].message
             assistant_message = _openai_message_dict(message)
             messages.append(assistant_message)
+
+            if scan_logger is not None:
+                scan_logger.log_llm_response(
+                    f"deepseek_round_{round_num}",
+                    {
+                        "content": getattr(message, "content", "") or "",
+                        "reasoning_content": assistant_message.get(
+                            "reasoning_content"
+                        ),
+                        "tool_calls": [
+                            {
+                                "name": getattr(call.function, "name", None),
+                                "arguments": getattr(call.function, "arguments", None),
+                            }
+                            for call in (getattr(message, "tool_calls", None) or [])
+                        ],
+                    },
+                )
 
             tool_calls = getattr(message, "tool_calls", None)
             if not tool_calls:
@@ -382,6 +458,8 @@ class ScannerAnalyzer:
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
                 if on_progress:
                     on_progress(f"LLM requested tool {tool_name}.")
+                if scan_logger is not None:
+                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
 
                 tool = tool_by_name.get(tool_name)
                 if tool is None:
@@ -392,6 +470,9 @@ class ScannerAnalyzer:
                     except Exception as exc:
                         result = f"Error: {exc}"
 
+                if scan_logger is not None:
+                    scan_logger.log_tool_response(tool_name, result)
+
                 messages.append(
                     {
                         "role": "tool",
@@ -401,6 +482,10 @@ class ScannerAnalyzer:
                 )
 
         logger.warning("Max DeepSeek tool-call rounds reached for event %d", event_id)
+        if scan_logger is not None:
+            scan_logger.warning(
+                "Max DeepSeek tool-call rounds reached for event %d", event_id
+            )
         last = messages[-1].get("content") if messages else None
         return str(last or "")
 

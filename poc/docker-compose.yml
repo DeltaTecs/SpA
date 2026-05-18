@@ -234,11 +234,13 @@ services:
       - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
       - LOG_LEVEL=VERBOSE
+      - SCAN_LOG_ROOT=/logs/vuln_scan
       - PYTHONDONTWRITEBYTECODE=1
     volumes:
       - ./vuln_scan/backend/api:/app:ro
       - ./vuln_scan/backend/llm:/llm:ro
       - ./vuln_scan/data:/data:ro
+      - ./logs:/logs
     ports:
       - "8090:8000"
     networks:

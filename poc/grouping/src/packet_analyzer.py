@@ -109,6 +109,15 @@ def main():
         help="Path to user_intend.txt with timestamped user actions (MM:SS description)",
     )
     parser.add_argument(
+        "--web-search",
+        action="store_true",
+        help=(
+            "Enable the external web-search MCP tool (Tavily) for grouping. "
+            "Disabled by default; requires TAVILY_API_KEY, TAVILY_MCP_URL, "
+            "SEARCH_MCP_URL, or SEARCH_MCP_SERVERS to be configured."
+        ),
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -159,6 +168,7 @@ def main():
             args.recording_id,
             app_details=app_details,
             user_actions=user_actions,
+            enable_web_search=args.web_search,
         )
     except Exception as e:
         logger.error("Analysis failed: %s", e)

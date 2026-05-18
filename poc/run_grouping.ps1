@@ -19,7 +19,10 @@ param(
     [string]$AppDetails = "",
 
     [Parameter(Mandatory=$false)]
-    [string]$UserIntend = ""
+    [string]$UserIntend = "",
+
+    [Parameter(Mandatory=$false)]
+    [switch]$WebSearch
 )
 
 # Container-internal directory for context files
@@ -94,6 +97,10 @@ if ($ApiKey) {
 if ($ApiBaseUrl) {
     $EnvFlags += @("-e", "API_BASE_URL=$ApiBaseUrl")
     Write-Host "  API base URL: $ApiBaseUrl"
+}
+if ($WebSearch) {
+    $EnvFlags += @("-e", "GROUPING_ENABLE_WEB_SEARCH=1")
+    Write-Host "  Web search: enabled"
 }
 
 # Build command

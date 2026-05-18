@@ -427,6 +427,10 @@ h2 {
   opacity: 0.55;
 }
 
+.phase-one-search-option {
+  margin-right: auto;
+}
+
 .constraints-field {
   color: #596677;
   display: grid;

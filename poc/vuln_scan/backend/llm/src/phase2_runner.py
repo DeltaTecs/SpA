@@ -15,6 +15,7 @@ from mcp_proxy_tools import (
     ToolStartCallback,
     ToolStopRequestedCallback,
 )
+from scan_logger import ScanRunLogger
 from user_context import UserAction
 
 
@@ -38,13 +39,72 @@ def run_phase_two_analysis(
     user_actions: Optional[list[UserAction]] = None,
     prescan_markdown: str = "",
     prior_reports_markdown: str = "",
+    scan_logger: Optional[ScanRunLogger] = None,
 ) -> str:
     logger.info("Starting vulnerability scan phase 2 for event %d", event_id)
-    progress_callback(f"Loading packet context for event {event_id}.")
+    if scan_logger is not None:
+        scan_logger.section("PHASE 2 INPUTS")
+        scan_logger.log_input("event_id", event_id)
+        scan_logger.log_input("analysis_types", list(analysis_types))
+        scan_logger.log_input("constraints", constraints)
+        scan_logger.log_input(
+            "mcp_servers",
+            [
+                {
+                    "server_id": server.server_id,
+                    "label": server.label,
+                    "url": server.url,
+                    "tool_timeout_seconds": server.tool_timeout_seconds,
+                }
+                for server in mcp_servers
+            ],
+        )
+        scan_logger.log_input(
+            "app_details",
+            app_details if app_details is not None else "(none)",
+        )
+        scan_logger.log_input(
+            "user_actions",
+            [
+                {
+                    "offset_ms": action.offset_ms,
+                    "description": action.description,
+                }
+                for action in (user_actions or [])
+            ]
+            if user_actions
+            else "(none)",
+        )
+        scan_logger.log_input("prescan_markdown", prescan_markdown or "(none)")
+        scan_logger.log_input(
+            "prior_reports_markdown", prior_reports_markdown or "(none)"
+        )
+        scan_logger.log_input(
+            "analyzer",
+            {
+                "provider": analyzer.provider,
+                "model": analyzer.model_name,
+            },
+        )
+
+    def _progress(message: str) -> None:
+        if scan_logger is not None:
+            scan_logger.log_progress(message)
+        progress_callback(message)
+
+    _progress(f"Loading packet context for event {event_id}.")
 
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
     external_context = prepared.external_context(app_details, user_actions)
     allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(analysis_types)
+
+    if scan_logger is not None:
+        scan_logger.log_input("recording_id", prepared.recording_id)
+        scan_logger.log_input("event_context_text", prepared.text)
+        scan_logger.log_input("external_context", external_context)
+        scan_logger.log_input(
+            "allowed_hexstrike_tools", sorted(allowed_hexstrike_tools)
+        )
 
     hexstrike_server_ids = {
         server.server_id for server in mcp_servers if _is_hexstrike_server(server)
@@ -52,24 +112,96 @@ def run_phase_two_analysis(
     allowed_tool_names_by_server_id = {
         server_id: allowed_hexstrike_tools for server_id in hexstrike_server_ids
     }
-    progress_callback(
+    _progress(
         "Selected analysis tracks enable "
         f"{len(allowed_hexstrike_tools)} HexStrike MCP tools."
     )
 
+    wrapped_approval = approval_callback
+    wrapped_tool_start = tool_start_callback
+    wrapped_tool_finish = tool_finish_callback
+    wrapped_tool_stop_requested = tool_stop_requested_callback
+
+    if scan_logger is not None:
+
+        def _logging_approval(tool_call: dict) -> bool:
+            scan_logger.log_user_action("tool_approval_requested", tool_call)
+            approved = approval_callback(tool_call)
+            scan_logger.log_user_action(
+                "tool_approval_decision",
+                {
+                    "approved": approved,
+                    "exposed_tool_name": tool_call.get("exposed_tool_name"),
+                    "tool_name": tool_call.get("tool_name"),
+                },
+            )
+            return approved
+
+        wrapped_approval = _logging_approval
+
+        if tool_start_callback is not None:
+
+            def _logging_tool_start(tool_call: dict) -> str:
+                scan_logger.log_tool_request(
+                    tool_call.get("exposed_tool_name") or tool_call.get("tool_name") or "tool",
+                    tool_call.get("arguments"),
+                    source="mcp_proxy",
+                )
+                execution_id = tool_start_callback(tool_call)
+                scan_logger.debug(
+                    "TOOL_EXECUTION_STARTED execution_id=%s tool=%s",
+                    execution_id,
+                    tool_call.get("exposed_tool_name") or tool_call.get("tool_name"),
+                )
+                return execution_id
+
+            wrapped_tool_start = _logging_tool_start
+
+        if tool_stop_requested_callback is not None:
+
+            def _logging_tool_stop_requested(execution_id: str) -> bool:
+                requested = tool_stop_requested_callback(execution_id)
+                if requested:
+                    scan_logger.log_user_action(
+                        "tool_stop_requested",
+                        {"execution_id": execution_id},
+                    )
+                return requested
+
+            wrapped_tool_stop_requested = _logging_tool_stop_requested
+
+        if tool_finish_callback is not None:
+
+            def _logging_tool_finish(execution_id: str) -> None:
+                scan_logger.debug(
+                    "TOOL_EXECUTION_FINISHED execution_id=%s",
+                    execution_id,
+                )
+                tool_finish_callback(execution_id)
+
+            wrapped_tool_finish = _logging_tool_finish
+
     proxy = PermissionedMCPToolProxy(
         mcp_servers,
-        approval_callback=approval_callback,
-        progress_callback=progress_callback,
-        tool_start_callback=tool_start_callback,
-        tool_stop_requested_callback=tool_stop_requested_callback,
-        tool_finish_callback=tool_finish_callback,
+        approval_callback=wrapped_approval,
+        progress_callback=_progress,
+        tool_start_callback=wrapped_tool_start,
+        tool_stop_requested_callback=wrapped_tool_stop_requested,
+        tool_finish_callback=wrapped_tool_finish,
         allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
     )
     tools = proxy.build_tools()
     tool_catalog = proxy.tool_catalog()
 
-    progress_callback(
+    if scan_logger is not None:
+        scan_logger.log_input(
+            "phase2_available_tools",
+            [getattr(tool, "name", str(tool)) for tool in tools],
+        )
+        if tool_catalog:
+            scan_logger.log_input("phase2_tool_catalog", tool_catalog)
+
+    _progress(
         f"Phase-two analysis has access to {len(tools)} permissioned MCP tools."
     )
     result = analyzer.analyze_vulnerabilities(
@@ -86,8 +218,12 @@ def run_phase_two_analysis(
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
         on_progress=progress_callback,
+        scan_logger=scan_logger,
     )
-    progress_callback("LLM vulnerability analysis finished.")
+    _progress("LLM vulnerability analysis finished.")
+    if scan_logger is not None:
+        scan_logger.section("PHASE 2 OUTPUT")
+        scan_logger.log_output("vulnerability_report", result)
     return result
 
 

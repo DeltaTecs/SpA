@@ -48,6 +48,7 @@ const state = {
   activeTab: "phase1",
   analysisType: DEFAULT_ANALYSIS_TYPE,
   analysisConstraints: "",
+  enablePhaseOneWebSearch: false,
   autoApproveMcpDatabaseRequests: false,
   autoApproveAllMcpRequests: false,
   phase2RunId: null,
@@ -77,6 +78,7 @@ const selectedReportBody = document.querySelector("#selectedReportBody");
 const statusLine = document.querySelector("#statusLine");
 const report = document.querySelector("#report");
 const startButton = document.querySelector("#startButton");
+const enablePhaseOneWebSearch = document.querySelector("#enablePhaseOneWebSearch");
 const refreshButton = document.querySelector("#refreshButton");
 const configText = document.querySelector("#configText");
 const providerSelect = document.querySelector("#providerSelect");
@@ -111,6 +113,10 @@ const priorReportsSummary = document.querySelector("#priorReportsSummary");
 refreshButton.addEventListener("click", loadEvents);
 refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
 startButton.addEventListener("click", startPhaseOne);
+enablePhaseOneWebSearch.addEventListener("change", () => {
+  state.enablePhaseOneWebSearch = enablePhaseOneWebSearch.checked;
+  renderDetailPane();
+});
 phaseOneTab.addEventListener("click", () => setActiveTab("phase1"));
 vulnerabilityTab.addEventListener("click", () => setActiveTab("phase2"));
 analysisTypeSelect.addEventListener("change", () => {
@@ -279,6 +285,7 @@ async function startPhaseOne() {
   try {
     const payload = {
       event_id: event.event_id,
+      enable_web_search: state.enablePhaseOneWebSearch,
       provider: state.selectedProvider,
       model: state.selectedModel,
       ...contextPayload(),
@@ -648,6 +655,8 @@ function renderEventDetail() {
   const isRunning = event ? isEventRunning(event.event_id) : false;
   startButton.textContent = isRunning ? "Evaluating..." : "Evaluate";
   startButton.disabled = isRunning || !event || !state.selectedProvider || !state.selectedModel;
+  enablePhaseOneWebSearch.checked = state.enablePhaseOneWebSearch;
+  enablePhaseOneWebSearch.disabled = isRunning || isPhaseOneRunning();
   selectedEvent.textContent = event
     ? `Selected event ${event.event_id}: ${event.description || "(no description)"}`
     : "Select an event.";

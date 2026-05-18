@@ -17,7 +17,9 @@ from mcp_client import MCPClient, MCPToolSpec, redact_url
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
-GROUPING_SEARCH_MCP_TOOL_NAMES = frozenset({"tavily_search"})
+# Project-wide cap on Tavily tools exposed to the LLM. Kept in sync with
+# TAVILY_ALLOWED_TOOL_NAMES in the vuln_scan mcp_proxy_tools module.
+GROUPING_SEARCH_MCP_TOOL_NAMES = frozenset({"tavily_search", "tavily_extract"})
 TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
 
 
@@ -114,9 +116,8 @@ def build_search_mcp_tools(
 
         for spec in tool_specs:
             if spec.name not in GROUPING_SEARCH_MCP_TOOL_NAMES:
-                # Tavily also advertises extract/crawl/map/research tools. Grouping
-                # only needs public search context, so keep the packet assignment
-                # tool surface to database operations plus this one search primitive.
+                # Tavily also advertises crawl/map/research tools. They are
+                # outside the project-wide allowlist and never reach the LLM.
                 _progress(
                     progress_callback,
                     f"{server.label}: MCP tool hidden from grouping: {spec.name}",
