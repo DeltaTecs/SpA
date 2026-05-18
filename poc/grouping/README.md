@@ -20,11 +20,11 @@ The MCP server filters existing events by normalized IP/port tuple before the
 LLM sees them, and assignment rejects tuple mismatches server-side.
 
 If `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS` is configured, grouping also exposes
-only the Tavily search MCP tool as `search_engine__tavily_search`. Tavily's
-extract/crawl/map/research tools are intentionally hidden from grouping so the
-LLM sees only packet database tools plus public web search. The Compose stack
-provides Tavily through `mcp-search-engine`; set `TAVILY_API_KEY` in `poc/.env`
-before using the search tool.
+only the Tavily search MCP tool as `search_engine__tavily_search`. If neither
+search variable is set and `TAVILY_API_KEY` is present, grouping connects to
+Tavily's official remote MCP endpoint at `https://mcp.tavily.com/mcp/`.
+Tavily's extract/crawl/map/research tools are intentionally hidden from
+grouping so the LLM sees only packet database tools plus public web search.
 
 ## Usage
 

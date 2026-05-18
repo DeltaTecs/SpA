@@ -8,11 +8,12 @@ import re
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, Dict, Iterable, Mapping, Optional
+from urllib.parse import urlencode
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
-from mcp_client import MCPClient, MCPToolSpec
+from mcp_client import MCPClient, MCPToolSpec, redact_url
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES = {
     "packet_payload_hexdump",
     "packets_in_time_window",
 }
+TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
 
 
 @dataclass(frozen=True)
@@ -85,7 +87,9 @@ class PermissionedMCPToolProxy:
         tools: list[StructuredTool] = []
 
         for server in self.servers:
-            self._progress(f"Connecting MCP server {server.label} at {server.url}.")
+            self._progress(
+                f"Connecting MCP server {server.label} at {redact_url(server.url)}."
+            )
             client = MCPClient(
                 server.url,
                 connect_timeout=30,
@@ -147,7 +151,7 @@ class PermissionedMCPToolProxy:
         tool_call = {
             "server_id": exposed.server.server_id,
             "server_label": exposed.server.label,
-            "server_url": exposed.server.url,
+            "server_url": redact_url(exposed.server.url),
             "exposed_tool_name": exposed.exposed_name,
             "tool_name": exposed.spec.name,
             "arguments": arguments,
@@ -267,33 +271,22 @@ class PermissionedMCPToolProxy:
 def analysis_mcp_server_specs_from_env() -> list[MCPServerSpec]:
     timeout = float(os.environ.get("PHASE2_MCP_TOOL_TIMEOUT_SECONDS", "900"))
     raw = os.environ.get("PHASE2_MCP_SERVERS")
-    if raw:
-        return [
-            MCPServerSpec(server_id=server_id, label=label, url=url, tool_timeout_seconds=timeout)
+    if not raw or not raw.strip():
+        raise RuntimeError(
+            "PHASE2_MCP_SERVERS must be set to a comma-separated MCP server list."
+        )
+
+    return _append_search_mcp_server_specs(
+        [
+            MCPServerSpec(
+                server_id=server_id,
+                label=label,
+                url=url,
+                tool_timeout_seconds=timeout,
+            )
             for server_id, label, url in _parse_server_list(raw)
         ]
-
-    specs = [
-        MCPServerSpec(
-            server_id="packet",
-            label="Packet DB",
-            url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"),
-            tool_timeout_seconds=timeout,
-        ),
-        MCPServerSpec(
-            server_id="hexstrike",
-            label="HexStrike",
-            url=os.environ.get("HEXSTRIKE_MCP_URL", "http://mcp-hexstrike:8767"),
-            tool_timeout_seconds=timeout,
-        ),
-        MCPServerSpec(
-            server_id="bash",
-            label="Bash",
-            url=os.environ.get("BASH_MCP_URL", "http://mcp-hexstrike:8766"),
-            tool_timeout_seconds=timeout,
-        ),
-    ]
-    return specs
+    )
 
 
 def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
@@ -312,9 +305,12 @@ def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
             for server_id, label, url in _parse_server_list(raw)
         ]
 
-    url = os.environ.get("SEARCH_MCP_URL")
+    url = os.environ.get("SEARCH_MCP_URL") or os.environ.get("TAVILY_MCP_URL")
     if not url:
-        return []
+        tavily_api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+        if not tavily_api_key:
+            return []
+        url = _tavily_remote_mcp_url(tavily_api_key)
 
     return [
         MCPServerSpec(
@@ -324,6 +320,20 @@ def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
             tool_timeout_seconds=timeout,
         )
     ]
+
+
+def _append_search_mcp_server_specs(
+    specs: list[MCPServerSpec],
+) -> list[MCPServerSpec]:
+    """Add the official Tavily remote MCP server unless already configured."""
+
+    if any(_is_search_engine_server(server) for server in specs):
+        return specs
+    return [*specs, *search_mcp_server_specs_from_env()]
+
+
+def _tavily_remote_mcp_url(api_key: str) -> str:
+    return f"{TAVILY_REMOTE_MCP_ENDPOINT}?{urlencode({'tavilyApiKey': api_key})}"
 
 
 def build_auto_approved_mcp_tools(
@@ -439,6 +449,12 @@ def _is_packet_db_server(server: MCPServerSpec) -> bool:
         or "packet_db" in server_id
         or "packetdb" in server_id
     )
+
+
+def _is_search_engine_server(server: MCPServerSpec) -> bool:
+    server_id = _safe_identifier(server.server_id)
+    label = _safe_identifier(server.label)
+    return server_id in {"search", "search_engine", "tavily"} or "search" in label
 
 
 def _safe_identifier(value: str) -> str:

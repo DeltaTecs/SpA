@@ -7,12 +7,13 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
 
 logger = logging.getLogger(__name__)
+SENSITIVE_QUERY_KEYS = {"api_key", "apikey", "key", "token", "tavilyapikey"}
 
 
 def _trace_mcp_calls() -> bool:
@@ -104,12 +105,12 @@ class MCPClient:
                 return
             except requests.ConnectionError:
                 if attempt % 5 == 0:
-                    logger.info("Waiting for MCP server at %s ...", self.base_url)
+                    logger.info("Waiting for MCP server at %s ...", redact_url(self.base_url))
             except Exception as exc:
                 logger.warning("MCP connection error (attempt %d): %s", attempt + 1, exc)
             time.sleep(1)
 
-        raise RuntimeError(f"MCP server not reachable at {self.base_url}")
+        raise RuntimeError(f"MCP server not reachable at {redact_url(self.base_url)}")
 
     def _parse_sse_response(self, text: str) -> dict:
         for line in text.splitlines():
@@ -196,7 +197,7 @@ class MCPClient:
         if _trace_mcp_calls():
             logger.debug(
                 "MCP call input base_url=%s tool=%s arguments=%s",
-                self.base_url,
+                redact_url(self.base_url),
                 tool_name,
                 _log_payload(arguments),
             )
@@ -220,7 +221,7 @@ class MCPClient:
         if _trace_mcp_calls():
             logger.debug(
                 "MCP call output base_url=%s tool=%s output=%s",
-                self.base_url,
+                redact_url(self.base_url),
                 tool_name,
                 _log_payload(output),
             )
@@ -279,11 +280,28 @@ def _mcp_endpoint(base_url: str) -> str:
     parsed = urlsplit(base_url.rstrip("/"))
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):
+        endpoint_path = parsed.path if parsed.path.endswith("/") else path
         return urlunsplit(
-            (parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment)
+            (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
         )
 
     endpoint_path = f"{path}/mcp" if path else "/mcp"
     return urlunsplit(
         (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
+    )
+
+
+def redact_url(url: str) -> str:
+    """Hide credential-like query parameters before URLs reach logs or UI state."""
+
+    parsed = urlsplit(url)
+    if not parsed.query:
+        return url
+
+    query = [
+        (key, "***" if key.lower() in SENSITIVE_QUERY_KEYS else value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
     )

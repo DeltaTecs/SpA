@@ -77,6 +77,7 @@ except ModuleNotFoundError:
 mcp_client_module = types.ModuleType("mcp_client")
 mcp_client_module.MCPToolSpec = _MCPToolSpec
 mcp_client_module.MCPClient = object
+mcp_client_module.redact_url = lambda value: value
 try:
     import mcp_client  # noqa: F401
 except ModuleNotFoundError:
@@ -220,6 +221,8 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         original_url = os.environ.pop("SEARCH_MCP_URL", None)
         original_servers = os.environ.pop("SEARCH_MCP_SERVERS", None)
         original_timeout = os.environ.pop("SEARCH_MCP_TOOL_TIMEOUT_SECONDS", None)
+        original_api_key = os.environ.pop("TAVILY_API_KEY", None)
+        original_tavily_url = os.environ.pop("TAVILY_MCP_URL", None)
         try:
             self.assertEqual(mcp_proxy_tools.search_mcp_server_specs_from_env(), [])
 
@@ -237,6 +240,71 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
             _restore_env("SEARCH_MCP_URL", original_url)
             _restore_env("SEARCH_MCP_SERVERS", original_servers)
             _restore_env("SEARCH_MCP_TOOL_TIMEOUT_SECONDS", original_timeout)
+            _restore_env("TAVILY_API_KEY", original_api_key)
+            _restore_env("TAVILY_MCP_URL", original_tavily_url)
+
+    def test_search_mcp_server_specs_from_env_uses_tavily_remote_endpoint(self) -> None:
+        original_url = os.environ.pop("SEARCH_MCP_URL", None)
+        original_servers = os.environ.pop("SEARCH_MCP_SERVERS", None)
+        original_api_key = os.environ.pop("TAVILY_API_KEY", None)
+        original_tavily_url = os.environ.pop("TAVILY_MCP_URL", None)
+        try:
+            os.environ["TAVILY_API_KEY"] = "tvly-test key"
+
+            specs = mcp_proxy_tools.search_mcp_server_specs_from_env()
+
+            self.assertEqual(len(specs), 1)
+            self.assertEqual(specs[0].server_id, "search_engine")
+            self.assertEqual(
+                specs[0].url,
+                "https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-test+key",
+            )
+        finally:
+            _restore_env("SEARCH_MCP_URL", original_url)
+            _restore_env("SEARCH_MCP_SERVERS", original_servers)
+            _restore_env("TAVILY_API_KEY", original_api_key)
+            _restore_env("TAVILY_MCP_URL", original_tavily_url)
+
+    def test_phase_two_server_specs_append_tavily_remote_search(self) -> None:
+        original_phase2_servers = os.environ.pop("PHASE2_MCP_SERVERS", None)
+        original_api_key = os.environ.pop("TAVILY_API_KEY", None)
+        original_search_url = os.environ.pop("SEARCH_MCP_URL", None)
+        original_search_servers = os.environ.pop("SEARCH_MCP_SERVERS", None)
+        original_tavily_url = os.environ.pop("TAVILY_MCP_URL", None)
+        try:
+            os.environ["PHASE2_MCP_SERVERS"] = "packet=http://packet.example"
+            os.environ["TAVILY_API_KEY"] = "tvly-test"
+
+            specs = mcp_proxy_tools.analysis_mcp_server_specs_from_env()
+
+            self.assertEqual(
+                [(spec.server_id, spec.url) for spec in specs],
+                [
+                    ("packet", "http://packet.example"),
+                    (
+                        "search_engine",
+                        "https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-test",
+                    ),
+                ],
+            )
+        finally:
+            _restore_env("PHASE2_MCP_SERVERS", original_phase2_servers)
+            _restore_env("TAVILY_API_KEY", original_api_key)
+            _restore_env("SEARCH_MCP_URL", original_search_url)
+            _restore_env("SEARCH_MCP_SERVERS", original_search_servers)
+            _restore_env("TAVILY_MCP_URL", original_tavily_url)
+
+    def test_phase_two_server_specs_require_phase2_mcp_servers(self) -> None:
+        original_phase2_servers = os.environ.pop("PHASE2_MCP_SERVERS", None)
+        try:
+            with self.assertRaisesRegex(RuntimeError, "PHASE2_MCP_SERVERS must be set"):
+                mcp_proxy_tools.analysis_mcp_server_specs_from_env()
+
+            os.environ["PHASE2_MCP_SERVERS"] = "   "
+            with self.assertRaisesRegex(RuntimeError, "PHASE2_MCP_SERVERS must be set"):
+                mcp_proxy_tools.analysis_mcp_server_specs_from_env()
+        finally:
+            _restore_env("PHASE2_MCP_SERVERS", original_phase2_servers)
 
     def test_auto_approved_mcp_tools_expose_search_server_tools(self) -> None:
         _FakeMCPClient.tool_specs_by_url = {

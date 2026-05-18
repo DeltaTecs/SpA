@@ -18,8 +18,10 @@ proxy.
 The scanner orchestrator also uses `event_packets(event_id)` to resolve the
 packets assigned to the requested event before invoking the LLM.
 
-Search tools are discovered from `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS` and
-use server-prefixed names such as `search_engine__tavily_search`.
+Search tools are discovered from `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS`. If
+neither is set and `TAVILY_API_KEY` is present, the scanner uses Tavily's
+official remote MCP endpoint at `https://mcp.tavily.com/mcp/`. Search tools use
+server-prefixed names such as `search_engine__tavily_search`.
 
 Phase-two tools are discovered from `PHASE2_MCP_SERVERS` and exposed with
 server-prefixed names such as `packet__conversation_packets`,
@@ -31,9 +33,7 @@ except the packet DB tools `packet_info`,
 exposed in phase two. Every phase-two tool call blocks on the API/UI approval
 callback before the underlying MCP call runs.
 
-The Compose stack runs Tavily through `mcp-search-engine` at
-`http://mcp-search-engine:8768`. Set `TAVILY_API_KEY` in `poc/.env` before using
-the search tools.
+Set `TAVILY_API_KEY` in `poc/.env` before using the Tavily remote MCP tools.
 
 All prompts currently end with the test directive that instructs the model to
 reply `TEST COMPLETE` without running tools or analysis.

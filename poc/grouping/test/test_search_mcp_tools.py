@@ -81,6 +81,7 @@ class _PlaceholderMCPClient:
 mcp_client_module = types.ModuleType("mcp_client")
 mcp_client_module.MCPClient = _PlaceholderMCPClient
 mcp_client_module.MCPToolSpec = _MCPToolSpec
+mcp_client_module.redact_url = lambda value: value
 sys.modules["mcp_client"] = mcp_client_module
 
 import search_mcp_tools  # noqa: E402
