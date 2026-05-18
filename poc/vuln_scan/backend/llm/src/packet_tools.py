@@ -12,7 +12,7 @@ from mcp_client import MCPClient
 
 
 def build_langchain_tools(mcp: MCPClient, recording_id: int):
-    """Expose only the read-only MCP tools requested for phase-one summary."""
+    """Expose only the read-only MCP tools"""
 
     current_recording_id = recording_id
 

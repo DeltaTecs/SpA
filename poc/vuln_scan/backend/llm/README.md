@@ -40,18 +40,11 @@ reply `TEST COMPLETE` without running tools or analysis.
 
 ## Usage
 
-Run scans through the web/API service, or invoke the scanner directly inside
-the `scanner-llm` container:
-
-```bash
-python3 /app/src/scanner.py \
-    --event-id 7 \
-    --mcp-url http://mcp-packet-db:8765 \
-    --provider deepseek \
-    --api-key YOUR_KEY
-```
+Run phase-one summaries and phase-two analysis through the web/API service.
+The standalone command-line scanner entry point has been removed so scan runs
+are coordinated through the API and UI.
 
 ## Output
 
-The phase-one summary is printed as Markdown and can optionally be written to a
-container path with `--output` or the `OUTPUT` environment variable.
+The phase-one summary is returned as Markdown from the API and stored for reuse
+by phase two.

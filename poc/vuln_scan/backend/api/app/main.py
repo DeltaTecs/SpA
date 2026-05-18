@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from analysis_types import ALLOWED_ANALYSIS_TYPES, DEFAULT_ANALYSIS_TYPE
-from analysis_runner import run_phase_one_summary
+from phase1_runner import run_phase_one_summary
 from logging_setup import configure_logging
 from mcp_client import MCPClient
 from mcp_proxy_tools import analysis_mcp_server_specs_from_env
