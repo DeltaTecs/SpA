@@ -89,12 +89,15 @@ class MCPClient:
                     raise RuntimeError(f"Initialize failed: {resp.status_code}")
 
                 self._session_id = resp.headers.get("mcp-session-id")
-                if not self._session_id:
-                    raise RuntimeError("No session ID in response")
+                logger.info(
+                    "MCP connected: session=%s",
+                    self._session_id or "(stateless)",
+                )
 
-                logger.info("MCP connected: session=%s", self._session_id)
-
-                headers["Mcp-Session-Id"] = self._session_id
+                # Remote MCP servers may be stateless and omit mcp-session-id.
+                # Local FastMCP servers still return one, so include it when present.
+                if self._session_id:
+                    headers["Mcp-Session-Id"] = self._session_id
                 notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
                 self.session.post(
                     self._endpoint,
@@ -113,11 +116,23 @@ class MCPClient:
         raise RuntimeError(f"MCP server not reachable at {redact_url(self.base_url)}")
 
     def _parse_sse_response(self, text: str) -> dict:
+        data_lines: list[str] = []
         for line in text.splitlines():
             if line.startswith("data:"):
-                data = line[5:].strip()
-                if data.startswith("{"):
-                    return json.loads(data)
+                data_lines.append(line[5:].lstrip())
+                continue
+            if data_lines and line.strip():
+                data_lines.append(line)
+                continue
+            if not line.strip() and data_lines:
+                parsed = _parse_sse_data_lines(data_lines)
+                if parsed is not None:
+                    return parsed
+                data_lines = []
+        if data_lines:
+            parsed = _parse_sse_data_lines(data_lines)
+            if parsed is not None:
+                return parsed
         raise RuntimeError(f"No JSON data in response: {text[:200]}")
 
     def request(
@@ -127,14 +142,12 @@ class MCPClient:
         *,
         timeout: Optional[float] = None,
     ) -> dict:
-        if not self._session_id:
-            raise RuntimeError("MCP client not connected")
-
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
-            "Mcp-Session-Id": self._session_id,
         }
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -305,3 +318,16 @@ def redact_url(url: str) -> str:
     return urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
     )
+
+
+def _parse_sse_data_lines(data_lines: list[str]) -> Optional[dict]:
+    """Parse JSON-RPC data from standard and Tavily-style SSE line framing."""
+
+    for data in ("".join(data_lines).strip(), "\n".join(data_lines).strip()):
+        if not data.startswith("{"):
+            continue
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            continue
+    return None

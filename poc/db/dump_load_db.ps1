@@ -156,6 +156,19 @@ function Exec-InPostgres([string]$cmd) {
   }
 }
 
+function Grant-RuntimePrivileges {
+  $grantSql = @(
+    "GRANT CONNECT ON DATABASE ""$Database"" TO ""$DbUser""",
+    "GRANT USAGE ON SCHEMA public TO ""$DbUser""",
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ""$DbUser""",
+    "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO ""$DbUser""",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE ""$DbAdminUser"" IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ""$DbUser""",
+    "ALTER DEFAULT PRIVILEGES FOR ROLE ""$DbAdminUser"" IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ""$DbUser"""
+  ) -join '; '
+
+  Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -c '$grantSql;'"
+}
+
 function Copy-ToHost([string]$containerPath, [string]$hostPath) {
   Ensure-ParentDir $hostPath
   if (Test-Path -LiteralPath $hostPath) {
@@ -213,6 +226,7 @@ switch ($Action) {
       Exec-InPostgres "pg_restore -U '$User' -d '$Database' --no-owner --no-privileges --exit-on-error '$tmp'"
     }
 
+    Grant-RuntimePrivileges
     Exec-InPostgres "rm -f '$tmp'"
     Write-Host "Done."
   }

@@ -52,6 +52,12 @@ exec_in_postgres() {
     "${CONTAINER_NAME}" sh -lc "$command"
 }
 
+grant_runtime_privileges() {
+  local grant_sql
+  grant_sql="GRANT CONNECT ON DATABASE \"${DB_NAME}\" TO \"${DB_USER}\"; GRANT USAGE ON SCHEMA public TO \"${DB_USER}\"; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO \"${DB_USER}\"; GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO \"${DB_USER}\"; ALTER DEFAULT PRIVILEGES FOR ROLE \"${DB_ADMIN_USER}\" IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"${DB_USER}\"; ALTER DEFAULT PRIVILEGES FOR ROLE \"${DB_ADMIN_USER}\" IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO \"${DB_USER}\";"
+  exec_in_postgres "$DB_ADMIN_PASSWORD" "psql -U '${DB_ADMIN_USER}' -d '${DB_NAME}' -v ON_ERROR_STOP=1 -c '${grant_sql}'"
+}
+
 if [[ "$FILE" != /* ]]; then
   # Heuristic: paths like ./db/... are intended to be relative to the `poc` directory
   if [[ "$FILE" == db/* || "$FILE" == ./db/* ]]; then
@@ -100,6 +106,7 @@ case "$ACTION" in
       exec_in_postgres "$ACTION_DB_PASSWORD" "pg_restore -U '${ACTION_DB_USER}' -d '${DB_NAME}' --no-owner --no-privileges --exit-on-error '${TMP}'"
     fi
 
+    grant_runtime_privileges
     exec_in_postgres "$ACTION_DB_PASSWORD" "rm -f '${TMP}'"
     echo "Done."
     ;;
