@@ -100,6 +100,8 @@ class AnalysisRun:
         approval_provider: Optional[str] = None,
         approval_model: Optional[str] = None,
         escalate_smart_rejections: bool = True,
+        max_reasoning_effort: bool = False,
+        unlimited_rounds: bool = False,
     ):
         self.run_id = uuid.uuid4().hex
         self.event_id = event_id
@@ -117,6 +119,8 @@ class AnalysisRun:
         # user for a manual decision. When False, the rejection is final and is
         # returned straight to the analysis LLM.
         self.escalate_smart_rejections = escalate_smart_rejections
+        self.max_reasoning_effort = max_reasoning_effort
+        self.unlimited_rounds = unlimited_rounds
         self.status = "queued"
         self.progress: list[dict[str, Any]] = []
         self.tool_requests: dict[str, ToolApprovalRequest] = {}
@@ -479,6 +483,8 @@ class AnalysisRun:
                 "approval_provider": self.approval_provider,
                 "approval_model": self.approval_model,
                 "escalate_smart_rejections": self.escalate_smart_rejections,
+                "max_reasoning_effort": self.max_reasoning_effort,
+                "unlimited_rounds": self.unlimited_rounds,
                 "status": self.status,
                 "progress": list(self.progress),
                 "tool_requests": [
@@ -526,6 +532,8 @@ class AnalysisSessionStore:
         approval_provider: Optional[str] = None,
         approval_model: Optional[str] = None,
         escalate_smart_rejections: bool = True,
+        max_reasoning_effort: bool = False,
+        unlimited_rounds: bool = False,
     ) -> AnalysisRun:
         run = AnalysisRun(
             event_id=event_id,
@@ -538,6 +546,8 @@ class AnalysisSessionStore:
             approval_provider=approval_provider,
             approval_model=approval_model,
             escalate_smart_rejections=escalate_smart_rejections,
+            max_reasoning_effort=max_reasoning_effort,
+            unlimited_rounds=unlimited_rounds,
         )
         with self._lock:
             self._runs[run.run_id] = run

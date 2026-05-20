@@ -106,6 +106,8 @@ class PhaseTwoRequest(BaseModel):
     user_intend_content: Optional[str] = None
     prior_report_ids: List[int] = Field(default_factory=list)
     compact_included_reports: bool = False
+    max_reasoning_effort: bool = False
+    unlimited_rounds: bool = False
 
 
 class ToolDecisionRequest(BaseModel):
@@ -267,6 +269,8 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         approval_provider=approval_provider,
         approval_model=approval_model,
         escalate_smart_rejections=request.escalate_smart_rejections,
+        max_reasoning_effort=request.max_reasoning_effort,
+        unlimited_rounds=request.unlimited_rounds,
     )
 
     thread = threading.Thread(
@@ -545,6 +549,8 @@ def _run_phase2_background(
                 "escalate_smart_rejections": run.escalate_smart_rejections,
                 "prior_report_ids": list(request.prior_report_ids),
                 "compact_included_reports": request.compact_included_reports,
+                "max_reasoning_effort": request.max_reasoning_effort,
+                "unlimited_rounds": request.unlimited_rounds,
                 "has_app_details_content": request.app_details_content is not None,
                 "has_user_intend_content": request.user_intend_content is not None,
             },
@@ -610,6 +616,8 @@ def _run_phase2_background(
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
             prior_reports_markdown=prior_reports_markdown,
+            reasoning_effort="max" if request.max_reasoning_effort else "high",
+            max_rounds=None if request.unlimited_rounds else 24,
             scan_logger=scan_logger,
         )
         if run.abort_requested:

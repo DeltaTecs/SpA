@@ -39,6 +39,8 @@ def run_phase_two_analysis(
     user_actions: Optional[list[UserAction]] = None,
     prescan_markdown: str = "",
     prior_reports_markdown: str = "",
+    reasoning_effort: str = "high",
+    max_rounds: Optional[int] = 24,
     scan_logger: Optional[ScanRunLogger] = None,
 ) -> str:
     logger.info("Starting vulnerability scan phase 2 for event %d", event_id)
@@ -206,6 +208,8 @@ def run_phase_two_analysis(
     _progress(
         f"Phase-two analysis has access to {len(tools)} permissioned MCP tools."
     )
+    if max_rounds is None:
+        _progress("Phase-two LLM tool-call round limit disabled.")
     result = analyzer.analyze_vulnerabilities(
         event_id=event_id,
         recording_id=prepared.recording_id,
@@ -219,6 +223,8 @@ def run_phase_two_analysis(
         tool_catalog=tool_catalog,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
+        max_rounds=max_rounds,
+        reasoning_effort=reasoning_effort,
         on_progress=_progress,
         scan_logger=scan_logger,
     )

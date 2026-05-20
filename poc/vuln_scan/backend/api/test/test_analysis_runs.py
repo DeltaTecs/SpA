@@ -40,6 +40,8 @@ def _make_run(
     *,
     approval_timeout_seconds: float = 5.0,
     escalate_smart_rejections: bool = True,
+    max_reasoning_effort: bool = False,
+    unlimited_rounds: bool = False,
 ) -> AnalysisRun:
     return AnalysisRun(
         event_id=1,
@@ -50,6 +52,8 @@ def _make_run(
         approval_timeout_seconds=approval_timeout_seconds,
         approval_mode=approval_mode,
         escalate_smart_rejections=escalate_smart_rejections,
+        max_reasoning_effort=max_reasoning_effort,
+        unlimited_rounds=unlimited_rounds,
     )
 
 
@@ -79,6 +83,16 @@ class StaticApprovalModeTest(unittest.TestCase):
     def test_unknown_mode_falls_back_to_manual(self) -> None:
         run = _make_run("not-a-real-mode")
         self.assertEqual(run.approval_mode, APPROVAL_MODE_MANUAL)
+
+    def test_snapshot_includes_phase_two_model_options(self) -> None:
+        run = _make_run(
+            APPROVAL_MODE_MANUAL,
+            max_reasoning_effort=True,
+            unlimited_rounds=True,
+        )
+        snapshot = run.snapshot()
+        self.assertTrue(snapshot["max_reasoning_effort"])
+        self.assertTrue(snapshot["unlimited_rounds"])
 
     def test_auto_all_approves_any_tool_without_blocking(self) -> None:
         run = _make_run(APPROVAL_MODE_AUTO_ALL)

@@ -214,7 +214,8 @@ class ScannerAnalyzer:
         tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
-        max_rounds: int = 24,
+        max_rounds: Optional[int] = 24,
+        reasoning_effort: str = "high",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
@@ -274,6 +275,7 @@ class ScannerAnalyzer:
             tools=list(tools),
             event_id=event_id,
             max_rounds=max_rounds,
+            reasoning_effort=reasoning_effort,
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
@@ -387,7 +389,8 @@ class ScannerAnalyzer:
         human_prompt: str,
         tools: list,
         event_id: int,
-        max_rounds: int,
+        max_rounds: Optional[int],
+        reasoning_effort: str = "high",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -398,6 +401,7 @@ class ScannerAnalyzer:
                 tools=tools,
                 event_id=event_id,
                 max_rounds=max_rounds,
+                reasoning_effort=reasoning_effort,
                 on_progress=on_progress,
                 scan_logger=scan_logger,
             )
@@ -473,11 +477,12 @@ class ScannerAnalyzer:
         tools: list,
         *,
         event_id: int,
-        max_rounds: int,
+        max_rounds: Optional[int],
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
-        for round_num in range(max_rounds):
+        round_num = 0
+        while max_rounds is None or round_num < max_rounds:
             try:
                 response = llm_with_tools.invoke(messages)
             except Exception as exc:
@@ -528,6 +533,7 @@ class ScannerAnalyzer:
                     ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
             _emit_tool_results_received(on_progress, len(tool_calls))
+            round_num += 1
 
         logger.warning("Max tool-call rounds reached for event %d", event_id)
         if scan_logger is not None:
@@ -543,7 +549,8 @@ class ScannerAnalyzer:
         human_prompt: str,
         tools: list,
         event_id: int,
-        max_rounds: int,
+        max_rounds: Optional[int],
+        reasoning_effort: str = "high",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -558,13 +565,14 @@ class ScannerAnalyzer:
             {"role": "user", "content": human_prompt},
         ]
 
-        for round_num in range(max_rounds):
+        round_num = 0
+        while max_rounds is None or round_num < max_rounds:
             try:
                 response = self.deepseek_client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     tools=tool_specs,
-                    reasoning_effort="high",
+                    reasoning_effort=reasoning_effort,
                     extra_body={"thinking": {"type": "enabled"}},
                 )
             except Exception as exc:
@@ -634,6 +642,7 @@ class ScannerAnalyzer:
                     }
                 )
             _emit_tool_results_received(on_progress, len(tool_calls))
+            round_num += 1
 
         logger.warning("Max DeepSeek tool-call rounds reached for event %d", event_id)
         if scan_logger is not None:

@@ -102,6 +102,16 @@
                 <button id="stopToolButton" type="button" disabled>Stop MCP Tool</button>
                 <button id="abortAnalysisButton" type="button" disabled>Abort</button>
               </div>
+              <div class="analysis-options" aria-label="Analysis options">
+                <label class="analysis-option">
+                  <input id="maxReasoningEffort" type="checkbox">
+                  <span>Max reasoning effort</span>
+                </label>
+                <label class="analysis-option">
+                  <input id="unlimitedRounds" type="checkbox">
+                  <span>Unlimited rounds</span>
+                </label>
+              </div>
               <label class="constraints-field">
                 <span>Constraints</span>
                 <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>

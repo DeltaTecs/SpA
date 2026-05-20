@@ -74,6 +74,8 @@ const state = {
   reportErrorsByEvent: {},
   priorReportIdsByEvent: {},
   compactIncludedReports: false,
+  maxReasoningEffort: false,
+  unlimitedRounds: false,
 };
 
 const eventList = document.querySelector("#eventList");
@@ -133,6 +135,8 @@ const analysisProgress = document.querySelector("#analysisProgress");
 const priorReportsList = document.querySelector("#priorReportsList");
 const priorReportsSummary = document.querySelector("#priorReportsSummary");
 const compactIncludedReports = document.querySelector("#compactIncludedReports");
+const maxReasoningEffort = document.querySelector("#maxReasoningEffort");
+const unlimitedRounds = document.querySelector("#unlimitedRounds");
 
 refreshButton.addEventListener("click", loadEvents);
 deleteCondensedSummaryButton.addEventListener("click", deleteCondensedSummary);
@@ -180,6 +184,14 @@ escalateSmartRejections.addEventListener("change", () => {
 });
 compactIncludedReports.addEventListener("change", () => {
   state.compactIncludedReports = compactIncludedReports.checked;
+  renderPhaseTwo();
+});
+maxReasoningEffort.addEventListener("change", () => {
+  state.maxReasoningEffort = maxReasoningEffort.checked;
+  renderPhaseTwo();
+});
+unlimitedRounds.addEventListener("change", () => {
+  state.unlimitedRounds = unlimitedRounds.checked;
   renderPhaseTwo();
 });
 constraintsInput.addEventListener("input", () => {
@@ -428,6 +440,8 @@ async function startPhaseTwo() {
     model: state.selectedModel,
     prior_report_ids: selectedPriorReportIdsForEvent(event.event_id),
     compact_included_reports: state.compactIncludedReports,
+    max_reasoning_effort: state.maxReasoningEffort,
+    unlimited_rounds: state.unlimitedRounds,
     ...approvalPayload(),
     ...contextPayload(),
   };
@@ -904,6 +918,10 @@ function storedReportMetaText(reportItem) {
 function renderPhaseTwo() {
   constraintsInput.value = state.analysisConstraints;
   const running = isPhaseTwoRunning();
+  maxReasoningEffort.checked = state.maxReasoningEffort;
+  maxReasoningEffort.disabled = running;
+  unlimitedRounds.checked = state.unlimitedRounds;
+  unlimitedRounds.disabled = running;
   renderAnalysisTypeSelect(running);
   configureApprovalButton.disabled = running;
   approvalModeSummary.textContent = approvalSummary();

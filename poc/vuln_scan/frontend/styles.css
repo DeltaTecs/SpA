@@ -400,6 +400,36 @@ h2 {
   width: 100%;
 }
 
+.analysis-options {
+  align-items: center;
+  border-bottom: 1px solid #e3e7ed;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
+.analysis-option {
+  align-items: center;
+  color: #394656;
+  display: flex;
+  font-size: 13px;
+  font-weight: 700;
+  gap: 8px;
+}
+
+.analysis-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.analysis-option:has(input:disabled) {
+  opacity: 0.55;
+}
+
 .approval-config {
   align-items: center;
   display: flex;
