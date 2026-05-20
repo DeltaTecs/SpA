@@ -73,7 +73,7 @@ const state = {
   loadingReportEventIds: new Set(),
   reportErrorsByEvent: {},
   priorReportIdsByEvent: {},
-  compactIncludedReports: false,
+  compactIncludedReports: true,
   maxReasoningEffort: false,
   unlimitedRounds: false,
 };
