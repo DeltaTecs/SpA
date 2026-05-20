@@ -53,6 +53,7 @@ class _FakeCursor:
                     "user_constrains": "stay in scope",
                     "tools_used": "hexstrike__nmap_scan",
                     "summary": "## Report",
+                    "condensed_summary": "## Condensed",
                 }
             ]
 
@@ -92,6 +93,9 @@ class ScanStoreTest(unittest.TestCase):
         seed_sql, seed_params = cursor.executed[-1]
         self.assertIn("INSERT INTO scan_type", seed_sql)
         self.assertEqual(seed_params, phase_two_scan_type_rows())
+        self.assertTrue(
+            any("ADD COLUMN IF NOT EXISTS condensed_summary" in sql for sql, _ in cursor.executed)
+        )
 
     def test_save_completed_phase_two_scan_inserts_requested_fields(self) -> None:
         cursor = _FakeCursor()
@@ -146,6 +150,7 @@ class ScanStoreTest(unittest.TestCase):
         self.assertEqual(select_params, (13,))
         self.assertEqual(reports[0]["scan_id"], 42)
         self.assertEqual(reports[0]["summary"], "## Report")
+        self.assertEqual(reports[0]["condensed_summary"], "## Condensed")
 
 
     def test_set_scan_condensed_summary_updates_row(self) -> None:

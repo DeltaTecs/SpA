@@ -133,6 +133,7 @@ class PriorReportSection:
     scan_id: int
     label: str
     markdown: str
+    condensed_summary: str = ""
 
 
 analysis_runs = AnalysisSessionStore()
@@ -573,6 +574,7 @@ def _prior_report_sections(scan_ids: List[int]) -> list[PriorReportSection]:
         provider = row.get("llm_provider") or "provider"
         model = row.get("llm_model") or "model"
         body = (row.get("summary") or "").strip() or "(empty report)"
+        condensed_summary = (row.get("condensed_summary") or "").strip()
         label = (
             f"Prior report #{row['scan_id']} "
             f"({title}; {provider} / {model}; event {row['event_id']})"
@@ -582,6 +584,7 @@ def _prior_report_sections(scan_ids: List[int]) -> list[PriorReportSection]:
                 scan_id=int(row["scan_id"]),
                 label=label,
                 markdown=f"--- {label} ---\n{body}",
+                condensed_summary=condensed_summary,
             )
         )
     return sections
@@ -609,15 +612,35 @@ def _compact_prior_report_sections(
     if not sections:
         return ""
 
-    worker_count = _prior_report_compaction_worker_count(len(sections))
+    compacted_sections: list[PriorReportSection | None] = [None] * len(sections)
+    sections_to_compact: list[tuple[int, PriorReportSection]] = []
+    for index, section in enumerate(sections):
+        if section.condensed_summary.strip():
+            compacted_sections[index] = _compacted_prior_report_section(
+                section,
+                section.condensed_summary,
+            )
+        else:
+            sections_to_compact.append((index, section))
+
+    cached_count = len(sections) - len(sections_to_compact)
+    if cached_count:
+        progress_callback(
+            f"Reused stored condensed summaries for {cached_count} prior scan report(s)."
+        )
+
+    if not sections_to_compact:
+        return _join_prior_report_sections(_completed_sections(compacted_sections))
+
+    worker_count = _prior_report_compaction_worker_count(len(sections_to_compact))
     progress_callback(
-        f"Condensing {len(sections)} prior scan report(s) in separate LLM session(s), "
-        f"up to {worker_count} at a time."
+        f"Condensing {len(sections_to_compact)} prior scan report(s) in separate "
+        f"LLM session(s), up to {worker_count} at a time."
     )
 
     if worker_count == 1:
-        compacted_sections = [
-            _compact_prior_report_section(
+        for index, section in sections_to_compact:
+            compacted_sections[index] = _compact_prior_report_section(
                 analyzer=analyzer,
                 section=section,
                 event_id=event_id,
@@ -627,11 +650,12 @@ def _compact_prior_report_sections(
                 progress_callback=progress_callback,
                 scan_logger=scan_logger,
             )
-            for section in sections
-        ]
     else:
-        def compact_with_new_analyzer(section: PriorReportSection) -> PriorReportSection:
-            return _compact_prior_report_section(
+        def compact_with_new_analyzer(
+            indexed_section: tuple[int, PriorReportSection],
+        ) -> tuple[int, PriorReportSection]:
+            index, section = indexed_section
+            compacted = _compact_prior_report_section(
                 analyzer=create_analyzer(
                     provider=provider,
                     model=model,
@@ -646,14 +670,19 @@ def _compact_prior_report_sections(
                 progress_callback=progress_callback,
                 scan_logger=scan_logger,
             )
+            return index, compacted
 
         with ThreadPoolExecutor(
             max_workers=worker_count,
             thread_name_prefix="prior-report-compaction",
         ) as executor:
-            compacted_sections = list(executor.map(compact_with_new_analyzer, sections))
+            for index, compacted in executor.map(
+                compact_with_new_analyzer,
+                sections_to_compact,
+            ):
+                compacted_sections[index] = compacted
 
-    return _join_prior_report_sections(compacted_sections)
+    return _join_prior_report_sections(_completed_sections(compacted_sections))
 
 
 def _compact_prior_report_section(
@@ -678,12 +707,31 @@ def _compact_prior_report_section(
         scan_logger=scan_logger,
     )
     _persist_condensed_summary(section, compacted, progress_callback)
+    return _compacted_prior_report_section(section, compacted)
+
+
+def _compacted_prior_report_section(
+    section: PriorReportSection,
+    condensed_summary: str,
+) -> PriorReportSection:
     label = f"Compacted {section.label}"
     return PriorReportSection(
         scan_id=section.scan_id,
         label=label,
-        markdown=f"--- {label} ---\n{compacted}",
+        markdown=f"--- {label} ---\n{condensed_summary.strip()}",
+        condensed_summary=condensed_summary.strip(),
     )
+
+
+def _completed_sections(
+    sections: Sequence[PriorReportSection | None],
+) -> list[PriorReportSection]:
+    completed: list[PriorReportSection] = []
+    for section in sections:
+        if section is None:
+            raise RuntimeError("Prior report compaction did not produce every section")
+        completed.append(section)
+    return completed
 
 
 def _persist_condensed_summary(
