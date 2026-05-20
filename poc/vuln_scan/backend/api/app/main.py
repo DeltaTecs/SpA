@@ -3,8 +3,10 @@ from __future__ import annotations
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from functools import lru_cache
-from typing import List, Optional
+from typing import Callable, List, Optional, Sequence
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -119,6 +121,13 @@ class StoredScanReportItem(BaseModel):
     user_constrains: str = ""
     tools_used: str = ""
     summary: str = ""
+
+
+@dataclass(frozen=True)
+class PriorReportSection:
+    scan_id: int
+    label: str
+    markdown: str
 
 
 analysis_runs = AnalysisSessionStore()
@@ -449,24 +458,31 @@ def _run_phase2_background(
         if prescan_markdown:
             run.add_progress("Loaded stored phase-one summary.")
 
-        prior_reports_markdown = _prior_reports_markdown(request.prior_report_ids)
+        prior_report_sections = _prior_report_sections(request.prior_report_ids)
+        prior_reports_markdown = _join_prior_report_sections(prior_report_sections)
         if prior_reports_markdown:
             if request.compact_included_reports:
-                prior_reports_markdown = analyzer.compact_prior_reports(
+                prior_reports_markdown = _compact_prior_report_sections(
+                    analyzer=analyzer,
+                    sections=prior_report_sections,
                     event_id=request.event_id,
                     analysis_types=run.analysis_types,
                     constraints=request.constraints,
                     prescan_markdown=prescan_markdown,
-                    prior_reports_markdown=prior_reports_markdown,
-                    on_progress=run.add_progress,
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    api_base_url=api_base_url,
+                    progress_callback=run.add_progress,
                     scan_logger=scan_logger,
                 )
                 run.add_progress(
-                    "Loaded compacted prior scan report findings into the prompt."
+                    f"Loaded {len(prior_report_sections)} individually compacted "
+                    "prior scan report(s) into the prompt."
                 )
             else:
                 run.add_progress(
-                    f"Loaded {len(request.prior_report_ids)} prior scan report(s) into the prompt."
+                    f"Loaded {len(prior_report_sections)} prior scan report(s) into the prompt."
                 )
 
         packet_mcp_client = MCPClient(
@@ -531,12 +547,12 @@ def _run_phase2_background(
             scan_logger.close()
 
 
-def _prior_reports_markdown(scan_ids: List[int]) -> str:
+def _prior_report_sections(scan_ids: List[int]) -> list[PriorReportSection]:
     if not scan_ids:
-        return ""
+        return []
     rows = get_phase_two_scans(scan_ids)
     rows_by_id = {int(row["scan_id"]): row for row in rows}
-    sections: List[str] = []
+    sections: list[PriorReportSection] = []
     for scan_id in scan_ids:
         row = rows_by_id.get(int(scan_id))
         if row is None:
@@ -545,11 +561,132 @@ def _prior_reports_markdown(scan_ids: List[int]) -> str:
         provider = row.get("llm_provider") or "provider"
         model = row.get("llm_model") or "model"
         body = (row.get("summary") or "").strip() or "(empty report)"
-        sections.append(
-            f"--- Prior report #{row['scan_id']} ({title}; {provider} / {model}; event {row['event_id']}) ---\n"
-            f"{body}"
+        label = (
+            f"Prior report #{row['scan_id']} "
+            f"({title}; {provider} / {model}; event {row['event_id']})"
         )
-    return "\n\n".join(sections)
+        sections.append(
+            PriorReportSection(
+                scan_id=int(row["scan_id"]),
+                label=label,
+                markdown=f"--- {label} ---\n{body}",
+            )
+        )
+    return sections
+
+
+def _join_prior_report_sections(sections: Sequence[PriorReportSection]) -> str:
+    return "\n\n".join(section.markdown for section in sections)
+
+
+def _compact_prior_report_sections(
+    *,
+    analyzer,
+    sections: Sequence[PriorReportSection],
+    event_id: int,
+    analysis_types: Sequence[str],
+    constraints: str,
+    prescan_markdown: str,
+    provider: str,
+    model: str,
+    api_key: Optional[str],
+    api_base_url: Optional[str],
+    progress_callback: Callable[[str], None],
+    scan_logger: Optional[ScanRunLogger],
+) -> str:
+    if not sections:
+        return ""
+
+    worker_count = _prior_report_compaction_worker_count(len(sections))
+    progress_callback(
+        f"Condensing {len(sections)} prior scan report(s) in separate LLM session(s), "
+        f"up to {worker_count} at a time."
+    )
+
+    if worker_count == 1:
+        compacted_sections = [
+            _compact_prior_report_section(
+                analyzer=analyzer,
+                section=section,
+                event_id=event_id,
+                analysis_types=analysis_types,
+                constraints=constraints,
+                prescan_markdown=prescan_markdown,
+                progress_callback=progress_callback,
+                scan_logger=scan_logger,
+            )
+            for section in sections
+        ]
+    else:
+        def compact_with_new_analyzer(section: PriorReportSection) -> PriorReportSection:
+            return _compact_prior_report_section(
+                analyzer=create_analyzer(
+                    provider=provider,
+                    model=model,
+                    api_key=api_key,
+                    api_base_url=api_base_url,
+                ),
+                section=section,
+                event_id=event_id,
+                analysis_types=analysis_types,
+                constraints=constraints,
+                prescan_markdown=prescan_markdown,
+                progress_callback=progress_callback,
+                scan_logger=scan_logger,
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="prior-report-compaction",
+        ) as executor:
+            compacted_sections = list(executor.map(compact_with_new_analyzer, sections))
+
+    return _join_prior_report_sections(compacted_sections)
+
+
+def _compact_prior_report_section(
+    *,
+    analyzer,
+    section: PriorReportSection,
+    event_id: int,
+    analysis_types: Sequence[str],
+    constraints: str,
+    prescan_markdown: str,
+    progress_callback: Callable[[str], None],
+    scan_logger: Optional[ScanRunLogger],
+) -> PriorReportSection:
+    compacted = analyzer.compact_prior_report(
+        event_id=event_id,
+        analysis_types=analysis_types,
+        constraints=constraints,
+        prescan_markdown=prescan_markdown,
+        report_label=section.label,
+        prior_report_markdown=section.markdown,
+        on_progress=progress_callback,
+        scan_logger=scan_logger,
+    )
+    label = f"Compacted {section.label}"
+    return PriorReportSection(
+        scan_id=section.scan_id,
+        label=label,
+        markdown=f"--- {label} ---\n{compacted}",
+    )
+
+
+def _prior_report_compaction_worker_count(report_count: int) -> int:
+    if report_count <= 1:
+        return max(report_count, 0)
+
+    raw_value = os.environ.get("PHASE2_PRIOR_REPORT_COMPACTION_WORKERS", "2")
+    try:
+        configured_count = int(raw_value)
+    except ValueError:
+        configured_count = 2
+    return max(1, min(report_count, configured_count))
+
+
+def _prior_reports_markdown(scan_ids: List[int]) -> str:
+    return _join_prior_report_sections(_prior_report_sections(scan_ids))
 
 
 def _optional_app_details(request: ScanRequest | PhaseTwoRequest) -> Optional[str]:

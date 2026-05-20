@@ -31,7 +31,7 @@ except ImportError:
 from prompts import (
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
-    build_prior_reports_compaction_system_prompt,
+    build_prior_report_compaction_system_prompt,
 )
 from scan_logger import ScanRunLogger
 from scanner_models import ScanSummary
@@ -279,13 +279,14 @@ class ScannerAnalyzer:
             scan_logger.log_llm_response("final_analysis_text", response_text or "")
         return (response_text or "").strip() or "(LLM returned no analysis)"
 
-    def compact_prior_reports(
+    def compact_prior_report(
         self,
         *,
         event_id: int,
         analysis_types: Sequence[str],
         constraints: str,
-        prior_reports_markdown: str,
+        report_label: str,
+        prior_report_markdown: str,
         prescan_markdown: str = "",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
@@ -293,24 +294,26 @@ class ScannerAnalyzer:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
 
-        source_reports = prior_reports_markdown.strip()
-        if not source_reports:
+        source_report = prior_report_markdown.strip()
+        if not source_report:
             return ""
+        clean_report_label = report_label.strip() or "prior report"
 
-        system_prompt = build_prior_reports_compaction_system_prompt()
-        human_prompt = _build_prior_reports_compaction_human_prompt(
+        system_prompt = build_prior_report_compaction_system_prompt()
+        human_prompt = _build_prior_report_compaction_human_prompt(
             event_id=event_id,
             analysis_types=analysis_types,
             constraints=constraints,
             prescan_markdown=prescan_markdown,
-            prior_reports_markdown=source_reports,
+            report_label=clean_report_label,
+            prior_report_markdown=source_report,
         )
 
         if on_progress:
-            on_progress("Condensing included prior scan reports with the configured LLM.")
+            on_progress(f"Condensing {clean_report_label} with the configured LLM.")
 
         if scan_logger is not None:
-            scan_logger.section("LLM PRIOR REPORT COMPACTION PROMPT")
+            scan_logger.section(f"LLM PRIOR REPORT COMPACTION PROMPT {clean_report_label}")
             scan_logger.log_llm_request("system_prompt", system_prompt)
             scan_logger.log_llm_request("human_prompt", human_prompt)
 
@@ -324,7 +327,7 @@ class ScannerAnalyzer:
             compacted = "(No actionable technical findings were extracted from the prior reports.)"
 
         if scan_logger is not None:
-            scan_logger.section("LLM PRIOR REPORT COMPACTION RESPONSE")
+            scan_logger.section(f"LLM PRIOR REPORT COMPACTION RESPONSE {clean_report_label}")
             scan_logger.log_llm_response("compacted_prior_reports", compacted)
 
         return compacted
@@ -593,13 +596,14 @@ class ScannerAnalyzer:
         return str(last or "")
 
 
-def _build_prior_reports_compaction_human_prompt(
+def _build_prior_report_compaction_human_prompt(
     *,
     event_id: int,
     analysis_types: Sequence[str],
     constraints: str,
     prescan_markdown: str,
-    prior_reports_markdown: str,
+    report_label: str,
+    prior_report_markdown: str,
 ) -> str:
     analysis_type_text = ", ".join(analysis_types) if analysis_types else "(none)"
     constraints_text = constraints.strip() or "(none)"
@@ -616,9 +620,10 @@ def _build_prior_reports_compaction_human_prompt(
             "=== End Current Event Summary ==="
         )
     prompt_parts.append(
-        "=== Prior Scan Reports To Condense ===\n"
-        f"{prior_reports_markdown.strip()}\n"
-        "=== End Prior Scan Reports To Condense ==="
+        "=== Prior Scan Report To Condense ===\n"
+        f"source: {report_label.strip() or 'prior report'}\n"
+        f"{prior_report_markdown.strip()}\n"
+        "=== End Prior Scan Report To Condense ==="
     )
     return "\n\n".join(prompt_parts)
 

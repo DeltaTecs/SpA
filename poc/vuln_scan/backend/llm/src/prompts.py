@@ -119,13 +119,12 @@ Return a concise Markdown report with executive summary and detailed findings.
 """
 
 
-def build_prior_reports_compaction_system_prompt() -> str:
-    return """You condense prior vulnerability scan reports into shorter, technical reports for a follow-on authorized penetration test.
+def build_prior_report_compaction_system_prompt() -> str:
+    return """You condense one prior vulnerability scan report into a shorter technical report for a follow-on authorized penetration test.
 
 Goal:
 - Produce a short Markdown report containing only relevant technical findings.
 - Do not over-condense: preserve concrete identifiers, potential evidence, and qualifiers needed for the next analyst.
-- Combine duplicate findings within reason.
 - Do not invent facts or upgrade tentative claims into confirmed findings.
 
 Include:
@@ -140,3 +139,7 @@ Exclude:
 
 Return Markdown only as concise grouped bullet lists. If there are no actionable technical findings, say so explicitly.
 """
+
+
+def build_prior_reports_compaction_system_prompt() -> str:
+    return build_prior_report_compaction_system_prompt()
