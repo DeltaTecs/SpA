@@ -858,6 +858,17 @@ h2 {
   white-space: pre-wrap;
 }
 
+.tool-approval-auto {
+  background: #f5f7fa;
+  border: 1px solid #e3e7ed;
+  border-radius: 6px;
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
 .tool-approval-reason {
   border: 1px solid #a7b0bc;
   border-radius: 6px;

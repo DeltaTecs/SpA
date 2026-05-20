@@ -37,6 +37,8 @@ const APPROVAL_MODES = [
   {value: "smart_non_db", label: "Smart approve non-db tools", summary: "Smart approve (non-db)"},
 ];
 const DEFAULT_APPROVAL_MODE = "manual";
+const AUTO_DB_APPROVAL_MODE = "auto_db";
+const AUTO_ALL_APPROVAL_MODE = "auto_all";
 const SMART_APPROVAL_MODE = "smart_non_db";
 
 const state = {
@@ -1146,6 +1148,7 @@ function approvalPayload() {
 
 function renderToolApprovals() {
   toolApprovals.innerHTML = "";
+  const run = state.phase2Run;
   const pending = state.phase2Run?.pending_tool_requests || [];
   for (const request of pending) {
     const card = document.createElement("div");
@@ -1158,32 +1161,73 @@ function renderToolApprovals() {
     const pre = document.createElement("pre");
     pre.textContent = JSON.stringify(request.tool_call, null, 2);
 
-    const reasonInput = document.createElement("input");
-    reasonInput.type = "text";
-    reasonInput.className = "tool-approval-reason";
-    reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
-
-    const actions = document.createElement("div");
-    actions.className = "tool-approval-actions";
-
-    const deny = document.createElement("button");
-    deny.type = "button";
-    deny.textContent = "Deny";
-    deny.addEventListener("click", () => decideToolRequest(request.request_id, false, reasonInput.value));
-
-    const approve = document.createElement("button");
-    approve.type = "button";
-    approve.textContent = "Approve";
-    approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
-
-    actions.append(deny, approve);
     card.append(title, pre);
     if (request.smart_review) {
       card.append(renderSmartReview(request.smart_review));
     }
-    card.append(reasonInput, actions);
+    if (shouldRenderManualApprovalControls(run, request)) {
+      const reasonInput = document.createElement("input");
+      reasonInput.type = "text";
+      reasonInput.className = "tool-approval-reason";
+      reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
+
+      const actions = document.createElement("div");
+      actions.className = "tool-approval-actions";
+
+      const deny = document.createElement("button");
+      deny.type = "button";
+      deny.textContent = "Deny";
+      deny.addEventListener("click", () => decideToolRequest(request.request_id, false, reasonInput.value));
+
+      const approve = document.createElement("button");
+      approve.type = "button";
+      approve.textContent = "Approve";
+      approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
+
+      actions.append(deny, approve);
+      card.append(reasonInput, actions);
+    } else {
+      card.append(renderAutomatedApprovalNotice(request));
+    }
     toolApprovals.append(card);
   }
+}
+
+function shouldRenderManualApprovalControls(run, request) {
+  const approvalMode = run?.approval_mode || state.approvalMode;
+  if (approvalMode === AUTO_ALL_APPROVAL_MODE) {
+    return false;
+  }
+  if (
+    approvalMode === AUTO_DB_APPROVAL_MODE
+    && isMcpDatabaseToolCall(request.tool_call)
+  ) {
+    return false;
+  }
+  if (approvalMode !== SMART_APPROVAL_MODE) {
+    return true;
+  }
+  if (isMcpDatabaseToolCall(request.tool_call)) {
+    return false;
+  }
+  const review = request.smart_review;
+  const wasRejectedBySmartApprover = review && (!review.approved || review.error);
+  return Boolean(wasRejectedBySmartApprover && run?.escalate_smart_rejections);
+}
+
+function isMcpDatabaseToolCall(toolCall = {}) {
+  const serverId = String(toolCall.server_id || "").trim().toLowerCase();
+  const serverLabel = String(toolCall.server_label || "").trim().toLowerCase();
+  return ["packet", "packet_db", "mcp_packet_db"].includes(serverId) || serverLabel === "packet db";
+}
+
+function renderAutomatedApprovalNotice(request) {
+  const box = document.createElement("div");
+  box.className = "tool-approval-auto";
+  box.textContent = request.smart_review
+    ? "Automated approval has resolved this request."
+    : "Automated approval is reviewing this request.";
+  return box;
 }
 
 // Shows why the smart approver escalated a tool call to manual approval.
