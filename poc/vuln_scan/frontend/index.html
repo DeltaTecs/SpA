@@ -115,7 +115,13 @@
               <section class="prior-reports-field" aria-label="Prior scan reports to include">
                 <div class="prior-reports-header">
                   <span class="prior-reports-label">Include prior scan reports in prompt</span>
-                  <span id="priorReportsSummary" class="prior-reports-summary">None selected</span>
+                  <div class="prior-reports-controls">
+                    <label class="prior-reports-compact-option">
+                      <input id="compactIncludedReports" type="checkbox">
+                      <span>Compact included reports</span>
+                    </label>
+                    <span id="priorReportsSummary" class="prior-reports-summary">None selected</span>
+                  </div>
                 </div>
                 <div id="priorReportsList" class="prior-reports-list" aria-live="polite"></div>
               </section>

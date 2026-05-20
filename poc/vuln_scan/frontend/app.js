@@ -61,6 +61,7 @@ const state = {
   loadingReportEventIds: new Set(),
   reportErrorsByEvent: {},
   priorReportIdsByEvent: {},
+  compactIncludedReports: false,
 };
 
 const eventList = document.querySelector("#eventList");
@@ -109,6 +110,7 @@ const toolApprovals = document.querySelector("#toolApprovals");
 const analysisProgress = document.querySelector("#analysisProgress");
 const priorReportsList = document.querySelector("#priorReportsList");
 const priorReportsSummary = document.querySelector("#priorReportsSummary");
+const compactIncludedReports = document.querySelector("#compactIncludedReports");
 
 refreshButton.addEventListener("click", loadEvents);
 refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
@@ -132,6 +134,10 @@ autoApproveMcpDatabaseRequests.addEventListener("change", () => {
 });
 autoApproveAllMcpRequests.addEventListener("change", () => {
   state.autoApproveAllMcpRequests = autoApproveAllMcpRequests.checked;
+  renderPhaseTwo();
+});
+compactIncludedReports.addEventListener("change", () => {
+  state.compactIncludedReports = compactIncludedReports.checked;
   renderPhaseTwo();
 });
 constraintsInput.addEventListener("input", () => {
@@ -376,6 +382,7 @@ async function startPhaseTwo() {
     provider: state.selectedProvider,
     model: state.selectedModel,
     prior_report_ids: selectedPriorReportIdsForEvent(event.event_id),
+    compact_included_reports: state.compactIncludedReports,
     ...contextPayload(),
   };
 
@@ -856,9 +863,11 @@ function renderPhaseTwo() {
 
 function renderPriorReports(running) {
   priorReportsList.innerHTML = "";
+  compactIncludedReports.checked = state.compactIncludedReports;
 
   const event = selected();
   if (!event) {
+    compactIncludedReports.disabled = true;
     priorReportsSummary.textContent = "Select an event to see its prior reports.";
     appendPriorReportListMessage("Select an event.");
     return;
@@ -871,6 +880,7 @@ function renderPriorReports(running) {
   const loading = state.loadingReportEventIds.has(eventId);
   const error = state.reportErrorsByEvent[eventId];
   const selectedIds = state.priorReportIdsByEvent[eventId] || new Set();
+  compactIncludedReports.disabled = running;
 
   priorReportsSummary.textContent = selectedIds.size
     ? `${selectedIds.size} selected`

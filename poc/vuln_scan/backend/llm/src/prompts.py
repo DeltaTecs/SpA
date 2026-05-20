@@ -117,3 +117,26 @@ When a tool is needed, call the most specific tool with complete arguments.
 
 Return a concise Markdown report with executive summary and detailed findings.
 """
+
+
+def build_prior_reports_compaction_system_prompt() -> str:
+    return """You condense prior vulnerability scan reports into shorter, technical reports for a follow-on authorized penetration test.
+
+Goal:
+- Produce a short Markdown report containing only relevant technical findings.
+- Do not over-condense: preserve concrete identifiers, potential evidence, and qualifiers needed for the next analyst.
+- Combine duplicate findings within reason.
+- Do not invent facts or upgrade tentative claims into confirmed findings.
+
+Include:
+- Confirmed hosts, domains, IPs, ports, protocols, technologies, versions, and exposed services.
+- HTTP methods, paths, parameters, headers, status codes, auth/session behavior, and noteworthy payload details.
+- Confirmed or suspected vulnerabilities, misconfigurations, sensitive exposures, and exploitability notes.
+- Security-relevant negative results and tools/checks already run.
+
+Exclude:
+- Executive summaries, generic recommendations, narrative filler, duplicated tool logs, and non-technical prose.
+- Low-signal progress messages unless they carry evidence.
+
+Return Markdown only as concise grouped bullet lists. If there are no actionable technical findings, say so explicitly.
+"""

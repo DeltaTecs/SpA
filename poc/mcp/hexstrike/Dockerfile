@@ -313,6 +313,28 @@ COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/
 
+# HexStrike defaults come from Kali-style wordlist paths, while Debian packages
+# install the same bundled dictionaries under tool-specific directories.
+RUN set -eux; \
+    mkdir -p /usr/share/wordlists; \
+    if [[ ! -e /usr/share/wordlists/dirb ]]; then \
+      ln -s /usr/share/dirb/wordlists /usr/share/wordlists/dirb; \
+    fi; \
+    mkdir -p /usr/share/wordlists/dirbuster /usr/share/wordlists/dirsearch; \
+    if [[ ! -e /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt ]]; then \
+      if [[ -e /usr/share/wfuzz/wordlist/general/medium.txt ]]; then \
+        ln -s /usr/share/wfuzz/wordlist/general/medium.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+      else \
+        ln -s /usr/share/dirb/wordlists/big.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+      fi; \
+    fi; \
+    if [[ ! -e /usr/share/wordlists/dirsearch/common.txt ]]; then \
+      ln -s /opt/dirsearch/db/dicc.txt /usr/share/wordlists/dirsearch/common.txt; \
+    fi; \
+    test -r /usr/share/wordlists/dirb/common.txt; \
+    test -r /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+    test -r /usr/share/wordlists/dirsearch/common.txt
+
 RUN set -eux; \
     chmod +x /usr/local/bin/hexstrike-bash-mcp; \
     chmod +x /usr/local/bin/hexstrike-http-mcp; \

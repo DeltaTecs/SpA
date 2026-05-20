@@ -90,6 +90,7 @@ class PhaseTwoRequest(BaseModel):
     app_details_content: Optional[str] = None
     user_intend_content: Optional[str] = None
     prior_report_ids: List[int] = Field(default_factory=list)
+    compact_included_reports: bool = False
 
 
 class ToolDecisionRequest(BaseModel):
@@ -431,6 +432,7 @@ def _run_phase2_background(
                 "auto_approve_mcp_database_requests": request.auto_approve_mcp_database_requests,
                 "auto_approve_all_mcp_requests": request.auto_approve_all_mcp_requests,
                 "prior_report_ids": list(request.prior_report_ids),
+                "compact_included_reports": request.compact_included_reports,
                 "has_app_details_content": request.app_details_content is not None,
                 "has_user_intend_content": request.user_intend_content is not None,
             },
@@ -449,9 +451,23 @@ def _run_phase2_background(
 
         prior_reports_markdown = _prior_reports_markdown(request.prior_report_ids)
         if prior_reports_markdown:
-            run.add_progress(
-                f"Loaded {len(request.prior_report_ids)} prior scan report(s) into the prompt."
-            )
+            if request.compact_included_reports:
+                prior_reports_markdown = analyzer.compact_prior_reports(
+                    event_id=request.event_id,
+                    analysis_types=run.analysis_types,
+                    constraints=request.constraints,
+                    prescan_markdown=prescan_markdown,
+                    prior_reports_markdown=prior_reports_markdown,
+                    on_progress=run.add_progress,
+                    scan_logger=scan_logger,
+                )
+                run.add_progress(
+                    "Loaded compacted prior scan report findings into the prompt."
+                )
+            else:
+                run.add_progress(
+                    f"Loaded {len(request.prior_report_ids)} prior scan report(s) into the prompt."
+                )
 
         packet_mcp_client = MCPClient(
             base_url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"),

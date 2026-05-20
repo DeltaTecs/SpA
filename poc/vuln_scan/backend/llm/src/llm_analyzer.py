@@ -31,6 +31,7 @@ except ImportError:
 from prompts import (
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
+    build_prior_reports_compaction_system_prompt,
 )
 from scan_logger import ScanRunLogger
 from scanner_models import ScanSummary
@@ -278,6 +279,56 @@ class ScannerAnalyzer:
             scan_logger.log_llm_response("final_analysis_text", response_text or "")
         return (response_text or "").strip() or "(LLM returned no analysis)"
 
+    def compact_prior_reports(
+        self,
+        *,
+        event_id: int,
+        analysis_types: Sequence[str],
+        constraints: str,
+        prior_reports_markdown: str,
+        prescan_markdown: str = "",
+        on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> str:
+        if self.llm is None:
+            raise RuntimeError("Analyzer is not initialized")
+
+        source_reports = prior_reports_markdown.strip()
+        if not source_reports:
+            return ""
+
+        system_prompt = build_prior_reports_compaction_system_prompt()
+        human_prompt = _build_prior_reports_compaction_human_prompt(
+            event_id=event_id,
+            analysis_types=analysis_types,
+            constraints=constraints,
+            prescan_markdown=prescan_markdown,
+            prior_reports_markdown=source_reports,
+        )
+
+        if on_progress:
+            on_progress("Condensing included prior scan reports with the configured LLM.")
+
+        if scan_logger is not None:
+            scan_logger.section("LLM PRIOR REPORT COMPACTION PROMPT")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
+        compacted = self._invoke_plain(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            scan_logger=scan_logger,
+        ).strip()
+
+        if not compacted:
+            compacted = "(No actionable technical findings were extracted from the prior reports.)"
+
+        if scan_logger is not None:
+            scan_logger.section("LLM PRIOR REPORT COMPACTION RESPONSE")
+            scan_logger.log_llm_response("compacted_prior_reports", compacted)
+
+        return compacted
+
     def _invoke_with_tools(
         self,
         *,
@@ -314,6 +365,55 @@ class ScannerAnalyzer:
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
+
+    def _invoke_plain(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> str:
+        try:
+            if self.provider == "deepseek":
+                return self._invoke_deepseek_plain(
+                    system_prompt=system_prompt,
+                    human_prompt=human_prompt,
+                )
+
+            response = self.llm.invoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=human_prompt),
+                ]
+            )
+            content = getattr(response, "content", "")
+            return _content_to_text(content) if content is not None else ""
+        except Exception as exc:
+            logger.error("LLM prior-report compaction failed: %s", exc)
+            if scan_logger is not None:
+                scan_logger.error("LLM prior-report compaction failed: %s", exc)
+            raise RuntimeError(f"LLM prior-report compaction failed: {exc}") from exc
+
+    def _invoke_deepseek_plain(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+    ) -> str:
+        if self.deepseek_client is None:
+            raise RuntimeError("DeepSeek client is not initialized")
+
+        response = self.deepseek_client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": human_prompt},
+            ],
+            reasoning_effort="high",
+            extra_body={"thinking": {"type": "enabled"}},
+        )
+        message = response.choices[0].message
+        return str(getattr(message, "content", "") or "")
 
     def _run_tool_conversation(
         self,
@@ -491,6 +591,36 @@ class ScannerAnalyzer:
             )
         last = messages[-1].get("content") if messages else None
         return str(last or "")
+
+
+def _build_prior_reports_compaction_human_prompt(
+    *,
+    event_id: int,
+    analysis_types: Sequence[str],
+    constraints: str,
+    prescan_markdown: str,
+    prior_reports_markdown: str,
+) -> str:
+    analysis_type_text = ", ".join(analysis_types) if analysis_types else "(none)"
+    constraints_text = constraints.strip() or "(none)"
+    prompt_parts = [
+        "=== Current Phase-Two Analysis ===\n"
+        f"event_id: {event_id}\n"
+        f"analysis_tracks: {analysis_type_text}\n"
+        f"constraints: {constraints_text}",
+    ]
+    if prescan_markdown.strip():
+        prompt_parts.append(
+            "=== Current Event Summary ===\n"
+            f"{prescan_markdown.strip()}\n"
+            "=== End Current Event Summary ==="
+        )
+    prompt_parts.append(
+        "=== Prior Scan Reports To Condense ===\n"
+        f"{prior_reports_markdown.strip()}\n"
+        "=== End Prior Scan Reports To Condense ==="
+    )
+    return "\n\n".join(prompt_parts)
 
 
 def _content_to_text(content: Any) -> str:

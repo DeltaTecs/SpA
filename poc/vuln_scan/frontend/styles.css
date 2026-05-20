@@ -467,6 +467,36 @@ h2 {
   color: #2f6feb;
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.prior-reports-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: flex-end;
+}
+
+.prior-reports-compact-option {
+  align-items: center;
+  color: #394656;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.prior-reports-compact-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.prior-reports-compact-option:has(input:disabled) {
+  opacity: 0.55;
 }
 
 .prior-reports-list {
