@@ -32,6 +32,7 @@ from prompts import (
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
     build_prior_report_compaction_system_prompt,
+    build_smart_approval_system_prompt,
 )
 from scan_logger import ScanRunLogger
 from scanner_models import ScanSummary
@@ -332,6 +333,51 @@ class ScannerAnalyzer:
 
         return compacted
 
+    def evaluate_tool_approval(
+        self,
+        *,
+        tool_call: Dict[str, Any],
+        constraints: str,
+        analysis_types: Sequence[str],
+        event_id: int,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> Dict[str, Any]:
+        """Decide whether a single phase-two MCP tool call may run automatically.
+
+        Returns a dict with keys ``approved`` (bool), ``reasoning`` (str) and
+        ``error`` (bool). ``error`` is True when the LLM produced no parseable
+        decision; callers should then fall back to manual approval.
+        """
+        if self.llm is None:
+            raise RuntimeError("Analyzer is not initialized")
+
+        tool_label = _tool_call_label(tool_call)
+        system_prompt = build_smart_approval_system_prompt()
+        human_prompt = _build_smart_approval_human_prompt(
+            tool_call=tool_call,
+            constraints=constraints,
+            analysis_types=analysis_types,
+            event_id=event_id,
+        )
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM SMART APPROVAL PROMPT {tool_label}")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
+        response_text = self._invoke_plain(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            scan_logger=scan_logger,
+        )
+        decision = _parse_smart_approval_decision(response_text)
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM SMART APPROVAL DECISION {tool_label}")
+            scan_logger.log_llm_response("smart_approval_decision", decision)
+
+        return decision
+
     def _invoke_with_tools(
         self,
         *,
@@ -626,6 +672,84 @@ def _build_prior_report_compaction_human_prompt(
         "=== End Prior Scan Report To Condense ==="
     )
     return "\n\n".join(prompt_parts)
+
+
+def _tool_call_label(tool_call: Dict[str, Any]) -> str:
+    return str(
+        tool_call.get("exposed_tool_name")
+        or tool_call.get("tool_name")
+        or "tool"
+    )
+
+
+def _build_smart_approval_human_prompt(
+    *,
+    tool_call: Dict[str, Any],
+    constraints: str,
+    analysis_types: Sequence[str],
+    event_id: int,
+) -> str:
+    analysis_type_text = ", ".join(analysis_types) if analysis_types else "(none)"
+    constraints_text = (
+        constraints.strip() or "(no additional constraints were provided)"
+    )
+    try:
+        arguments_text = json.dumps(
+            tool_call.get("arguments"),
+            indent=2,
+            sort_keys=True,
+            default=str,
+            ensure_ascii=False,
+        )
+    except TypeError:
+        arguments_text = str(tool_call.get("arguments"))
+
+    server_text = str(
+        tool_call.get("server_label") or tool_call.get("server_id") or "unknown"
+    )
+    tool_text = str(
+        tool_call.get("tool_name") or tool_call.get("exposed_tool_name") or "unknown"
+    )
+
+    return "\n\n".join(
+        [
+            "=== Analysis Context ===\n"
+            f"event_id: {event_id}\n"
+            f"analysis_tracks: {analysis_type_text}",
+            "=== User Constraints (mandatory) ===\n"
+            f"{constraints_text}\n"
+            "=== End User Constraints ===",
+            "=== Proposed MCP Tool Call ===\n"
+            f"server: {server_text}\n"
+            f"tool: {tool_text}\n"
+            f"arguments:\n{arguments_text}\n"
+            "=== End Proposed MCP Tool Call ===",
+            "Decide whether this tool call may run automatically. "
+            "Respond with the required JSON object only.",
+        ]
+    )
+
+
+def _parse_smart_approval_decision(response_text: Optional[str]) -> Dict[str, Any]:
+    text = (response_text or "").strip()
+    try:
+        raw = _parse_json_object(text)
+    except Exception:
+        # No parseable decision: be conservative and require manual approval.
+        return {
+            "approved": False,
+            "reasoning": (
+                text[:500]
+                or "The smart approver returned no parseable decision."
+            ),
+            "error": True,
+        }
+
+    approved = bool(raw.get("approved"))
+    reasoning = str(raw.get("reasoning") or raw.get("reason") or "").strip()
+    if not reasoning:
+        reasoning = "Approved." if approved else "No reason was provided."
+    return {"approved": approved, "reasoning": reasoning, "error": False}
 
 
 def _content_to_text(content: Any) -> str:

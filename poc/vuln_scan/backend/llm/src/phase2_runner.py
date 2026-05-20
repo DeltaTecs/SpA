@@ -124,18 +124,20 @@ def run_phase_two_analysis(
 
     if scan_logger is not None:
 
-        def _logging_approval(tool_call: dict) -> bool:
+        def _logging_approval(tool_call: dict) -> tuple[bool, str]:
             scan_logger.log_user_action("tool_approval_requested", tool_call)
-            approved = approval_callback(tool_call)
+            decision = approval_callback(tool_call)
+            approved, reason = decision
             scan_logger.log_user_action(
                 "tool_approval_decision",
                 {
                     "approved": approved,
+                    "reason": reason,
                     "exposed_tool_name": tool_call.get("exposed_tool_name"),
                     "tool_name": tool_call.get("tool_name"),
                 },
             )
-            return approved
+            return decision
 
         wrapped_approval = _logging_approval
 

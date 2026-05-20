@@ -20,6 +20,7 @@ from mcp_client import MCPClient
 from mcp_proxy_tools import analysis_mcp_server_specs_from_env
 from phase2_runner import run_phase_two_analysis
 from scan_logger import ScanRunLogger, create_scan_run_logger
+from smart_approver import SmartToolApprover
 from scanner_config import (
     PROVIDERS,
     create_analyzer,
@@ -31,7 +32,13 @@ from scanner_config import (
 )
 from user_context import load_app_details, parse_intend_file, parse_intend_text
 
-from .analysis_sessions import AnalysisRun, AnalysisSessionStore
+from .analysis_runs import (
+    APPROVAL_MODE_MANUAL,
+    APPROVAL_MODE_SMART_NON_DB,
+    APPROVAL_MODES,
+    AnalysisRun,
+    AnalysisSessionStore,
+)
 from .prescan_sessions import PrescanRun, PrescanSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
 from .scan_store import (
@@ -87,8 +94,10 @@ class PhaseTwoRequest(BaseModel):
     event_id: int
     analysis_types: List[str] = Field(default_factory=lambda: [DEFAULT_ANALYSIS_TYPE])
     constraints: str = ""
-    auto_approve_mcp_database_requests: bool = False
-    auto_approve_all_mcp_requests: bool = False
+    approval_mode: str = APPROVAL_MODE_MANUAL
+    approval_provider: Optional[str] = None
+    approval_model: Optional[str] = None
+    escalate_smart_rejections: bool = True
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
@@ -101,6 +110,7 @@ class PhaseTwoRequest(BaseModel):
 
 class ToolDecisionRequest(BaseModel):
     approved: bool
+    reason: Optional[str] = None
 
 
 class StoredPhaseOneItem(BaseModel):
@@ -228,6 +238,14 @@ def phase1_status(run_id: str) -> dict:
 def start_phase2(request: PhaseTwoRequest) -> dict:
     provider, model, api_key, api_base_url = _llm_settings(request)
     analysis_types = _analysis_types(request.analysis_types)
+    approval_mode = _approval_mode(request.approval_mode)
+    approval_provider: Optional[str] = None
+    approval_model: Optional[str] = None
+    if approval_mode == APPROVAL_MODE_SMART_NON_DB:
+        # Validate the smart approver's LLM settings eagerly so that a
+        # misconfiguration surfaces as a 400 here instead of silently
+        # disabling smart approval once the background run starts.
+        approval_provider, approval_model, _, _ = _approval_llm_settings(request)
     if get_prescan(request.event_id) is None:
         raise HTTPException(
             status_code=409,
@@ -245,8 +263,10 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         approval_timeout_seconds=float(
             os.environ.get("PHASE2_APPROVAL_TIMEOUT_SECONDS", "3600")
         ),
-        auto_approve_mcp_database_requests=request.auto_approve_mcp_database_requests,
-        auto_approve_all_mcp_requests=request.auto_approve_all_mcp_requests,
+        approval_mode=approval_mode,
+        approval_provider=approval_provider,
+        approval_model=approval_model,
+        escalate_smart_rejections=request.escalate_smart_rejections,
     )
 
     thread = threading.Thread(
@@ -293,7 +313,7 @@ def decide_phase2_tool(
 ) -> dict:
     run = _analysis_run(run_id)
     try:
-        run.decide_tool_request(request_id, request.approved)
+        run.decide_tool_request(request_id, request.approved, request.reason or "")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Tool request not found") from exc
     except ValueError as exc:
@@ -306,6 +326,7 @@ def decide_phase2_tool(
                 "run_id": run_id,
                 "request_id": request_id,
                 "approved": request.approved,
+                "reason": request.reason or "",
             },
         )
     return run.snapshot()
@@ -347,6 +368,73 @@ def _analysis_types(raw_types: List[str]) -> List[str]:
             detail="Select exactly one vulnerability analysis type.",
         )
     return types
+
+
+def _approval_mode(raw_mode: str) -> str:
+    mode = (raw_mode or APPROVAL_MODE_MANUAL).strip()
+    if mode not in APPROVAL_MODES:
+        raise HTTPException(status_code=400, detail=f"Unsupported approval mode: {mode}")
+    return mode
+
+
+def _approval_llm_settings(request: PhaseTwoRequest):
+    """Resolve the LLM provider/model/key used by the smart MCP approver."""
+    provider = resolve_provider(request.approval_provider)
+    if provider not in PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported smart approver provider: {provider}",
+        )
+    model = resolve_model(provider, request.approval_model)
+    api_key = resolve_api_key(provider, None)
+    if PROVIDERS[provider]["api_key_envs"] and not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{PROVIDERS[provider]['label']} API key is not configured "
+                "for the smart approver"
+            ),
+        )
+    api_base_url = resolve_api_base_url(provider, None)
+    return provider, model, api_key, api_base_url
+
+
+def _attach_smart_approver(
+    run: AnalysisRun,
+    request: PhaseTwoRequest,
+    scan_logger: Optional[ScanRunLogger],
+) -> None:
+    """Build the LLM smart approver and attach it to the run, when enabled.
+
+    A failure here is non-fatal: the run keeps going with the smart reviewer
+    disabled, so non-database tool calls fall back to manual approval.
+    """
+    if run.approval_mode != APPROVAL_MODE_SMART_NON_DB:
+        return
+    try:
+        provider, model, api_key, api_base_url = _approval_llm_settings(request)
+        approval_analyzer = create_analyzer(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            api_base_url=api_base_url,
+        )
+        approver = SmartToolApprover(
+            analyzer=approval_analyzer,
+            constraints=request.constraints,
+            analysis_types=run.analysis_types,
+            event_id=run.event_id,
+            scan_logger=scan_logger,
+        )
+        run.attach_smart_reviewer(approver.review)
+        run.add_progress(f"Smart MCP approver enabled ({provider} / {model}).")
+    except Exception as exc:
+        run.add_progress(
+            f"Smart MCP approver unavailable ({exc}); non-database tool calls "
+            "will require manual approval."
+        )
+        if scan_logger is not None:
+            scan_logger.warning("Smart approver setup failed: %s", exc)
 
 
 def _analysis_run(run_id: str) -> AnalysisRun:
@@ -451,8 +539,10 @@ def _run_phase2_background(
                 "provider": provider,
                 "model": model,
                 "api_base_url": api_base_url,
-                "auto_approve_mcp_database_requests": request.auto_approve_mcp_database_requests,
-                "auto_approve_all_mcp_requests": request.auto_approve_all_mcp_requests,
+                "approval_mode": run.approval_mode,
+                "approval_provider": run.approval_provider,
+                "approval_model": run.approval_model,
+                "escalate_smart_rejections": run.escalate_smart_rejections,
                 "prior_report_ids": list(request.prior_report_ids),
                 "compact_included_reports": request.compact_included_reports,
                 "has_app_details_content": request.app_details_content is not None,
@@ -466,6 +556,7 @@ def _run_phase2_background(
             api_key=api_key,
             api_base_url=api_base_url,
         )
+        _attach_smart_approver(run, request, scan_logger)
         prescan_summary = get_prescan(request.event_id)
         prescan_markdown = prescan_summary.to_markdown() if prescan_summary else ""
         if prescan_markdown:

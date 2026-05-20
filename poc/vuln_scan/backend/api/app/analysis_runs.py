@@ -1,13 +1,46 @@
+"""In-memory lifecycle of a phase-two vulnerability-analysis run.
+
+An :class:`AnalysisRun` tracks one phase-two run: its progress log, the MCP
+tool-approval workflow (:class:`ToolApprovalRequest`), the tool currently
+executing (:class:`ActiveToolExecution`), and the final report. Active runs are
+held in :class:`AnalysisSessionStore`. Nothing here is persisted; completed
+reports are written to the database by ``scan_store``.
+"""
+
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = {"completed", "failed", "aborted"}
+
+# How phase-two MCP tool calls are approved before the proxy runs them.
+APPROVAL_MODE_MANUAL = "manual"
+APPROVAL_MODE_AUTO_DB = "auto_db"
+APPROVAL_MODE_AUTO_ALL = "auto_all"
+APPROVAL_MODE_SMART_NON_DB = "smart_non_db"
+
+APPROVAL_MODES = frozenset(
+    {
+        APPROVAL_MODE_MANUAL,
+        APPROVAL_MODE_AUTO_DB,
+        APPROVAL_MODE_AUTO_ALL,
+        APPROVAL_MODE_SMART_NON_DB,
+    }
+)
+
+# Callback used by the smart approval mode. Given a tool-call dict it returns a
+# decision dict ``{"approved": bool, "reasoning": str, "error": bool}``.
+SmartReviewCallback = Callable[[dict[str, Any]], dict[str, Any]]
+
+_RUN_ABORTED_REASON = "The analysis run was aborted before the tool call could run."
 
 
 @dataclass
@@ -17,6 +50,11 @@ class ToolApprovalRequest:
     status: str = "pending"
     created_at: float = field(default_factory=time.time)
     decided_at: Optional[float] = None
+    # Decision from the LLM smart approver, when the smart mode reviewed this
+    # call. Present on both auto-approved and escalated/denied requests.
+    smart_review: Optional[dict[str, Any]] = None
+    # Free-text reason captured when a user denies the call in manual review.
+    decision_reason: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -25,6 +63,8 @@ class ToolApprovalRequest:
             "created_at": self.created_at,
             "decided_at": self.decided_at,
             "tool_call": self.tool_call,
+            "smart_review": self.smart_review,
+            "decision_reason": self.decision_reason,
         }
 
 
@@ -56,8 +96,10 @@ class AnalysisRun:
         provider: str,
         model: str,
         approval_timeout_seconds: float,
-        auto_approve_mcp_database_requests: bool = False,
-        auto_approve_all_mcp_requests: bool = False,
+        approval_mode: str = APPROVAL_MODE_MANUAL,
+        approval_provider: Optional[str] = None,
+        approval_model: Optional[str] = None,
+        escalate_smart_rejections: bool = True,
     ):
         self.run_id = uuid.uuid4().hex
         self.event_id = event_id
@@ -66,8 +108,15 @@ class AnalysisRun:
         self.provider = provider
         self.model = model
         self.approval_timeout_seconds = approval_timeout_seconds
-        self.auto_approve_mcp_database_requests = auto_approve_mcp_database_requests
-        self.auto_approve_all_mcp_requests = auto_approve_all_mcp_requests
+        self.approval_mode = (
+            approval_mode if approval_mode in APPROVAL_MODES else APPROVAL_MODE_MANUAL
+        )
+        self.approval_provider = approval_provider
+        self.approval_model = approval_model
+        # When True, a tool call the smart approver rejects is escalated to the
+        # user for a manual decision. When False, the rejection is final and is
+        # returned straight to the analysis LLM.
+        self.escalate_smart_rejections = escalate_smart_rejections
         self.status = "queued"
         self.progress: list[dict[str, Any]] = []
         self.tool_requests: dict[str, ToolApprovalRequest] = {}
@@ -77,7 +126,13 @@ class AnalysisRun:
         self.abort_requested = False
         self.created_at = time.time()
         self.updated_at = self.created_at
+        self._smart_review_callback: Optional[SmartReviewCallback] = None
         self._condition = threading.Condition(threading.RLock())
+
+    def attach_smart_reviewer(self, callback: Optional[SmartReviewCallback]) -> None:
+        """Register the LLM smart approver used by the ``smart_non_db`` mode."""
+        with self._condition:
+            self._smart_review_callback = callback
 
     def add_progress(self, message: str) -> None:
         with self._condition:
@@ -128,28 +183,154 @@ class AnalysisRun:
             self.updated_at = time.time()
             self._condition.notify_all()
 
-    def request_tool_permission(self, tool_call: dict[str, Any]) -> bool:
+    def request_tool_permission(self, tool_call: dict[str, Any]) -> tuple[bool, str]:
+        """Approval callback for the MCP proxy.
+
+        Resolves a single tool call through the configured approval mode and
+        returns ``(approved, reason)``. ``reason`` is empty for approvals and,
+        for denials, explains why so the analysis LLM can adjust the call.
+        """
+        request = self._register_tool_request(tool_call)
+        if request is None:
+            return False, _RUN_ABORTED_REASON
+
+        static_reason = self._static_auto_approval_reason(tool_call)
+        if static_reason is not None:
+            self._record_auto_approval(request, static_reason)
+            return True, ""
+
+        if (
+            self.approval_mode == APPROVAL_MODE_SMART_NON_DB
+            and self._smart_review_callback is not None
+        ):
+            decision = self._run_smart_review(request, tool_call)
+            if self.abort_requested:
+                return False, _RUN_ABORTED_REASON
+            if _is_approving_decision(decision):
+                self._record_auto_approval(
+                    request, "Smart approver approved", smart_review=decision
+                )
+                return True, ""
+
+            rejection_reason = _smart_rejection_reason(decision)
+            if not self.escalate_smart_rejections:
+                # Manual fallback disabled: the rejection is final.
+                self._record_auto_denial(request, decision)
+                return False, rejection_reason
+
+            self.add_progress(
+                "Escalating rejected tool call to manual approval: "
+                f"{_tool_display_name(tool_call)}."
+            )
+
+        return self._await_manual_decision(request)
+
+    def _register_tool_request(
+        self, tool_call: dict[str, Any]
+    ) -> Optional[ToolApprovalRequest]:
         with self._condition:
             if self.abort_requested:
-                return False
+                return None
+            request = ToolApprovalRequest(
+                request_id=uuid.uuid4().hex, tool_call=tool_call
+            )
+            self.tool_requests[request.request_id] = request
+            return request
 
-            request_id = uuid.uuid4().hex
-            request = ToolApprovalRequest(request_id=request_id, tool_call=tool_call)
-            self.tool_requests[request_id] = request
+    def _static_auto_approval_reason(self, tool_call: dict[str, Any]) -> Optional[str]:
+        """Reason this call is approved without an LLM review, or ``None``."""
+        if self.approval_mode == APPROVAL_MODE_AUTO_ALL:
+            return "Auto-approve (all tools)"
+        if _is_mcp_database_tool_call(tool_call) and self.approval_mode in (
+            APPROVAL_MODE_AUTO_DB,
+            APPROVAL_MODE_SMART_NON_DB,
+        ):
+            return "Auto-approve (database tool)"
+        return None
 
-            auto_approval_reason = self._auto_approval_reason(tool_call)
-            if auto_approval_reason:
-                request.status = "approved"
-                request.decided_at = time.time()
+    def _record_auto_approval(
+        self,
+        request: ToolApprovalRequest,
+        reason: str,
+        smart_review: Optional[dict[str, Any]] = None,
+    ) -> None:
+        with self._condition:
+            request.status = "approved"
+            request.decided_at = time.time()
+            if smart_review is not None:
+                request.smart_review = smart_review
+            self.progress.append(
+                {
+                    "timestamp": time.time(),
+                    "message": (
+                        f"{reason}: {_tool_display_name(request.tool_call)} "
+                        f"({request.request_id})"
+                    ),
+                }
+            )
+            self.updated_at = time.time()
+            self._condition.notify_all()
+
+    def _record_auto_denial(
+        self,
+        request: ToolApprovalRequest,
+        smart_review: Optional[dict[str, Any]],
+    ) -> None:
+        """Finalize a smart-approver rejection when manual fallback is off."""
+        with self._condition:
+            request.status = "denied"
+            request.decided_at = time.time()
+            request.smart_review = smart_review
+            self.progress.append(
+                {
+                    "timestamp": time.time(),
+                    "message": (
+                        "Manual fallback disabled; returned smart approver "
+                        "rejection to the analysis LLM: "
+                        f"{_tool_display_name(request.tool_call)} "
+                        f"({request.request_id})"
+                    ),
+                }
+            )
+            self.updated_at = time.time()
+            self._condition.notify_all()
+
+    def _run_smart_review(
+        self, request: ToolApprovalRequest, tool_call: dict[str, Any]
+    ) -> Optional[dict[str, Any]]:
+        """Run the LLM smart reviewer (outside the lock) and record its result."""
+        tool_name = _tool_display_name(tool_call)
+        self.add_progress(f"Smart approver is reviewing tool call: {tool_name}.")
+
+        decision: Optional[dict[str, Any]] = None
+        try:
+            decision = self._smart_review_callback(tool_call)  # type: ignore[misc]
+        except Exception as exc:  # noqa: BLE001 - reviewer must not crash the run
+            logger.error("Smart approver callback failed: %s", exc)
+
+        with self._condition:
+            request.smart_review = decision
+            if not _is_approving_decision(decision):
                 self.progress.append(
                     {
                         "timestamp": time.time(),
-                        "message": f"{auto_approval_reason} tool request auto-approved: {request_id}",
+                        "message": _smart_review_rejection_message(
+                            tool_name, decision
+                        ),
                     }
                 )
                 self.updated_at = time.time()
                 self._condition.notify_all()
-                return True
+        return decision
+
+    def _await_manual_decision(self, request: ToolApprovalRequest) -> tuple[bool, str]:
+        """Block until the user approves/denies, the run aborts, or it times out."""
+        with self._condition:
+            if self.abort_requested:
+                request.status = "aborted"
+                request.decided_at = time.time()
+                self._condition.notify_all()
+                return False, _RUN_ABORTED_REASON
 
             self.status = "waiting_for_tool_approval"
             self.progress.append(
@@ -157,7 +338,7 @@ class AnalysisRun:
                     "timestamp": time.time(),
                     "message": (
                         "Tool approval requested: "
-                        f"{tool_call.get('exposed_tool_name') or tool_call.get('tool_name')}"
+                        f"{_tool_display_name(request.tool_call)}"
                     ),
                 }
             )
@@ -174,23 +355,29 @@ class AnalysisRun:
                     self.progress.append(
                         {
                             "timestamp": time.time(),
-                            "message": f"Tool approval timed out: {request_id}",
+                            "message": f"Tool approval timed out: {request.request_id}",
                         }
                     )
                     self._condition.notify_all()
-                    return False
+                    return False, (
+                        "Tool approval timed out after "
+                        f"{self.approval_timeout_seconds:.0f} seconds without a "
+                        "decision."
+                    )
                 self._condition.wait(timeout=min(remaining, 5))
 
             if self.abort_requested:
                 request.status = "aborted"
                 request.decided_at = time.time()
                 self._condition.notify_all()
-                return False
+                return False, _RUN_ABORTED_REASON
 
             self.status = "running"
             self.updated_at = time.time()
             self._condition.notify_all()
-            return request.status == "approved"
+            if request.status == "approved":
+                return True, ""
+            return False, _manual_denial_reason(request)
 
     def start_tool_execution(self, tool_call: dict[str, Any]) -> str:
         with self._condition:
@@ -260,7 +447,9 @@ class AnalysisRun:
                 if request.status == "approved"
             ]
 
-    def decide_tool_request(self, request_id: str, approved: bool) -> None:
+    def decide_tool_request(
+        self, request_id: str, approved: bool, reason: str = ""
+    ) -> None:
         with self._condition:
             request = self.tool_requests.get(request_id)
             if request is None:
@@ -269,6 +458,7 @@ class AnalysisRun:
                 raise ValueError(f"Tool request {request_id} is already {request.status}")
             request.status = "approved" if approved else "denied"
             request.decided_at = time.time()
+            request.decision_reason = (reason or "").strip()
             decision = "approved" if approved else "denied"
             self.progress.append(
                 {"timestamp": time.time(), "message": f"Tool request {decision}: {request_id}"}
@@ -285,8 +475,10 @@ class AnalysisRun:
                 "constraints": self.constraints,
                 "provider": self.provider,
                 "model": self.model,
-                "auto_approve_mcp_database_requests": self.auto_approve_mcp_database_requests,
-                "auto_approve_all_mcp_requests": self.auto_approve_all_mcp_requests,
+                "approval_mode": self.approval_mode,
+                "approval_provider": self.approval_provider,
+                "approval_model": self.approval_model,
+                "escalate_smart_rejections": self.escalate_smart_rejections,
                 "status": self.status,
                 "progress": list(self.progress),
                 "tool_requests": [
@@ -315,13 +507,6 @@ class AnalysisRun:
                 "updated_at": self.updated_at,
             }
 
-    def _auto_approval_reason(self, tool_call: dict[str, Any]) -> Optional[str]:
-        if self.auto_approve_all_mcp_requests:
-            return "MCP"
-        if self.auto_approve_mcp_database_requests and _is_mcp_database_tool_call(tool_call):
-            return "MCP database"
-        return None
-
 
 class AnalysisSessionStore:
     def __init__(self) -> None:
@@ -337,8 +522,10 @@ class AnalysisSessionStore:
         provider: str,
         model: str,
         approval_timeout_seconds: float,
-        auto_approve_mcp_database_requests: bool = False,
-        auto_approve_all_mcp_requests: bool = False,
+        approval_mode: str = APPROVAL_MODE_MANUAL,
+        approval_provider: Optional[str] = None,
+        approval_model: Optional[str] = None,
+        escalate_smart_rejections: bool = True,
     ) -> AnalysisRun:
         run = AnalysisRun(
             event_id=event_id,
@@ -347,8 +534,10 @@ class AnalysisSessionStore:
             provider=provider,
             model=model,
             approval_timeout_seconds=approval_timeout_seconds,
-            auto_approve_mcp_database_requests=auto_approve_mcp_database_requests,
-            auto_approve_all_mcp_requests=auto_approve_all_mcp_requests,
+            approval_mode=approval_mode,
+            approval_provider=approval_provider,
+            approval_model=approval_model,
+            escalate_smart_rejections=escalate_smart_rejections,
         )
         with self._lock:
             self._runs[run.run_id] = run
@@ -357,6 +546,48 @@ class AnalysisSessionStore:
     def get(self, run_id: str) -> Optional[AnalysisRun]:
         with self._lock:
             return self._runs.get(run_id)
+
+
+def _is_approving_decision(decision: Optional[dict[str, Any]]) -> bool:
+    return bool(
+        decision
+        and decision.get("approved")
+        and not decision.get("error")
+    )
+
+
+def _smart_rejection_reason(decision: Optional[dict[str, Any]]) -> str:
+    """Reason string returned to the analysis LLM for a smart-approver rejection."""
+    reasoning = str((decision or {}).get("reasoning") or "").strip()
+    if reasoning:
+        return reasoning
+    if decision is None or decision.get("error"):
+        return "The smart approver could not evaluate the tool call."
+    return "The smart approver rejected the tool call."
+
+
+def _smart_review_rejection_message(
+    tool_name: str, decision: Optional[dict[str, Any]]
+) -> str:
+    reasoning = str((decision or {}).get("reasoning") or "").strip()
+    if decision is None or decision.get("error"):
+        prefix = f"Smart approver could not evaluate {tool_name}"
+    else:
+        prefix = f"Smart approver rejected {tool_name}"
+    return prefix + (f": {reasoning}" if reasoning else ".")
+
+
+def _manual_denial_reason(request: ToolApprovalRequest) -> str:
+    """Reason returned to the analysis LLM when a call is denied in manual review."""
+    user_reason = (request.decision_reason or "").strip()
+    if user_reason:
+        return user_reason
+    review = request.smart_review
+    if review and not _is_approving_decision(review):
+        reasoning = str(review.get("reasoning") or "").strip()
+        if reasoning:
+            return f"Denied in manual review (smart approver note: {reasoning})"
+    return "The tool call was denied in manual review."
 
 
 def _is_mcp_database_tool_call(tool_call: dict[str, Any]) -> bool:

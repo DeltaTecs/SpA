@@ -50,6 +50,28 @@ Phase-two vulnerability analysis is started from the UI under
 is active. The UI polls for progress, shows pending MCP tool calls in full, and
 requires an approve/deny decision before the proxy executes the call.
 
+The **Configure approval** button on the Vulnerability Analysis tab selects how
+MCP tool calls are approved:
+
+- **Manual approval** - every tool call waits for a decision (the default).
+- **Auto approve database tools** - packet-database queries run without
+  prompting; other tools stay manual.
+- **Auto approve all tools** - every tool call runs without prompting.
+- **Smart approve non-db tools** - a dedicated LLM reviewer auto-approves a
+  non-database tool call only when it satisfies the user constraints, poses no
+  risk to the local machine, and does not exploit the remote target beyond what
+  is needed to prove a vulnerability. Database tools are auto-approved. By
+  default a call the reviewer rejects is escalated to manual approval, with the
+  reviewer's reasoning shown on the approval card; this escalation can be turned
+  off in the menu, in which case the rejection is final. The reviewer's LLM
+  provider and model are chosen in the same menu, independent of the analysis
+  LLM.
+
+Whenever a tool call is denied - by the smart reviewer, by a timeout, or by the
+user - the denial reason is returned to the analysis LLM as the tool result so
+it can adjust the call and try again. The manual approval card includes an
+optional free-text field for the user to add a denial reason.
+
 The default phase-two MCP exposure is configured with:
 
 ```text

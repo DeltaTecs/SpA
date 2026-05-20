@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import re
@@ -18,7 +17,10 @@ from mcp_client import MCPClient, MCPToolSpec, redact_url
 
 logger = logging.getLogger(__name__)
 
-ApprovalCallback = Callable[[dict[str, Any]], bool]
+# An approval callback returns ``(approved, reason)``. ``reason`` explains a
+# denial so the requesting LLM can adjust the tool call; it is empty for
+# approvals.
+ApprovalCallback = Callable[[dict[str, Any]], tuple[bool, str]]
 ProgressCallback = Callable[[str], None]
 ToolStartCallback = Callable[[dict[str, Any]], str]
 ToolStopRequestedCallback = Callable[[str], bool]
@@ -168,8 +170,10 @@ class PermissionedMCPToolProxy:
             "arguments": arguments,
         }
         self._progress(f"Awaiting approval for tool {exposed.exposed_name}.")
-        if not self.approval_callback(tool_call):
-            return f"Tool call denied by user: {json.dumps(tool_call, sort_keys=True)}"
+        approved, denial_reason = self.approval_callback(tool_call)
+        if not approved:
+            self._progress(f"Tool {exposed.exposed_name} was not approved.")
+            return _format_denial_message(exposed.exposed_name, denial_reason)
 
         self._progress(f"Running approved tool {exposed.exposed_name}.")
         client = self.clients[exposed.server.server_id]
@@ -361,7 +365,7 @@ def build_auto_approved_mcp_tools(
 
     proxy = PermissionedMCPToolProxy(
         server_list,
-        approval_callback=lambda _tool_call: True,
+        approval_callback=lambda _tool_call: (True, ""),
         progress_callback=progress_callback,
     )
     try:
@@ -373,6 +377,21 @@ def build_auto_approved_mcp_tools(
         return [], ""
 
     return tools, proxy.tool_catalog()
+
+
+def _format_denial_message(tool_name: str, reason: str) -> str:
+    """Build the tool result returned to the LLM when a call is not approved.
+
+    The reason is included verbatim so the model can revise the call (for
+    example, narrow its scope) and try again instead of giving up.
+    """
+    reason = (reason or "").strip() or "No reason was provided."
+    return (
+        f"Tool call to `{tool_name}` was not approved.\n"
+        f"Reason: {reason}\n"
+        "Revise the tool call to satisfy the stated constraints and safety "
+        "requirements, or continue the analysis without this tool."
+    )
 
 
 def _parse_server_list(raw: str) -> list[tuple[str, str, str]]:

@@ -119,6 +119,38 @@ Return a concise Markdown report with executive summary and detailed findings.
 """
 
 
+def build_smart_approval_system_prompt() -> str:
+    return """You are the safety reviewer for an authorized bug-bounty / penetration-testing assistant.
+
+Another LLM is performing vulnerability analysis and wants to run a single MCP
+tool call. Your job is to decide whether that call may run automatically,
+without a human approving it.
+
+Approve the call ONLY IF ALL of the following hold:
+1. User constraints: The call fully complies with every user constraint shown
+   below. Constraints are mandatory. If a constraint limits scope, targets,
+   rate, aggressiveness, or technique, the call must stay strictly within it.
+   If the call could violate any constraint, do not approve it.
+2. Local machine safety: The call poses no risk to the local machine or the
+   assistant's own environment. Reject destructive, persistent, or
+   system-altering shell/filesystem actions (for example: deleting or
+   overwriting files outside a scratch workspace, rm/del, mkfs, shutdown or
+   reboot, modifying credentials or system configuration, installing packages,
+   disabling security controls or fork bombs).
+3. Proportionate remote testing: Any interaction with a remote target must not
+   exceed what is needed to PROVE that a vulnerability exists. Reconnaissance,
+   enumeration, and low-impact verification are acceptable. Reject actual
+   exploitation, destructive payloads, data exfiltration, denial of service,
+   account takeover, lateral movement, and persistence. Do not access data of other users.
+
+Respond with exactly one JSON object and nothing else:
+{
+  "approved": <true|false>,
+  "reasoning": "<one or two sentences naming the specific constraint or risk that drove the decision>"
+}
+"""
+
+
 def build_prior_report_compaction_system_prompt() -> str:
     return """You condense one prior vulnerability scan report into a shorter technical report for a follow-on authorized penetration test.
 

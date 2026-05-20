@@ -400,10 +400,17 @@ h2 {
   width: 100%;
 }
 
-.auto-approval-options {
+.approval-config {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 6px 10px;
+}
+
+.approval-summary {
+  color: #2f6feb;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .auto-approval-option {
@@ -429,6 +436,220 @@ h2 {
 
 .phase-one-search-option {
   margin-right: auto;
+}
+
+/* MCP request approval dialog */
+.approval-dialog {
+  border: 1px solid #d7dde5;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(15, 23, 32, 0.28);
+  color: #17202a;
+  max-width: 540px;
+  padding: 0;
+  width: calc(100vw - 32px);
+}
+
+.approval-dialog::backdrop {
+  background: rgba(15, 23, 32, 0.45);
+}
+
+.approval-dialog-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 20px;
+}
+
+.approval-dialog-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.approval-dialog-close {
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.approval-dialog-hint {
+  color: #596677;
+  font-size: 13px;
+}
+
+.approval-mode-fieldset {
+  border: 1px solid #e3e7ed;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 12px 12px;
+}
+
+.approval-mode-fieldset legend {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+  text-transform: uppercase;
+}
+
+.approval-mode-option {
+  align-items: start;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 6px;
+}
+
+.approval-mode-option + .approval-mode-option {
+  border-top: 1px solid #edf0f4;
+}
+
+.approval-mode-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 2px;
+  width: 16px;
+}
+
+.approval-mode-text {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-mode-label {
+  color: #17202a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.approval-mode-desc {
+  color: #596677;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.approval-llm-config {
+  border: 1px solid #e3e7ed;
+  border-radius: 8px;
+  display: none;
+  gap: 10px;
+  padding: 12px;
+}
+
+.approval-llm-config.active {
+  display: grid;
+}
+
+.approval-llm-config h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.approval-llm-hint {
+  color: #596677;
+  font-size: 12px;
+}
+
+.approval-llm-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.approval-llm-fields label {
+  color: #596677;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.approval-llm-fields select {
+  width: 100%;
+}
+
+.approval-escalation-option {
+  align-items: start;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.approval-escalation-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 2px;
+  width: 16px;
+}
+
+.approval-escalation-text {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-escalation-label {
+  color: #17202a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.approval-escalation-desc {
+  color: #596677;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.approval-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.approval-dialog-actions button {
+  background: #17202a;
+  border-color: #17202a;
+  color: #ffffff;
+  padding: 0 22px;
+}
+
+.approval-dialog-actions button:hover:not(:disabled) {
+  background: #2b3a4a;
+  border-color: #2b3a4a;
+}
+
+/* Smart approver verdict inside a manual tool-approval card */
+.tool-approval-review {
+  background: #f2f8ef;
+  border: 1px solid #cfe0c8;
+  border-left: 4px solid #3f9142;
+  border-radius: 6px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.tool-approval-review.flagged {
+  background: #fff6ec;
+  border-color: #f0d2a8;
+  border-left-color: #d68a1e;
+}
+
+.tool-approval-review-heading {
+  color: #17202a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-approval-review-reason {
+  color: #394656;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .constraints-field {
@@ -635,6 +856,16 @@ h2 {
   overflow: auto;
   padding: 10px;
   white-space: pre-wrap;
+}
+
+.tool-approval-reason {
+  border: 1px solid #a7b0bc;
+  border-radius: 6px;
+  color: #17202a;
+  font: inherit;
+  min-height: 36px;
+  padding: 0 10px;
+  width: 100%;
 }
 
 .tool-approval-actions {
@@ -895,5 +1126,9 @@ h2 {
     flex: 1 1 auto;
     margin-right: 0;
     width: 100%;
+  }
+
+  .approval-llm-fields {
+    grid-template-columns: 1fr;
   }
 }

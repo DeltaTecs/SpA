@@ -11,6 +11,7 @@ sys.path.insert(0, str(SRC_DIR))
 from prompts import (  # noqa: E402
     build_prior_report_compaction_system_prompt,
     build_prior_reports_compaction_system_prompt,
+    build_smart_approval_system_prompt,
 )
 
 
@@ -29,6 +30,21 @@ class PromptTest(unittest.TestCase):
             build_prior_reports_compaction_system_prompt(),
             build_prior_report_compaction_system_prompt(),
         )
+
+    def test_smart_approval_prompt_covers_all_review_criteria(self) -> None:
+        prompt = build_smart_approval_system_prompt()
+
+        # The reviewer must check user constraints, local safety, and that
+        # remote testing stays proportionate to proving a vulnerability.
+        self.assertIn("user constraint", prompt.lower())
+        self.assertIn("local machine", prompt.lower())
+        self.assertIn("PROVE", prompt)
+        self.assertIn("exploitation", prompt.lower())
+        # Rejection must be the conservative default.
+        self.assertIn("do NOT approve", prompt)
+        # The decision must be returned as a JSON object.
+        self.assertIn('"approved"', prompt)
+        self.assertIn('"reasoning"', prompt)
 
 
 if __name__ == "__main__":

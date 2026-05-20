@@ -94,15 +94,9 @@
                   <span>Type</span>
                   <select id="analysisTypeSelect"></select>
                 </label>
-                <div class="auto-approval-options">
-                  <label class="auto-approval-option">
-                    <input id="autoApproveMcpDatabaseRequests" type="checkbox">
-                    <span>Auto approve MCP database requests</span>
-                  </label>
-                  <label class="auto-approval-option">
-                    <input id="autoApproveAllMcpRequests" type="checkbox">
-                    <span>Auto approve all MCP requests</span>
-                  </label>
+                <div class="approval-config">
+                  <span id="approvalModeSummary" class="approval-summary">Manual approval</span>
+                  <button id="configureApprovalButton" type="button">Configure approval</button>
                 </div>
                 <button id="startAnalysisButton" type="button" disabled>Start</button>
                 <button id="stopToolButton" type="button" disabled>Stop MCP Tool</button>
@@ -150,6 +144,84 @@
         </div>
       </section>
     </main>
+
+    <dialog id="approvalConfigDialog" class="approval-dialog">
+      <form id="approvalConfigForm" method="dialog" class="approval-dialog-form">
+        <div class="approval-dialog-header">
+          <h2>MCP request approval</h2>
+          <button id="approvalDialogCloseButton" type="button" class="approval-dialog-close" aria-label="Close">&times;</button>
+        </div>
+        <p class="approval-dialog-hint">
+          Choose how phase-two MCP tool calls are approved before the proxy runs them.
+        </p>
+
+        <fieldset class="approval-mode-fieldset">
+          <legend>Approval mode</legend>
+          <label class="approval-mode-option">
+            <input type="radio" name="approvalMode" value="manual">
+            <span class="approval-mode-text">
+              <span class="approval-mode-label">Manual approval</span>
+              <span class="approval-mode-desc">Every MCP tool call waits for an approve/deny decision.</span>
+            </span>
+          </label>
+          <label class="approval-mode-option">
+            <input type="radio" name="approvalMode" value="auto_db">
+            <span class="approval-mode-text">
+              <span class="approval-mode-label">Auto approve database tools</span>
+              <span class="approval-mode-desc">Packet-database queries run without prompting; other tools stay manual.</span>
+            </span>
+          </label>
+          <label class="approval-mode-option">
+            <input type="radio" name="approvalMode" value="auto_all">
+            <span class="approval-mode-text">
+              <span class="approval-mode-label">Auto approve all tools</span>
+              <span class="approval-mode-desc">Every MCP tool call runs without prompting. Use with caution.</span>
+            </span>
+          </label>
+          <label class="approval-mode-option">
+            <input type="radio" name="approvalMode" value="smart_non_db">
+            <span class="approval-mode-text">
+              <span class="approval-mode-label">Smart approve non-db tools</span>
+              <span class="approval-mode-desc">
+                An LLM reviewer auto-approves non-database tool calls that satisfy your
+                constraints and are low-risk. Database tools are auto-approved; anything
+                the reviewer rejects falls back to manual approval.
+              </span>
+            </span>
+          </label>
+        </fieldset>
+
+        <div id="approvalLlmConfig" class="approval-llm-config">
+          <h3>Smart approver LLM</h3>
+          <p class="approval-llm-hint">The reviewer uses its own provider and model, independent of the analysis LLM.</p>
+          <div class="approval-llm-fields">
+            <label>
+              <span>Provider</span>
+              <select id="approvalProviderSelect"></select>
+            </label>
+            <label>
+              <span>Model</span>
+              <select id="approvalModelSelect"></select>
+            </label>
+          </div>
+          <label class="approval-escalation-option">
+            <input id="escalateSmartRejections" type="checkbox">
+            <span class="approval-escalation-text">
+              <span class="approval-escalation-label">Escalate rejected calls to manual approval</span>
+              <span class="approval-escalation-desc">
+                When on, a call the reviewer rejects waits for your approve/deny decision.
+                When off, the rejection is final and its reason is returned to the analysis
+                LLM so it can adjust the call.
+              </span>
+            </span>
+          </label>
+        </div>
+
+        <div class="approval-dialog-actions">
+          <button type="submit" value="done">Done</button>
+        </div>
+      </form>
+    </dialog>
 
     <script src="/app.js"></script>
   </body>

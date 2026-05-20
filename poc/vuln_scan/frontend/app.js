@@ -30,6 +30,14 @@ const ACTIVE_PRESCAN_STATUSES = new Set(["queued", "running"]);
 const PREFERRED_PROVIDER_MODELS = {
   deepseek: "deepseek-v4-pro",
 };
+const APPROVAL_MODES = [
+  {value: "manual", label: "Manual approval", summary: "Manual approval"},
+  {value: "auto_db", label: "Auto approve database tools", summary: "Auto-approve database tools"},
+  {value: "auto_all", label: "Auto approve all tools", summary: "Auto-approve all tools"},
+  {value: "smart_non_db", label: "Smart approve non-db tools", summary: "Smart approve (non-db)"},
+];
+const DEFAULT_APPROVAL_MODE = "manual";
+const SMART_APPROVAL_MODE = "smart_non_db";
 
 const state = {
   events: [],
@@ -49,8 +57,10 @@ const state = {
   analysisType: DEFAULT_ANALYSIS_TYPE,
   analysisConstraints: "",
   enablePhaseOneWebSearch: false,
-  autoApproveMcpDatabaseRequests: false,
-  autoApproveAllMcpRequests: false,
+  approvalMode: DEFAULT_APPROVAL_MODE,
+  approvalProvider: null,
+  approvalModel: null,
+  escalateSmartRejections: true,
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
@@ -101,8 +111,15 @@ const analysisTypeSelect = document.querySelector("#analysisTypeSelect");
 const startAnalysisButton = document.querySelector("#startAnalysisButton");
 const abortAnalysisButton = document.querySelector("#abortAnalysisButton");
 const stopToolButton = document.querySelector("#stopToolButton");
-const autoApproveMcpDatabaseRequests = document.querySelector("#autoApproveMcpDatabaseRequests");
-const autoApproveAllMcpRequests = document.querySelector("#autoApproveAllMcpRequests");
+const configureApprovalButton = document.querySelector("#configureApprovalButton");
+const approvalModeSummary = document.querySelector("#approvalModeSummary");
+const approvalConfigDialog = document.querySelector("#approvalConfigDialog");
+const approvalDialogCloseButton = document.querySelector("#approvalDialogCloseButton");
+const approvalLlmConfig = document.querySelector("#approvalLlmConfig");
+const approvalProviderSelect = document.querySelector("#approvalProviderSelect");
+const approvalModelSelect = document.querySelector("#approvalModelSelect");
+const escalateSmartRejections = document.querySelector("#escalateSmartRejections");
+const approvalModeRadios = document.querySelectorAll('input[name="approvalMode"]');
 const constraintsInput = document.querySelector("#constraintsInput");
 const analysisStatus = document.querySelector("#analysisStatus");
 const analysisProcess = document.querySelector("#analysisProcess");
@@ -132,13 +149,32 @@ analysisTypeSelect.addEventListener("change", () => {
 startAnalysisButton.addEventListener("click", startPhaseTwo);
 abortAnalysisButton.addEventListener("click", abortPhaseTwo);
 stopToolButton.addEventListener("click", stopActiveTool);
-autoApproveMcpDatabaseRequests.addEventListener("change", () => {
-  state.autoApproveMcpDatabaseRequests = autoApproveMcpDatabaseRequests.checked;
-  renderPhaseTwo();
+configureApprovalButton.addEventListener("click", openApprovalDialog);
+approvalDialogCloseButton.addEventListener("click", () => approvalConfigDialog.close());
+approvalConfigDialog.addEventListener("close", renderPhaseTwo);
+approvalConfigDialog.addEventListener("click", (event) => {
+  if (event.target === approvalConfigDialog) {
+    approvalConfigDialog.close();
+  }
 });
-autoApproveAllMcpRequests.addEventListener("change", () => {
-  state.autoApproveAllMcpRequests = autoApproveAllMcpRequests.checked;
-  renderPhaseTwo();
+for (const radio of approvalModeRadios) {
+  radio.addEventListener("change", () => {
+    if (radio.checked) {
+      state.approvalMode = radio.value;
+      renderApprovalDialog();
+    }
+  });
+}
+approvalProviderSelect.addEventListener("change", () => {
+  state.approvalProvider = approvalProviderSelect.value;
+  state.approvalModel = defaultModelForProvider(state.approvalProvider);
+  renderApprovalDialog();
+});
+approvalModelSelect.addEventListener("change", () => {
+  state.approvalModel = approvalModelSelect.value;
+});
+escalateSmartRejections.addEventListener("change", () => {
+  state.escalateSmartRejections = escalateSmartRejections.checked;
 });
 compactIncludedReports.addEventListener("change", () => {
   state.compactIncludedReports = compactIncludedReports.checked;
@@ -177,6 +213,8 @@ async function loadConfig() {
     state.providers = Array.isArray(config.providers) ? config.providers : [];
     state.selectedProvider = config.provider || firstAvailableProvider()?.id || null;
     state.selectedModel = defaultModelForProvider(state.selectedProvider, config.model);
+    state.approvalProvider = state.selectedProvider;
+    state.approvalModel = defaultModelForProvider(state.approvalProvider);
     state.appDetailsFileName = "";
     state.appDetailsContent = null;
     state.userIntendFileName = "";
@@ -186,6 +224,8 @@ async function loadConfig() {
     state.providers = [];
     state.selectedProvider = null;
     state.selectedModel = null;
+    state.approvalProvider = null;
+    state.approvalModel = null;
     state.appDetailsFileName = "";
     state.appDetailsContent = null;
     state.userIntendFileName = "";
@@ -381,12 +421,12 @@ async function startPhaseTwo() {
     event_id: event.event_id,
     analysis_types: [state.analysisType],
     constraints: state.analysisConstraints,
-    auto_approve_mcp_database_requests: state.autoApproveMcpDatabaseRequests,
-    auto_approve_all_mcp_requests: state.autoApproveAllMcpRequests,
+    approval_mode: state.approvalMode,
     provider: state.selectedProvider,
     model: state.selectedModel,
     prior_report_ids: selectedPriorReportIdsForEvent(event.event_id),
     compact_included_reports: state.compactIncludedReports,
+    ...approvalPayload(),
     ...contextPayload(),
   };
 
@@ -442,7 +482,7 @@ async function stopActiveTool() {
   }
 }
 
-async function decideToolRequest(requestId, approved) {
+async function decideToolRequest(requestId, approved, reason = "") {
   if (!state.phase2RunId) {
     return;
   }
@@ -450,7 +490,7 @@ async function decideToolRequest(requestId, approved) {
     const response = await fetch(`/api/phase2/${state.phase2RunId}/tool-requests/${requestId}/decision`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({approved}),
+      body: JSON.stringify({approved, reason}),
     });
     if (!response.ok) {
       throw new Error(await errorText(response));
@@ -863,10 +903,8 @@ function renderPhaseTwo() {
   constraintsInput.value = state.analysisConstraints;
   const running = isPhaseTwoRunning();
   renderAnalysisTypeSelect(running);
-  autoApproveMcpDatabaseRequests.checked = state.autoApproveMcpDatabaseRequests || state.autoApproveAllMcpRequests;
-  autoApproveMcpDatabaseRequests.disabled = running || state.autoApproveAllMcpRequests;
-  autoApproveAllMcpRequests.checked = state.autoApproveAllMcpRequests;
-  autoApproveAllMcpRequests.disabled = running;
+  configureApprovalButton.disabled = running;
+  approvalModeSummary.textContent = approvalSummary();
 
   const event = selected();
   const hasPrescan = Boolean(event && state.results[event.event_id]);
@@ -1031,6 +1069,81 @@ function renderAnalysisTypeSelect(running) {
   analysisTypeSelect.disabled = running;
 }
 
+function approvalSummary() {
+  const mode = APPROVAL_MODES.find((item) => item.value === state.approvalMode) || APPROVAL_MODES[0];
+  if (state.approvalMode === SMART_APPROVAL_MODE && state.approvalProvider && state.approvalModel) {
+    return `${mode.summary} · ${providerLabel(state.approvalProvider)} / ${state.approvalModel}`;
+  }
+  return mode.summary;
+}
+
+function openApprovalDialog() {
+  renderApprovalDialog();
+  if (typeof approvalConfigDialog.showModal === "function") {
+    approvalConfigDialog.showModal();
+  } else {
+    approvalConfigDialog.setAttribute("open", "");
+  }
+}
+
+// Populates the approval dialog: radio selection and the smart-approver LLM
+// dropdowns. The provider/model controls are only enabled for the smart mode.
+function renderApprovalDialog() {
+  for (const radio of approvalModeRadios) {
+    radio.checked = radio.value === state.approvalMode;
+  }
+
+  const smartMode = state.approvalMode === SMART_APPROVAL_MODE;
+  approvalLlmConfig.classList.toggle("active", smartMode);
+
+  const availableProviders = state.providers.filter((provider) => provider.available);
+  if (!availableProviders.some((provider) => provider.id === state.approvalProvider)) {
+    state.approvalProvider = availableProviders[0]?.id || null;
+    state.approvalModel = defaultModelForProvider(state.approvalProvider);
+  }
+
+  const models = modelsForProvider(state.approvalProvider);
+  if (!models.includes(state.approvalModel)) {
+    state.approvalModel = defaultModelForProvider(state.approvalProvider);
+  }
+
+  approvalProviderSelect.innerHTML = "";
+  for (const provider of availableProviders) {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.has_api_key ? `${provider.label} (key configured)` : provider.label;
+    approvalProviderSelect.append(option);
+  }
+
+  approvalModelSelect.innerHTML = "";
+  for (const model of models) {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = model;
+    approvalModelSelect.append(option);
+  }
+
+  approvalProviderSelect.value = state.approvalProvider || "";
+  approvalModelSelect.value = state.approvalModel || "";
+  approvalProviderSelect.disabled = !smartMode || availableProviders.length === 0;
+  approvalModelSelect.disabled = !smartMode || models.length === 0;
+
+  escalateSmartRejections.checked = state.escalateSmartRejections;
+  escalateSmartRejections.disabled = !smartMode;
+}
+
+// Extra phase-two payload fields that only apply to the smart approval mode.
+function approvalPayload() {
+  if (state.approvalMode !== SMART_APPROVAL_MODE) {
+    return {};
+  }
+  return {
+    approval_provider: state.approvalProvider,
+    approval_model: state.approvalModel,
+    escalate_smart_rejections: state.escalateSmartRejections,
+  };
+}
+
 function renderToolApprovals() {
   toolApprovals.innerHTML = "";
   const pending = state.phase2Run?.pending_tool_requests || [];
@@ -1045,13 +1158,18 @@ function renderToolApprovals() {
     const pre = document.createElement("pre");
     pre.textContent = JSON.stringify(request.tool_call, null, 2);
 
+    const reasonInput = document.createElement("input");
+    reasonInput.type = "text";
+    reasonInput.className = "tool-approval-reason";
+    reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
+
     const actions = document.createElement("div");
     actions.className = "tool-approval-actions";
 
     const deny = document.createElement("button");
     deny.type = "button";
     deny.textContent = "Deny";
-    deny.addEventListener("click", () => decideToolRequest(request.request_id, false));
+    deny.addEventListener("click", () => decideToolRequest(request.request_id, false, reasonInput.value));
 
     const approve = document.createElement("button");
     approve.type = "button";
@@ -1059,9 +1177,35 @@ function renderToolApprovals() {
     approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
 
     actions.append(deny, approve);
-    card.append(title, pre, actions);
+    card.append(title, pre);
+    if (request.smart_review) {
+      card.append(renderSmartReview(request.smart_review));
+    }
+    card.append(reasonInput, actions);
     toolApprovals.append(card);
   }
+}
+
+// Shows why the smart approver escalated a tool call to manual approval.
+function renderSmartReview(review) {
+  const approved = Boolean(review.approved) && !review.error;
+  const box = document.createElement("div");
+  box.className = `tool-approval-review${approved ? "" : " flagged"}`;
+
+  const heading = document.createElement("div");
+  heading.className = "tool-approval-review-heading";
+  heading.textContent = review.error
+    ? "Smart approver could not evaluate this call"
+    : approved
+      ? "Smart approver approved this call"
+      : "Smart approver flagged this call for manual review";
+
+  const reason = document.createElement("div");
+  reason.className = "tool-approval-review-reason";
+  reason.textContent = review.reasoning || "(no reasoning provided)";
+
+  box.append(heading, reason);
+  return box;
 }
 
 function renderAnalysisProgress() {
