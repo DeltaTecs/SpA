@@ -694,6 +694,30 @@ h2 {
   padding: 12px 16px 0;
 }
 
+.custom-analysis-field {
+  border-bottom: 1px solid #e3e7ed;
+  display: grid;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.custom-analysis-field[hidden] {
+  display: none;
+}
+
+.custom-analysis-goal,
+.custom-analysis-toolset {
+  color: #596677;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.custom-analysis-toolset select {
+  width: 100%;
+}
+
 .prior-reports-field {
   border-top: 1px solid #e3e7ed;
   display: grid;

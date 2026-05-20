@@ -112,6 +112,16 @@
                   <span>Unlimited rounds</span>
                 </label>
               </div>
+              <div id="customAnalysisField" class="custom-analysis-field" aria-label="Custom analysis" hidden>
+                <label class="custom-analysis-goal">
+                  <span>Custom analysis goal</span>
+                  <textarea id="customGoalInput" rows="3" placeholder="Describe what this analysis should investigate"></textarea>
+                </label>
+                <label class="custom-analysis-toolset">
+                  <span>HexStrike tool set</span>
+                  <select id="customToolSetSelect"></select>
+                </label>
+              </div>
               <label class="constraints-field">
                 <span>Constraints</span>
                 <textarea id="constraintsInput" rows="4" placeholder="Scope, rate limits, excluded checks, or scan aggressiveness limits"></textarea>

@@ -210,6 +210,25 @@ POST_RECON_HEXSTRIKE_MCP_TOOLS = (
 )
 
 
+# Label of the user-defined analysis type. Unlike the fixed types above, its
+# goal description and HexStrike tool list are supplied per run: the goal comes
+# from a free-text field and the tools from one of CUSTOM_HEXSTRIKE_TOOL_SETS.
+CUSTOM_ANALYSIS_TYPE = "Custom"
+
+# HexStrike MCP tool sets selectable for a "Custom" analysis. Keys are the
+# labels shown in the UI dropdown; each maps to one of the tool tuples above so
+# the custom type reuses the exact same tool lists as the fixed types.
+CUSTOM_HEXSTRIKE_TOOL_SETS: dict[str, tuple[str, ...]] = {
+    "Network": RECON_PORTS_HEXSTRIKE_MCP_TOOLS,
+    "Domain": RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS,
+    "HTTP/API": RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS,
+    "Authentication": AUTHENTICATION_HEXSTRIKE_MCP_TOOLS,
+    "Configuration": CONFIGURATION_HEXSTRIKE_MCP_TOOLS,
+    "Post-Recon General": POST_RECON_HEXSTRIKE_MCP_TOOLS,
+}
+ALLOWED_CUSTOM_TOOL_SETS = frozenset(CUSTOM_HEXSTRIKE_TOOL_SETS)
+
+
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
     AnalysisType(
         label="Recon: Domain",
@@ -256,6 +275,17 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
             "Preform an in-depth analysis on a single finding. Try to confirm the finding and find an exploit path."),
         hexstrike_mcp_tools=POST_RECON_HEXSTRIKE_MCP_TOOLS,
     ),
+    AnalysisType(
+        label=CUSTOM_ANALYSIS_TYPE,
+        description=(
+            "Run a user-defined analysis. The goal is supplied by the user at "
+            "scan time and replaces this description; the enabled HexStrike "
+            "tools come from the user-selected tool set."
+        ),
+        # Tools are resolved per run from the selected CUSTOM_HEXSTRIKE_TOOL_SETS
+        # entry rather than from a fixed list.
+        hexstrike_mcp_tools=(),
+    ),
 )
 
 DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label
@@ -266,10 +296,35 @@ ANALYSIS_TYPE_HEXSTRIKE_MCP_TOOLS = {
 ALLOWED_ANALYSIS_TYPES = frozenset(ANALYSIS_TYPE_DESCRIPTIONS)
 
 
-def hexstrike_mcp_tools_for_analysis_types(analysis_types: Sequence[str]) -> frozenset[str]:
+def description_for_analysis_type(
+    analysis_type: str, *, custom_goal: str = ""
+) -> str:
+    """Resolve the goal description used to brief the LLM for an analysis type.
+
+    The ``Custom`` type has no fixed description: the user-supplied
+    ``custom_goal`` takes its place. Every other type uses its static
+    description.
+    """
+    if analysis_type == CUSTOM_ANALYSIS_TYPE:
+        return custom_goal.strip()
+    return ANALYSIS_TYPE_DESCRIPTIONS.get(analysis_type, "")
+
+
+def hexstrike_mcp_tools_for_analysis_types(
+    analysis_types: Sequence[str], *, custom_tool_set: str = ""
+) -> frozenset[str]:
+    """Union of HexStrike MCP tools enabled by the selected analysis types.
+
+    The ``Custom`` type draws its tools from ``custom_tool_set`` (one of
+    :data:`CUSTOM_HEXSTRIKE_TOOL_SETS`) instead of a fixed per-type list; an
+    unknown or empty tool set contributes no tools.
+    """
     tools: set[str] = set()
     for analysis_type in analysis_types:
-        tools.update(ANALYSIS_TYPE_HEXSTRIKE_MCP_TOOLS.get(analysis_type, ()))
+        if analysis_type == CUSTOM_ANALYSIS_TYPE:
+            tools.update(CUSTOM_HEXSTRIKE_TOOL_SETS.get(custom_tool_set, ()))
+        else:
+            tools.update(ANALYSIS_TYPE_HEXSTRIKE_MCP_TOOLS.get(analysis_type, ()))
     return frozenset(tools)
 
 

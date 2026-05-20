@@ -216,6 +216,7 @@ class ScannerAnalyzer:
         has_user_actions: bool = False,
         max_rounds: Optional[int] = 24,
         reasoning_effort: str = "high",
+        custom_goal: str = "",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
@@ -228,6 +229,7 @@ class ScannerAnalyzer:
             has_user_actions=has_user_actions,
             has_prescan=bool(prescan_markdown.strip()),
             has_prior_reports=bool(prior_reports_markdown.strip()),
+            custom_goal=custom_goal,
         )
 
         prompt_parts: list[str] = []

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from analysis_types import ANALYSIS_TYPE_DESCRIPTIONS
+from analysis_types import description_for_analysis_type
 
 
 PHASE_TWO_WORDLISTS: tuple[tuple[str, str], ...] = (
@@ -96,6 +96,7 @@ def build_phase_two_system_prompt(
     has_user_actions: bool,
     has_prescan: bool,
     has_prior_reports: bool = False,
+    custom_goal: str = "",
 ) -> str:
     context_notes = []
     if has_app_details:
@@ -117,7 +118,9 @@ def build_phase_two_system_prompt(
 
     type_lines = []
     for analysis_type in analysis_types:
-        description = ANALYSIS_TYPE_DESCRIPTIONS.get(analysis_type)
+        description = description_for_analysis_type(
+            analysis_type, custom_goal=custom_goal
+        )
         if description:
             type_lines.append(f"- {analysis_type}: {description}")
         else:

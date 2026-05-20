@@ -102,11 +102,17 @@ class AnalysisRun:
         escalate_smart_rejections: bool = True,
         max_reasoning_effort: bool = False,
         unlimited_rounds: bool = False,
+        custom_goal: str = "",
+        custom_tool_set: str = "",
     ):
         self.run_id = uuid.uuid4().hex
         self.event_id = event_id
         self.analysis_types = analysis_types
         self.constraints = constraints
+        # Only meaningful for the "Custom" analysis type: the free-text goal and
+        # the selected HexStrike tool set. Empty for the fixed analysis types.
+        self.custom_goal = custom_goal
+        self.custom_tool_set = custom_tool_set
         self.provider = provider
         self.model = model
         self.approval_timeout_seconds = approval_timeout_seconds
@@ -477,6 +483,8 @@ class AnalysisRun:
                 "event_id": self.event_id,
                 "analysis_types": list(self.analysis_types),
                 "constraints": self.constraints,
+                "custom_goal": self.custom_goal,
+                "custom_tool_set": self.custom_tool_set,
                 "provider": self.provider,
                 "model": self.model,
                 "approval_mode": self.approval_mode,
@@ -534,6 +542,8 @@ class AnalysisSessionStore:
         escalate_smart_rejections: bool = True,
         max_reasoning_effort: bool = False,
         unlimited_rounds: bool = False,
+        custom_goal: str = "",
+        custom_tool_set: str = "",
     ) -> AnalysisRun:
         run = AnalysisRun(
             event_id=event_id,
@@ -548,6 +558,8 @@ class AnalysisSessionStore:
             escalate_smart_rejections=escalate_smart_rejections,
             max_reasoning_effort=max_reasoning_effort,
             unlimited_rounds=unlimited_rounds,
+            custom_goal=custom_goal,
+            custom_tool_set=custom_tool_set,
         )
         with self._lock:
             self._runs[run.run_id] = run

@@ -23,8 +23,24 @@ const ANALYSIS_TYPES = [
     label: "Configuration",
     description: "Evaluate endpoint/cloud configuration of all remote endpoints in the event. Look for HTTP configuration, exposed storage/database, exposed secrets, etc.",
   },
+  {
+    label: "Custom",
+    description: "Define your own analysis goal and choose which HexStrike tool set to enable.",
+  },
 ];
 const DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label;
+const CUSTOM_ANALYSIS_TYPE = "Custom";
+// HexStrike tool sets the Custom analysis type can enable. Must match the keys
+// of CUSTOM_HEXSTRIKE_TOOL_SETS in the backend analysis_types module.
+const CUSTOM_TOOL_SETS = [
+  "Network",
+  "Domain",
+  "HTTP/API",
+  "Authentication",
+  "Configuration",
+  "Post-Recon General",
+];
+const DEFAULT_CUSTOM_TOOL_SET = CUSTOM_TOOL_SETS[0];
 const ACTIVE_ANALYSIS_STATUSES = new Set(["queued", "running", "waiting_for_tool_approval"]);
 const ACTIVE_PRESCAN_STATUSES = new Set(["queued", "running"]);
 const PREFERRED_PROVIDER_MODELS = {
@@ -58,6 +74,8 @@ const state = {
   activeTab: "phase1",
   analysisType: DEFAULT_ANALYSIS_TYPE,
   analysisConstraints: "",
+  customGoal: "",
+  customToolSet: DEFAULT_CUSTOM_TOOL_SET,
   enablePhaseOneWebSearch: false,
   approvalMode: DEFAULT_APPROVAL_MODE,
   approvalProvider: null,
@@ -112,6 +130,9 @@ const vulnerabilityTab = document.querySelector("#vulnerabilityTab");
 const phaseOnePanel = document.querySelector("#phaseOnePanel");
 const vulnerabilityPanel = document.querySelector("#vulnerabilityPanel");
 const analysisTypeSelect = document.querySelector("#analysisTypeSelect");
+const customAnalysisField = document.querySelector("#customAnalysisField");
+const customGoalInput = document.querySelector("#customGoalInput");
+const customToolSetSelect = document.querySelector("#customToolSetSelect");
 const startAnalysisButton = document.querySelector("#startAnalysisButton");
 const abortAnalysisButton = document.querySelector("#abortAnalysisButton");
 const stopToolButton = document.querySelector("#stopToolButton");
@@ -151,6 +172,13 @@ vulnerabilityTab.addEventListener("click", () => setActiveTab("phase2"));
 analysisTypeSelect.addEventListener("change", () => {
   state.analysisType = analysisTypeSelect.value;
   renderPhaseTwo();
+});
+customGoalInput.addEventListener("input", () => {
+  state.customGoal = customGoalInput.value;
+  renderPhaseTwo();
+});
+customToolSetSelect.addEventListener("change", () => {
+  state.customToolSet = customToolSetSelect.value;
 });
 startAnalysisButton.addEventListener("click", startPhaseTwo);
 abortAnalysisButton.addEventListener("click", abortPhaseTwo);
@@ -427,7 +455,7 @@ async function refreshPhaseOneRun() {
 
 async function startPhaseTwo() {
   const event = selected();
-  if (!event || isPhaseTwoRunning() || !state.analysisType) {
+  if (!event || isPhaseTwoRunning() || !state.analysisType || customAnalysisIncomplete()) {
     return;
   }
 
@@ -442,6 +470,9 @@ async function startPhaseTwo() {
     compact_included_reports: state.compactIncludedReports,
     max_reasoning_effort: state.maxReasoningEffort,
     unlimited_rounds: state.unlimitedRounds,
+    ...(isCustomAnalysisSelected()
+      ? {custom_goal: state.customGoal.trim(), custom_tool_set: state.customToolSet}
+      : {}),
     ...approvalPayload(),
     ...contextPayload(),
   };
@@ -955,12 +986,13 @@ function renderPhaseTwo() {
   unlimitedRounds.checked = state.unlimitedRounds;
   unlimitedRounds.disabled = running;
   renderAnalysisTypeSelect(running);
+  renderCustomAnalysisFields(running);
   configureApprovalButton.disabled = running;
   approvalModeSummary.textContent = approvalSummary();
 
   const event = selected();
   const hasPrescan = Boolean(event && state.results[event.event_id]);
-  startAnalysisButton.disabled = running || !event || !hasPrescan || !state.selectedProvider || !state.selectedModel || !state.analysisType;
+  startAnalysisButton.disabled = running || !event || !hasPrescan || !state.selectedProvider || !state.selectedModel || !state.analysisType || customAnalysisIncomplete();
   abortAnalysisButton.disabled = !running;
   stopToolButton.disabled = !canStopActiveTool();
 
@@ -981,6 +1013,8 @@ function renderPhaseTwo() {
     );
   } else if (!state.analysisType) {
     setAnalysisStatus("Select a vulnerability analysis type.");
+  } else if (customAnalysisIncomplete()) {
+    setAnalysisStatus("Enter a custom analysis goal before starting.");
   } else {
     setAnalysisStatus("Ready to start vulnerability analysis.");
   }
@@ -1119,6 +1153,37 @@ function renderAnalysisTypeSelect(running) {
 
   analysisTypeSelect.value = state.analysisType;
   analysisTypeSelect.disabled = running;
+}
+
+function isCustomAnalysisSelected() {
+  return state.analysisType === CUSTOM_ANALYSIS_TYPE;
+}
+
+// The Custom type cannot start without a goal; the tool set always has a value.
+function customAnalysisIncomplete() {
+  return isCustomAnalysisSelected() && !state.customGoal.trim();
+}
+
+function renderCustomAnalysisFields(running) {
+  customAnalysisField.hidden = !isCustomAnalysisSelected();
+
+  if (customToolSetSelect.options.length !== CUSTOM_TOOL_SETS.length) {
+    customToolSetSelect.innerHTML = "";
+    for (const name of CUSTOM_TOOL_SETS) {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      customToolSetSelect.append(option);
+    }
+  }
+  if (!CUSTOM_TOOL_SETS.includes(state.customToolSet)) {
+    state.customToolSet = DEFAULT_CUSTOM_TOOL_SET;
+  }
+
+  customGoalInput.value = state.customGoal;
+  customToolSetSelect.value = state.customToolSet;
+  customGoalInput.disabled = running;
+  customToolSetSelect.disabled = running;
 }
 
 function approvalSummary() {

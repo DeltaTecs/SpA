@@ -14,7 +14,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from analysis_types import ALLOWED_ANALYSIS_TYPES, DEFAULT_ANALYSIS_TYPE
+from analysis_types import (
+    ALLOWED_ANALYSIS_TYPES,
+    ALLOWED_CUSTOM_TOOL_SETS,
+    CUSTOM_ANALYSIS_TYPE,
+    DEFAULT_ANALYSIS_TYPE,
+)
 from phase1_runner import run_phase_one_summary
 from logging_setup import configure_logging
 from mcp_client import MCPClient
@@ -95,6 +100,10 @@ class PhaseTwoRequest(BaseModel):
     event_id: int
     analysis_types: List[str] = Field(default_factory=lambda: [DEFAULT_ANALYSIS_TYPE])
     constraints: str = ""
+    # Used only when "Custom" is selected: the free-text analysis goal and the
+    # name of the HexStrike tool set to enable. Ignored for the fixed types.
+    custom_goal: str = ""
+    custom_tool_set: str = ""
     approval_mode: str = APPROVAL_MODE_MANUAL
     approval_provider: Optional[str] = None
     approval_model: Optional[str] = None
@@ -242,6 +251,7 @@ def phase1_status(run_id: str) -> dict:
 def start_phase2(request: PhaseTwoRequest) -> dict:
     provider, model, api_key, api_base_url = _llm_settings(request)
     analysis_types = _analysis_types(request.analysis_types)
+    custom_goal, custom_tool_set = _custom_analysis_params(request, analysis_types)
     approval_mode = _approval_mode(request.approval_mode)
     approval_provider: Optional[str] = None
     approval_model: Optional[str] = None
@@ -273,6 +283,8 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         escalate_smart_rejections=request.escalate_smart_rejections,
         max_reasoning_effort=request.max_reasoning_effort,
         unlimited_rounds=request.unlimited_rounds,
+        custom_goal=custom_goal,
+        custom_tool_set=custom_tool_set,
     )
 
     thread = threading.Thread(
@@ -374,6 +386,31 @@ def _analysis_types(raw_types: List[str]) -> List[str]:
             detail="Select exactly one vulnerability analysis type.",
         )
     return types
+
+
+def _custom_analysis_params(
+    request: PhaseTwoRequest, analysis_types: List[str]
+) -> tuple[str, str]:
+    """Validate and return the ``(goal, tool_set)`` for a Custom analysis run.
+
+    Returns empty strings when the Custom type was not selected, so callers can
+    pass the result through unconditionally.
+    """
+    if CUSTOM_ANALYSIS_TYPE not in analysis_types:
+        return "", ""
+    goal = request.custom_goal.strip()
+    if not goal:
+        raise HTTPException(
+            status_code=400,
+            detail="A custom analysis goal is required for the Custom analysis type.",
+        )
+    tool_set = request.custom_tool_set.strip()
+    if tool_set not in ALLOWED_CUSTOM_TOOL_SETS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported custom tool set: {tool_set or '(none)'}",
+        )
+    return goal, tool_set
 
 
 def _approval_mode(raw_mode: str) -> str:
@@ -543,6 +580,8 @@ def _run_phase2_background(
                 "event_id": request.event_id,
                 "analysis_types": list(run.analysis_types),
                 "constraints": request.constraints,
+                "custom_goal": run.custom_goal or "(none)",
+                "custom_tool_set": run.custom_tool_set or "(none)",
                 "provider": provider,
                 "model": model,
                 "api_base_url": api_base_url,
@@ -609,6 +648,8 @@ def _run_phase2_background(
             event_id=request.event_id,
             analysis_types=run.analysis_types,
             constraints=request.constraints,
+            custom_goal=run.custom_goal,
+            custom_tool_set=run.custom_tool_set,
             mcp_servers=analysis_mcp_server_specs_from_env(),
             approval_callback=run.request_tool_permission,
             progress_callback=run.add_progress,

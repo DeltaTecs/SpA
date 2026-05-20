@@ -377,6 +377,46 @@ class AnalysisTypesTest(unittest.TestCase):
 
         self.assertEqual(tools, frozenset())
 
+    def test_custom_analysis_type_is_selectable(self) -> None:
+        self.assertIn(
+            analysis_types.CUSTOM_ANALYSIS_TYPE,
+            analysis_types.ALLOWED_ANALYSIS_TYPES,
+        )
+
+    def test_custom_type_uses_the_selected_tool_set(self) -> None:
+        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(
+            [analysis_types.CUSTOM_ANALYSIS_TYPE],
+            custom_tool_set="Network",
+        )
+
+        self.assertEqual(
+            tools, frozenset(analysis_types.RECON_PORTS_HEXSTRIKE_MCP_TOOLS)
+        )
+
+    def test_custom_type_without_a_tool_set_has_no_hexstrike_tools(self) -> None:
+        tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(
+            [analysis_types.CUSTOM_ANALYSIS_TYPE]
+        )
+
+        self.assertEqual(tools, frozenset())
+
+    def test_description_for_custom_type_is_the_user_goal(self) -> None:
+        self.assertEqual(
+            analysis_types.description_for_analysis_type(
+                analysis_types.CUSTOM_ANALYSIS_TYPE,
+                custom_goal="  Probe the upload endpoint  ",
+            ),
+            "Probe the upload endpoint",
+        )
+
+    def test_description_for_fixed_type_ignores_custom_goal(self) -> None:
+        self.assertEqual(
+            analysis_types.description_for_analysis_type(
+                "Configuration", custom_goal="ignored"
+            ),
+            analysis_types.ANALYSIS_TYPE_DESCRIPTIONS["Configuration"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

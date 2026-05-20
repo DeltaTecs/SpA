@@ -29,6 +29,8 @@ def run_phase_two_analysis(
     event_id: int,
     analysis_types: Sequence[str],
     constraints: str,
+    custom_goal: str = "",
+    custom_tool_set: str = "",
     mcp_servers: Sequence[MCPServerSpec],
     approval_callback: ApprovalCallback,
     progress_callback: Callable[[str], None],
@@ -49,6 +51,8 @@ def run_phase_two_analysis(
         scan_logger.log_input("event_id", event_id)
         scan_logger.log_input("analysis_types", list(analysis_types))
         scan_logger.log_input("constraints", constraints)
+        scan_logger.log_input("custom_goal", custom_goal or "(none)")
+        scan_logger.log_input("custom_tool_set", custom_tool_set or "(none)")
         scan_logger.log_input(
             "mcp_servers",
             [
@@ -98,7 +102,9 @@ def run_phase_two_analysis(
 
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
     external_context = prepared.external_context(app_details, user_actions)
-    allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(analysis_types)
+    allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(
+        analysis_types, custom_tool_set=custom_tool_set
+    )
 
     if scan_logger is not None:
         scan_logger.log_input("recording_id", prepared.recording_id)
@@ -215,6 +221,7 @@ def run_phase_two_analysis(
         recording_id=prepared.recording_id,
         analysis_types=analysis_types,
         constraints=constraints,
+        custom_goal=custom_goal,
         event_context=prepared.text,
         tools=tools,
         external_context=external_context,
