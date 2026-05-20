@@ -31,7 +31,10 @@ except ImportError:
 from prompts import (
     build_phase_one_system_prompt,
     build_phase_two_system_prompt,
+    build_prior_report_compaction_system_prompt,
+    build_smart_approval_system_prompt,
 )
+from scan_logger import ScanRunLogger
 from scanner_models import ScanSummary
 
 
@@ -100,8 +103,10 @@ class ScannerAnalyzer:
             kwargs = {
                 "model": self.model_name,
                 "api_key": self.api_key,
-                "temperature": 0.1,
             }
+            # GPT-5 family reasoning models only accept the default temperature.
+            if not _is_openai_reasoning_model(self.model_name):
+                kwargs["temperature"] = 0.1
             if base_url:
                 kwargs["base_url"] = base_url
             self.llm = ChatOpenAI(**kwargs)
@@ -126,6 +131,8 @@ class ScannerAnalyzer:
         has_app_details: bool = False,
         has_user_actions: bool = False,
         max_rounds: int = 12,
+        on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> ScanSummary:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
@@ -148,15 +155,26 @@ class ScannerAnalyzer:
         )
         human_prompt = "\n\n".join(prompt_parts)
 
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 1 PROMPT")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
         response_text = self._invoke_with_tools(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
             tools=list(tools),
             event_id=event_id,
             max_rounds=max_rounds,
+            on_progress=on_progress,
+            scan_logger=scan_logger,
         )
         if response_text is None:
             response_text = ""
+
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 1 FINAL RESPONSE")
+            scan_logger.log_llm_response("final_summary_text", response_text)
 
         try:
             raw = _parse_json_object(response_text)
@@ -167,6 +185,10 @@ class ScannerAnalyzer:
             )
         except Exception as exc:
             logger.warning("Could not parse phase-one JSON summary: %s", exc)
+            if scan_logger is not None:
+                scan_logger.warning(
+                    "Could not parse phase-one JSON summary: %s", exc
+                )
             return ScanSummary(
                 event_id=event_id,
                 recording_id=recording_id,
@@ -188,11 +210,13 @@ class ScannerAnalyzer:
         tools: Sequence[Any],
         external_context: str = "",
         prescan_markdown: str = "",
+        prior_reports_markdown: str = "",
         tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
         max_rounds: int = 24,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
@@ -202,6 +226,7 @@ class ScannerAnalyzer:
             has_app_details=has_app_details,
             has_user_actions=has_user_actions,
             has_prescan=bool(prescan_markdown.strip()),
+            has_prior_reports=bool(prior_reports_markdown.strip()),
         )
 
         prompt_parts: list[str] = []
@@ -209,15 +234,21 @@ class ScannerAnalyzer:
             prompt_parts.append(external_context)
         if constraints.strip():
             prompt_parts.append(
-                "=== Bug Bounty Program Constraints ===\n"
+                "=== Analysis Constraints ===\n"
                 f"{constraints.strip()}\n"
-                "=== End Bug Bounty Program Constraints ==="
+                "=== End Analysis Constraints ==="
             )
         if prescan_markdown.strip():
             prompt_parts.append(
-                "=== Phase One Summary ===\n"
+                "=== Event Summary ===\n"
                 f"{prescan_markdown.strip()}\n"
-                "=== End Phase One Summary ==="
+                "=== End Event Summary ==="
+            )
+        if prior_reports_markdown.strip():
+            prompt_parts.append(
+                "=== Prior Scan Reports ===\n"
+                f"{prior_reports_markdown.strip()}\n"
+                "=== End Prior Scan Reports ==="
             )
         prompt_parts.append(
             "=== Target Event ===\n"
@@ -232,6 +263,11 @@ class ScannerAnalyzer:
         if on_progress:
             on_progress("Prompt prepared; invoking LLM vulnerability analysis.")
 
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 2 PROMPT")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
         response_text = self._invoke_with_tools(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
@@ -239,8 +275,110 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             on_progress=on_progress,
+            scan_logger=scan_logger,
         )
+        if scan_logger is not None:
+            scan_logger.section("LLM PHASE 2 FINAL RESPONSE")
+            scan_logger.log_llm_response("final_analysis_text", response_text or "")
         return (response_text or "").strip() or "(LLM returned no analysis)"
+
+    def compact_prior_report(
+        self,
+        *,
+        event_id: int,
+        analysis_types: Sequence[str],
+        constraints: str,
+        report_label: str,
+        prior_report_markdown: str,
+        prescan_markdown: str = "",
+        on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> str:
+        if self.llm is None:
+            raise RuntimeError("Analyzer is not initialized")
+
+        source_report = prior_report_markdown.strip()
+        if not source_report:
+            return ""
+        clean_report_label = report_label.strip() or "prior report"
+
+        system_prompt = build_prior_report_compaction_system_prompt()
+        human_prompt = _build_prior_report_compaction_human_prompt(
+            event_id=event_id,
+            analysis_types=analysis_types,
+            constraints=constraints,
+            prescan_markdown=prescan_markdown,
+            report_label=clean_report_label,
+            prior_report_markdown=source_report,
+        )
+
+        if on_progress:
+            on_progress(f"Condensing {clean_report_label} with the configured LLM.")
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM PRIOR REPORT COMPACTION PROMPT {clean_report_label}")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
+        compacted = self._invoke_plain(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            scan_logger=scan_logger,
+        ).strip()
+
+        if not compacted:
+            compacted = "(No actionable technical findings were extracted from the prior reports.)"
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM PRIOR REPORT COMPACTION RESPONSE {clean_report_label}")
+            scan_logger.log_llm_response("compacted_prior_reports", compacted)
+
+        return compacted
+
+    def evaluate_tool_approval(
+        self,
+        *,
+        tool_call: Dict[str, Any],
+        constraints: str,
+        analysis_types: Sequence[str],
+        event_id: int,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> Dict[str, Any]:
+        """Decide whether a single phase-two MCP tool call may run automatically.
+
+        Returns a dict with keys ``approved`` (bool), ``reasoning`` (str) and
+        ``error`` (bool). ``error`` is True when the LLM produced no parseable
+        decision; callers should then fall back to manual approval.
+        """
+        if self.llm is None:
+            raise RuntimeError("Analyzer is not initialized")
+
+        tool_label = _tool_call_label(tool_call)
+        system_prompt = build_smart_approval_system_prompt()
+        human_prompt = _build_smart_approval_human_prompt(
+            tool_call=tool_call,
+            constraints=constraints,
+            analysis_types=analysis_types,
+            event_id=event_id,
+        )
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM SMART APPROVAL PROMPT {tool_label}")
+            scan_logger.log_llm_request("system_prompt", system_prompt)
+            scan_logger.log_llm_request("human_prompt", human_prompt)
+
+        response_text = self._invoke_plain(
+            system_prompt=system_prompt,
+            human_prompt=human_prompt,
+            scan_logger=scan_logger,
+        )
+        decision = _parse_smart_approval_decision(response_text)
+
+        if scan_logger is not None:
+            scan_logger.section(f"LLM SMART APPROVAL DECISION {tool_label}")
+            scan_logger.log_llm_response("smart_approval_decision", decision)
+
+        return decision
 
     def _invoke_with_tools(
         self,
@@ -251,6 +389,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         if self.provider == "deepseek":
             return self._run_deepseek_tool_conversation(
@@ -260,6 +399,7 @@ class ScannerAnalyzer:
                 event_id=event_id,
                 max_rounds=max_rounds,
                 on_progress=on_progress,
+                scan_logger=scan_logger,
             )
 
         llm_with_tools = self.llm.bind_tools(tools)
@@ -274,7 +414,57 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             on_progress=on_progress,
+            scan_logger=scan_logger,
         )
+
+    def _invoke_plain(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+        scan_logger: Optional[ScanRunLogger] = None,
+    ) -> str:
+        try:
+            if self.provider == "deepseek":
+                return self._invoke_deepseek_plain(
+                    system_prompt=system_prompt,
+                    human_prompt=human_prompt,
+                )
+
+            response = self.llm.invoke(
+                [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=human_prompt),
+                ]
+            )
+            content = getattr(response, "content", "")
+            return _content_to_text(content) if content is not None else ""
+        except Exception as exc:
+            logger.error("LLM prior-report compaction failed: %s", exc)
+            if scan_logger is not None:
+                scan_logger.error("LLM prior-report compaction failed: %s", exc)
+            raise RuntimeError(f"LLM prior-report compaction failed: {exc}") from exc
+
+    def _invoke_deepseek_plain(
+        self,
+        *,
+        system_prompt: str,
+        human_prompt: str,
+    ) -> str:
+        if self.deepseek_client is None:
+            raise RuntimeError("DeepSeek client is not initialized")
+
+        response = self.deepseek_client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": human_prompt},
+            ],
+            reasoning_effort="high",
+            extra_body={"thinking": {"type": "enabled"}},
+        )
+        message = response.choices[0].message
+        return str(getattr(message, "content", "") or "")
 
     def _run_tool_conversation(
         self,
@@ -285,24 +475,43 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         for round_num in range(max_rounds):
             try:
                 response = llm_with_tools.invoke(messages)
             except Exception as exc:
                 logger.error("LLM invocation failed (round %d): %s", round_num, exc)
+                if scan_logger is not None:
+                    scan_logger.error(
+                        "LLM invocation failed (round %d): %s", round_num, exc
+                    )
                 return None
 
+            tool_calls = getattr(response, "tool_calls", None) or []
             messages.append(response)
-            if not getattr(response, "tool_calls", None):
+            if scan_logger is not None:
+                scan_logger.log_llm_response(
+                    f"round_{round_num}",
+                    {
+                        "content": _content_to_text(response.content),
+                        "tool_calls": [
+                            {"name": call.get("name"), "args": call.get("args")}
+                            for call in tool_calls
+                        ],
+                    },
+                )
+            if not tool_calls:
                 return _content_to_text(response.content)
 
-            for tool_call in response.tool_calls:
+            for tool_call in tool_calls:
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
                 if on_progress:
                     on_progress(f"LLM requested tool {tool_name}.")
+                if scan_logger is not None:
+                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
 
                 result = "(tool not found)"
                 for tool in tools:
@@ -312,12 +521,19 @@ class ScannerAnalyzer:
                         except Exception as exc:
                             result = f"Error: {exc}"
                         break
+                if scan_logger is not None:
+                    scan_logger.log_tool_response(tool_name, result)
 
                 messages.append(
                     ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
+            _emit_tool_results_received(on_progress, len(tool_calls))
 
         logger.warning("Max tool-call rounds reached for event %d", event_id)
+        if scan_logger is not None:
+            scan_logger.warning(
+                "Max tool-call rounds reached for event %d", event_id
+            )
         return _content_to_text(messages[-1].content) if messages else None
 
     def _run_deepseek_tool_conversation(
@@ -329,6 +545,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: int,
         on_progress: Optional[Callable[[str], None]] = None,
+        scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         """Run DeepSeek V4 thinking mode while preserving reasoning_content."""
         if self.deepseek_client is None:
@@ -352,13 +569,35 @@ class ScannerAnalyzer:
                 )
             except Exception as exc:
                 logger.error("DeepSeek invocation failed (round %d): %s", round_num, exc)
+                if scan_logger is not None:
+                    scan_logger.error(
+                        "DeepSeek invocation failed (round %d): %s", round_num, exc
+                    )
                 return None
 
             message = response.choices[0].message
             assistant_message = _openai_message_dict(message)
             messages.append(assistant_message)
 
-            tool_calls = getattr(message, "tool_calls", None)
+            if scan_logger is not None:
+                scan_logger.log_llm_response(
+                    f"deepseek_round_{round_num}",
+                    {
+                        "content": getattr(message, "content", "") or "",
+                        "reasoning_content": assistant_message.get(
+                            "reasoning_content"
+                        ),
+                        "tool_calls": [
+                            {
+                                "name": getattr(call.function, "name", None),
+                                "arguments": getattr(call.function, "arguments", None),
+                            }
+                            for call in (getattr(message, "tool_calls", None) or [])
+                        ],
+                    },
+                )
+
+            tool_calls = list(getattr(message, "tool_calls", None) or [])
             if not tool_calls:
                 return str(getattr(message, "content", "") or "")
 
@@ -372,6 +611,8 @@ class ScannerAnalyzer:
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
                 if on_progress:
                     on_progress(f"LLM requested tool {tool_name}.")
+                if scan_logger is not None:
+                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
 
                 tool = tool_by_name.get(tool_name)
                 if tool is None:
@@ -382,6 +623,9 @@ class ScannerAnalyzer:
                     except Exception as exc:
                         result = f"Error: {exc}"
 
+                if scan_logger is not None:
+                    scan_logger.log_tool_response(tool_name, result)
+
                 messages.append(
                     {
                         "role": "tool",
@@ -389,10 +633,131 @@ class ScannerAnalyzer:
                         "content": str(result),
                     }
                 )
+            _emit_tool_results_received(on_progress, len(tool_calls))
 
         logger.warning("Max DeepSeek tool-call rounds reached for event %d", event_id)
+        if scan_logger is not None:
+            scan_logger.warning(
+                "Max DeepSeek tool-call rounds reached for event %d", event_id
+            )
         last = messages[-1].get("content") if messages else None
         return str(last or "")
+
+
+def _build_prior_report_compaction_human_prompt(
+    *,
+    event_id: int,
+    analysis_types: Sequence[str],
+    constraints: str,
+    prescan_markdown: str,
+    report_label: str,
+    prior_report_markdown: str,
+) -> str:
+    analysis_type_text = ", ".join(analysis_types) if analysis_types else "(none)"
+    constraints_text = constraints.strip() or "(none)"
+    prompt_parts = [
+        "=== Current Phase-Two Analysis ===\n"
+        f"event_id: {event_id}\n"
+        f"analysis_tracks: {analysis_type_text}\n"
+        f"constraints: {constraints_text}",
+    ]
+    if prescan_markdown.strip():
+        prompt_parts.append(
+            "=== Current Event Summary ===\n"
+            f"{prescan_markdown.strip()}\n"
+            "=== End Current Event Summary ==="
+        )
+    prompt_parts.append(
+        "=== Prior Scan Report To Condense ===\n"
+        f"source: {report_label.strip() or 'prior report'}\n"
+        f"{prior_report_markdown.strip()}\n"
+        "=== End Prior Scan Report To Condense ==="
+    )
+    return "\n\n".join(prompt_parts)
+
+
+def _tool_call_label(tool_call: Dict[str, Any]) -> str:
+    return str(
+        tool_call.get("exposed_tool_name")
+        or tool_call.get("tool_name")
+        or "tool"
+    )
+
+
+def _build_smart_approval_human_prompt(
+    *,
+    tool_call: Dict[str, Any],
+    constraints: str,
+    analysis_types: Sequence[str],
+    event_id: int,
+) -> str:
+    analysis_type_text = ", ".join(analysis_types) if analysis_types else "(none)"
+    constraints_text = (
+        constraints.strip() or "(no additional constraints were provided)"
+    )
+    try:
+        arguments_text = json.dumps(
+            tool_call.get("arguments"),
+            indent=2,
+            sort_keys=True,
+            default=str,
+            ensure_ascii=False,
+        )
+    except TypeError:
+        arguments_text = str(tool_call.get("arguments"))
+
+    server_text = str(
+        tool_call.get("server_label") or tool_call.get("server_id") or "unknown"
+    )
+    tool_text = str(
+        tool_call.get("tool_name") or tool_call.get("exposed_tool_name") or "unknown"
+    )
+
+    return "\n\n".join(
+        [
+            "=== Analysis Context ===\n"
+            f"event_id: {event_id}\n"
+            f"analysis_tracks: {analysis_type_text}",
+            "=== User Constraints (mandatory) ===\n"
+            f"{constraints_text}\n"
+            "=== End User Constraints ===",
+            "=== Proposed MCP Tool Call ===\n"
+            f"server: {server_text}\n"
+            f"tool: {tool_text}\n"
+            f"arguments:\n{arguments_text}\n"
+            "=== End Proposed MCP Tool Call ===",
+            "Decide whether this tool call may run automatically. "
+            "Respond with the required JSON object only.",
+        ]
+    )
+
+
+def _parse_smart_approval_decision(response_text: Optional[str]) -> Dict[str, Any]:
+    text = (response_text or "").strip()
+    try:
+        raw = _parse_json_object(text)
+    except Exception:
+        # No parseable decision: be conservative and require manual approval.
+        return {
+            "approved": False,
+            "reasoning": (
+                text[:500]
+                or "The smart approver returned no parseable decision."
+            ),
+            "error": True,
+        }
+
+    approved = bool(raw.get("approved"))
+    reasoning = str(raw.get("reasoning") or raw.get("reason") or "").strip()
+    if not reasoning:
+        reasoning = "Approved." if approved else "No reason was provided."
+    return {"approved": approved, "reasoning": reasoning, "error": False}
+
+
+def _is_openai_reasoning_model(model_name: str) -> bool:
+    """Return True for OpenAI reasoning models that reject a custom temperature."""
+    name = (model_name or "").strip().lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3")
 
 
 def _content_to_text(content: Any) -> str:
@@ -407,6 +772,18 @@ def _content_to_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
+
+
+def _emit_tool_results_received(
+    on_progress: Optional[Callable[[str], None]],
+    tool_count: int,
+) -> None:
+    if on_progress is None or tool_count <= 0:
+        return
+    if tool_count == 1:
+        on_progress("MCP tool result received; invoking LLM.")
+        return
+    on_progress(f"{tool_count} MCP tool results received; invoking LLM.")
 
 
 def _openai_tool_spec(tool: Any) -> Dict[str, Any]:

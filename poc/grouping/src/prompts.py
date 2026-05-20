@@ -22,15 +22,23 @@ You have these MCP-backed tools:
   event and assign the current packet to it atomically.
 * update_event_description(event_id, description) - refine the event description
   after assigning the current packet when the new packet clarifies the event.
-
-The only non-database tool the grouping LLM may receive is the external search
-tool search_engine__tavily_search. Use it only when public reference material
-would clarify application, protocol, or endpoint semantics. Packet evidence
-remains the source of truth for grouping.
+Packet evidence remains the source of truth for grouping!
 """
 
 
-EVENT_ASSIGNMENT_SYSTEM_PROMPT_BASE = f"""\
+SEARCH_TOOL_DESCRIPTION = """\
+Web-search MCP tools enabled for this run:
+
+* search_engine__tavily_search(query) - external public web search for
+  application, protocol, endpoint, standard, or vulnerability reference context.
+* search_engine__tavily_extract(urls) - fetch public page content after search
+  results identify a specific reference worth reading.
+Use search results only as reference context; packet evidence remains the source
+of truth for grouping!
+"""
+
+
+EVENT_ASSIGNMENT_SYSTEM_PROMPT_TEMPLATE = """\
 You are a network traffic analyst maintaining application-level events in the
 packet database. For the current packet, decide whether it belongs to an
 existing event or starts a new event.
@@ -44,7 +52,7 @@ multiple events over time. Do not merge unrelated purposes just because they
 share a connection, and do not split one request/response exchange into
 separate events unless the packets clearly serve different purposes.
 
-{TOOL_DESCRIPTION}
+{tool_description}
 
 Rules:
 1. Always call get_matching_events() before assigning or creating an event.
@@ -86,10 +94,20 @@ Reason: <one short sentence>
 def build_event_assignment_system_prompt(
     has_app_details: bool = False,
     has_user_actions: bool = False,
+    include_search_tools: bool = False,
 ) -> str:
     """Build the prompt used for current-packet event assignment."""
 
-    parts = [EVENT_ASSIGNMENT_SYSTEM_PROMPT_BASE]
+    tool_description = TOOL_DESCRIPTION
+    if include_search_tools:
+        tool_description = "\n\n".join(
+            [TOOL_DESCRIPTION.rstrip(), SEARCH_TOOL_DESCRIPTION.rstrip()]
+        )
+    parts = [
+        EVENT_ASSIGNMENT_SYSTEM_PROMPT_TEMPLATE.format(
+            tool_description=tool_description
+        )
+    ]
     if has_app_details or has_user_actions:
         parts.append(
             "Optional application details or recent user actions may be supplied. "

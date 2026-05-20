@@ -1,207 +1,226 @@
+[CmdletBinding()]
 param(
-  [Parameter(Mandatory = $false)]
-  [switch]$Help,
+    [Parameter(Mandatory = $true, Position = 0)]
+    [ValidateSet('dump', 'load')]
+    [string]$Action,
 
-  [Parameter(Mandatory = $false, Position = 0)]
-  [string]$Action,
-
-  [Parameter(Mandatory = $false, Position = 1)]
-  [string]$File,
-
-  [Parameter(Mandatory = $false)]
-  [string]$EnvFile,
-
-  # Optional overrides (otherwise read from .env)
-  [Parameter(Mandatory = $false)]
-  [string]$ContainerName,
-
-  [Parameter(Mandatory = $false)]
-  [string]$Database,
-
-  [Parameter(Mandatory = $false)]
-  [string]$DbUser,
-
-  [Parameter(Mandatory = $false)]
-  [string]$DbPassword
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$DumpFile
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Print-Usage {
-  Write-Host "Usage:" -ForegroundColor Cyan
-  Write-Host "  ./db/dump_load_db.ps1 dump <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
-  Write-Host "  ./db/dump_load_db.ps1 load <file> [-EnvFile <path>] [-ContainerName <name>] [-Database <name>] [-DbUser <user>] [-DbPassword <password>]"
-  Write-Host "  ./db/dump_load_db.ps1 --help"
-  Write-Host ""
-  Write-Host "Defaults:" -ForegroundColor Cyan
-  Write-Host "  Reads missing connection/container settings from ../.env (poc/.env)."
-  Write-Host ""
-  Write-Host "Examples:" -ForegroundColor Cyan
-  Write-Host "  ./db/dump_load_db.ps1 dump ./db/dumps/main.dump"
-  Write-Host "  ./db/dump_load_db.ps1 load ./db/dumps/main.dump"
-}
-
-$helpTokens = @('--help', '-h', '/?', 'help', '?')
-
-if ($Help -or ($Action -and ($helpTokens -contains $Action.ToLowerInvariant()))) {
-  Print-Usage
-  exit 0
-}
-
-if (-not $Action -or -not $File) {
-  Print-Usage
-  exit 2
-}
-
-$actionNormalized = $Action.ToLowerInvariant()
-if ($actionNormalized -ne 'dump' -and $actionNormalized -ne 'load') {
-  throw "Invalid Action '$Action'. Expected: dump | load. Use --help for usage."
-}
-
-$Action = $actionNormalized
-
-if (-not $EnvFile) {
-  # Default: ../.env (poc/.env)
-  $EnvFile = Join-Path (Split-Path -Parent $PSScriptRoot) '.env'
-}
-
-function Read-DotEnv([string]$path) {
-  if (-not (Test-Path -LiteralPath $path)) {
-    throw "Missing .env file: $path"
-  }
-  $map = @{}
-  foreach ($line in (Get-Content -LiteralPath $path)) {
-    $trimmed = $line.Trim()
-    if (-not $trimmed) { continue }
-    if ($trimmed.StartsWith('#')) { continue }
-    $idx = $trimmed.IndexOf('=')
-    if ($idx -lt 1) { continue }
-    $key = $trimmed.Substring(0, $idx).Trim()
-    $value = $trimmed.Substring($idx + 1).Trim()
-    $map[$key] = $value
-  }
-  return $map
-}
-
-$User = $null
-$Password = $null
-
-if (-not $ContainerName -or -not $Database -or -not $DbUser -or -not $DbPassword) {
-  $envMap = Read-DotEnv $EnvFile
-
-  foreach ($requiredKey in @('DB_CONTAINER_NAME','DB_NAME','DB_USER','DB_PASSWORD','DB_HOST','DB_PORT')) {
-    if (-not $envMap.ContainsKey($requiredKey) -or [string]::IsNullOrWhiteSpace($envMap[$requiredKey])) {
-      throw "Missing required key '$requiredKey' in $EnvFile"
-    }
-  }
-
-  if (-not $ContainerName) { $ContainerName = $envMap['DB_CONTAINER_NAME'] }
-  if (-not $Database) { $Database = $envMap['DB_NAME'] }
-  if (-not $DbUser) { $DbUser = $envMap['DB_USER'] }
-  if (-not $DbPassword) { $DbPassword = $envMap['DB_PASSWORD'] }
-}
-
-$User = $DbUser
-$Password = $DbPassword
-
-$PocRoot = Split-Path -Parent $PSScriptRoot
-
-function Get-FullPath([string]$path) {
-  try {
-    $resolved = Resolve-Path -LiteralPath $path -ErrorAction Stop
-    return [System.IO.Path]::GetFullPath($resolved.Path)
-  }
-  catch {
-    return [System.IO.Path]::GetFullPath($path)
-  }
-}
-
-function Resolve-OutputPath([string]$path) {
-  if ([System.IO.Path]::IsPathRooted($path)) {
-    return Get-FullPath $path
-  }
-
-  # Heuristic: paths like ./db/... are intended to be relative to the `poc` directory
-  $normalized = $path.Replace('/', '\')
-  if ($normalized -match '^(\.\\)?db\\') {
-    return Get-FullPath (Join-Path $PocRoot $path)
-  }
-
-  return Get-FullPath $path
-}
-
-function Ensure-ParentDir([string]$path) {
-  $parent = Split-Path -Parent $path
-  if ($parent -and -not (Test-Path -LiteralPath $parent)) {
-    New-Item -ItemType Directory -Path $parent | Out-Null
-  }
-}
-
-function Exec-InPostgres([string]$cmd) {
-  & docker exec -e "PGPASSWORD=$Password" $ContainerName sh -lc $cmd
-  if ($LASTEXITCODE -ne 0) {
-    throw "Command failed (exit $LASTEXITCODE): $cmd"
-  }
-}
-
-function Copy-ToHost([string]$containerPath, [string]$hostPath) {
-  Ensure-ParentDir $hostPath
-  if (Test-Path -LiteralPath $hostPath) {
-    Remove-Item -LiteralPath $hostPath -Force
-  }
-  & docker cp "$ContainerName`:$containerPath" $hostPath
-  if ($LASTEXITCODE -ne 0) {
-    throw "docker cp failed (exit $LASTEXITCODE): $containerPath -> $hostPath"
-  }
-}
-
-function Copy-ToContainer([string]$hostPath, [string]$containerPath) {
-  if (-not (Test-Path -LiteralPath $hostPath)) {
-    throw "Input file not found: $hostPath"
-  }
-  & docker cp $hostPath "$ContainerName`:$containerPath"
-  if ($LASTEXITCODE -ne 0) {
-    throw "docker cp failed (exit $LASTEXITCODE): $hostPath -> $containerPath"
-  }
-}
-
-$hostFile = Resolve-OutputPath $File
-
-switch ($Action) {
-  'dump' {
-    Ensure-ParentDir $hostFile
-
-    $tmp = "/tmp/${Database}_dump.dump"
-    Write-Host "Dumping database '$Database' from container '$ContainerName' to '$hostFile'..."
-
-    Exec-InPostgres "pg_dump -U '$User' -d '$Database' -Fc -f '$tmp'"
-    Copy-ToHost $tmp $hostFile
-    Exec-InPostgres "rm -f '$tmp'"
-
-    Write-Host "Done."
-  }
-
-  'load' {
-    $ext = [System.IO.Path]::GetExtension($hostFile).ToLowerInvariant()
-    if ($ext -eq '') {
-      throw "Dump file must have an extension (.dump/.backup/.tar or .sql): $hostFile"
+function Read-DotEnv([string]$Path) {
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return $map
     }
 
-    $tmp = "/tmp/${Database}_restore$ext"
-    Write-Host "Loading dump '$hostFile' into database '$Database' (overwriting) in container '$ContainerName'..."
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        $trimmed = $line.Trim()
+        if (-not $trimmed -or $trimmed.StartsWith('#')) {
+            continue
+        }
 
-    Copy-ToContainer $hostFile $tmp
+        $idx = $trimmed.IndexOf('=')
+        if ($idx -lt 1) {
+            continue
+        }
 
-    Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'"
+        $key = $trimmed.Substring(0, $idx).Trim()
+        if ($key -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+            continue
+        }
 
-    if ($ext -eq '.sql') {
-      Exec-InPostgres "psql -U '$User' -d '$Database' -v ON_ERROR_STOP=1 -f '$tmp'"
+        $value = $trimmed.Substring($idx + 1).Trim()
+        if ($value.Length -ge 2) {
+            $first = $value[0]
+            $last = $value[$value.Length - 1]
+            if (($first -eq '"' -and $last -eq '"') -or ($first -eq "'" -and $last -eq "'")) {
+                $value = $value.Substring(1, $value.Length - 2)
+            }
+        }
+
+        $map[$key] = $value
     }
-    else {
-      Exec-InPostgres "pg_restore -U '$User' -d '$Database' --no-owner --no-privileges --exit-on-error '$tmp'"
+
+    return $map
+}
+
+function Get-EnvValue([hashtable]$EnvMap, [string]$Name, [string]$DefaultValue) {
+    if ($EnvMap.ContainsKey($Name) -and $EnvMap[$Name]) {
+        return $EnvMap[$Name]
     }
 
-    Exec-InPostgres "rm -f '$tmp'"
-    Write-Host "Done."
-  }
+    return $DefaultValue
+}
+
+function Resolve-UserPath([string]$Path) {
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return [System.IO.Path]::GetFullPath($Path)
+    }
+
+    return [System.IO.Path]::GetFullPath((Join-Path (Get-Location).ProviderPath $Path))
+}
+
+function Invoke-Docker([string[]]$Arguments, [string]$Description) {
+    & docker @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Description failed with exit code $LASTEXITCODE."
+    }
+}
+
+function Invoke-PostgresDocker([string[]]$Arguments, [string]$Description) {
+    $oldPgPassword = [Environment]::GetEnvironmentVariable('PGPASSWORD')
+
+    try {
+        $env:PGPASSWORD = $DbAdminPassword
+        Invoke-Docker (@('exec', '-e', 'PGPASSWORD', $DbContainer) + $Arguments) $Description
+    }
+    finally {
+        if ($null -eq $oldPgPassword) {
+            Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:PGPASSWORD = $oldPgPassword
+        }
+    }
+}
+
+function Test-ContainerRunning([string]$ContainerName) {
+    $running = & docker inspect --format '{{.State.Running}}' $ContainerName 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker container '$ContainerName' was not found. Start the stack from the poc directory first."
+    }
+
+    if ($running -ne 'true') {
+        throw "Docker container '$ContainerName' is not running."
+    }
+}
+
+function Invoke-DumpDatabase {
+    $dumpDir = [System.IO.Path]::GetDirectoryName($ResolvedDumpFile)
+    if ($dumpDir) {
+        New-Item -ItemType Directory -Force -Path $dumpDir | Out-Null
+    }
+
+    Write-Host "Dumping '$DbName' from container '$DbContainer' to '$ResolvedDumpFile'..."
+    Invoke-PostgresDocker @(
+        'pg_dump',
+        '--host=127.0.0.1',
+        "--port=$DbPort",
+        "--username=$DbAdminUser",
+        "--dbname=$DbName",
+        '--format=custom',
+        '--data-only',
+        '--no-owner',
+        '--no-privileges',
+        '--exclude-table-data=protocol',
+        '--exclude-table-data=scan_type',
+        "--file=$ContainerDump"
+    ) 'pg_dump'
+
+    Invoke-Docker @(
+        'cp',
+        "$($DbContainer):$ContainerDump",
+        $ResolvedDumpFile
+    ) 'copy dump from container'
+
+    Write-Host "Wrote dump to '$ResolvedDumpFile'."
+}
+
+function New-RestoreList {
+    $toc = & docker exec $DbContainer pg_restore -l $ContainerDump
+    if ($LASTEXITCODE -ne 0) {
+        throw "pg_restore list failed with exit code $LASTEXITCODE."
+    }
+
+    # init_db.sql seeds these lookup tables; skip legacy dump rows to avoid duplicates.
+    $filteredToc = foreach ($line in $toc) {
+        if (
+            $line -match ' TABLE DATA public (protocol|scan_type) ' -or
+            $line -match ' SEQUENCE SET public (protocol_protocol_id_seq|scan_type_scan_type_id_seq) '
+        ) {
+            ";$line"
+        }
+        else {
+            $line
+        }
+    }
+
+    $localList = [System.IO.Path]::GetTempFileName()
+    try {
+        Set-Content -LiteralPath $localList -Value $filteredToc -Encoding ASCII
+        Invoke-Docker @(
+            'cp',
+            $localList,
+            "$($DbContainer):$ContainerList"
+        ) 'copy restore list to container'
+    }
+    finally {
+        Remove-Item -LiteralPath $localList -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Invoke-LoadDatabase {
+    if (-not (Test-Path -LiteralPath $ResolvedDumpFile -PathType Leaf)) {
+        throw "Dump file not found: $ResolvedDumpFile"
+    }
+
+    Write-Host "Loading '$ResolvedDumpFile' into '$DbName' in container '$DbContainer'..."
+    Invoke-Docker @(
+        'cp',
+        $ResolvedDumpFile,
+        "$($DbContainer):$ContainerDump"
+    ) 'copy dump to container'
+
+    New-RestoreList
+
+    Invoke-PostgresDocker @(
+        'pg_restore',
+        '--host=127.0.0.1',
+        "--port=$DbPort",
+        "--username=$DbAdminUser",
+        "--dbname=$DbName",
+        '--data-only',
+        '--no-owner',
+        '--no-privileges',
+        '--disable-triggers',
+        '--single-transaction',
+        '--exit-on-error',
+        "--use-list=$ContainerList",
+        $ContainerDump
+    ) 'pg_restore'
+
+    Write-Host "Loaded dump into '$DbName'."
+}
+
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+    throw "Required command not found: docker"
+}
+
+$pocRoot = Split-Path -Parent $PSScriptRoot
+$envMap = Read-DotEnv (Join-Path $pocRoot '.env')
+
+$DbContainer = Get-EnvValue $envMap 'DB_CONTAINER_NAME' 'db'
+$DbPort = Get-EnvValue $envMap 'DB_PORT' '5432'
+$DbName = Get-EnvValue $envMap 'DB_NAME' 'main'
+$DbAdminUser = Get-EnvValue $envMap 'DB_ADMIN_USER' 'dbadmin'
+$DbAdminPassword = Get-EnvValue $envMap 'DB_ADMIN_PASSWORD' 'dbadmin'
+$ResolvedDumpFile = Resolve-UserPath $DumpFile
+$safeDbName = $DbName -replace '[^A-Za-z0-9_.-]', '_'
+$ContainerDump = "/tmp/dump_load_db_${safeDbName}_$PID.dump"
+$ContainerList = "/tmp/dump_load_db_${safeDbName}_$PID.list"
+
+Test-ContainerRunning $DbContainer
+
+try {
+    switch ($Action) {
+        'dump' { Invoke-DumpDatabase }
+        'load' { Invoke-LoadDatabase }
+    }
+}
+finally {
+    & docker exec $DbContainer rm -f $ContainerDump $ContainerList *> $null
 }

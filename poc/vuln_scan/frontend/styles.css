@@ -400,10 +400,17 @@ h2 {
   width: 100%;
 }
 
-.auto-approval-options {
+.approval-config {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 14px;
+  gap: 6px 10px;
+}
+
+.approval-summary {
+  color: #2f6feb;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .auto-approval-option {
@@ -427,6 +434,224 @@ h2 {
   opacity: 0.55;
 }
 
+.phase-one-search-option {
+  margin-right: auto;
+}
+
+/* MCP request approval dialog */
+.approval-dialog {
+  border: 1px solid #d7dde5;
+  border-radius: 10px;
+  box-shadow: 0 18px 48px rgba(15, 23, 32, 0.28);
+  color: #17202a;
+  max-width: 540px;
+  padding: 0;
+  width: calc(100vw - 32px);
+}
+
+.approval-dialog::backdrop {
+  background: rgba(15, 23, 32, 0.45);
+}
+
+.approval-dialog-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 20px;
+}
+
+.approval-dialog-header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.approval-dialog-close {
+  border: 0;
+  font-size: 20px;
+  line-height: 1;
+  min-height: 28px;
+  padding: 0 8px;
+}
+
+.approval-dialog-hint {
+  color: #596677;
+  font-size: 13px;
+}
+
+.approval-mode-fieldset {
+  border: 1px solid #e3e7ed;
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 12px 12px;
+}
+
+.approval-mode-fieldset legend {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0 6px;
+  text-transform: uppercase;
+}
+
+.approval-mode-option {
+  align-items: start;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px 6px;
+}
+
+.approval-mode-option + .approval-mode-option {
+  border-top: 1px solid #edf0f4;
+}
+
+.approval-mode-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 2px;
+  width: 16px;
+}
+
+.approval-mode-text {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-mode-label {
+  color: #17202a;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.approval-mode-desc {
+  color: #596677;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.approval-llm-config {
+  border: 1px solid #e3e7ed;
+  border-radius: 8px;
+  display: none;
+  gap: 10px;
+  padding: 12px;
+}
+
+.approval-llm-config.active {
+  display: grid;
+}
+
+.approval-llm-config h3 {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.approval-llm-hint {
+  color: #596677;
+  font-size: 12px;
+}
+
+.approval-llm-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.approval-llm-fields label {
+  color: #596677;
+  display: grid;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+}
+
+.approval-llm-fields select {
+  width: 100%;
+}
+
+.approval-escalation-option {
+  align-items: start;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.approval-escalation-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 2px;
+  width: 16px;
+}
+
+.approval-escalation-text {
+  display: grid;
+  gap: 3px;
+}
+
+.approval-escalation-label {
+  color: #17202a;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.approval-escalation-desc {
+  color: #596677;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.approval-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.approval-dialog-actions button {
+  background: #17202a;
+  border-color: #17202a;
+  color: #ffffff;
+  padding: 0 22px;
+}
+
+.approval-dialog-actions button:hover:not(:disabled) {
+  background: #2b3a4a;
+  border-color: #2b3a4a;
+}
+
+/* Smart approver verdict inside a manual tool-approval card */
+.tool-approval-review {
+  background: #f2f8ef;
+  border: 1px solid #cfe0c8;
+  border-left: 4px solid #3f9142;
+  border-radius: 6px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+}
+
+.tool-approval-review.flagged {
+  background: #fff6ec;
+  border-color: #f0d2a8;
+  border-left-color: #d68a1e;
+}
+
+.tool-approval-review-heading {
+  color: #17202a;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.tool-approval-review-reason {
+  color: #394656;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .constraints-field {
   color: #596677;
   display: grid;
@@ -437,6 +662,118 @@ h2 {
 
 .constraints-field {
   padding: 12px 16px 0;
+}
+
+.prior-reports-field {
+  border-top: 1px solid #e3e7ed;
+  display: grid;
+  gap: 8px;
+  padding: 12px 16px 4px;
+}
+
+.prior-reports-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.prior-reports-label {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.prior-reports-summary {
+  color: #2f6feb;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.prior-reports-controls {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  justify-content: flex-end;
+}
+
+.prior-reports-compact-option {
+  align-items: center;
+  color: #394656;
+  display: flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.prior-reports-compact-option input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin: 0;
+  width: 16px;
+}
+
+.prior-reports-compact-option:has(input:disabled) {
+  opacity: 0.55;
+}
+
+.prior-reports-list {
+  border: 1px solid #e3e7ed;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.prior-report-row {
+  align-items: start;
+  border-bottom: 1px solid #edf0f4;
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 10px 12px;
+}
+
+.prior-report-row:last-child {
+  border-bottom: 0;
+}
+
+.prior-report-row:hover {
+  background: #f5f8ff;
+}
+
+.prior-report-row:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.prior-report-row input {
+  accent-color: #2f6feb;
+  height: 16px;
+  margin-top: 3px;
+  width: 16px;
+}
+
+.prior-report-row-text {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.prior-report-row-title {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.prior-report-row-title .report-type {
+  font-size: 13px;
 }
 
 .tool-approvals {
@@ -521,6 +858,27 @@ h2 {
   white-space: pre-wrap;
 }
 
+.tool-approval-auto {
+  background: #f5f7fa;
+  border: 1px solid #e3e7ed;
+  border-radius: 6px;
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+  padding: 8px 10px;
+}
+
+.tool-approval-reason {
+  border: 1px solid #a7b0bc;
+  border-radius: 6px;
+  color: #17202a;
+  font: inherit;
+  min-height: 36px;
+  padding: 0 10px;
+  width: 100%;
+}
+
 .tool-approval-actions {
   display: flex;
   gap: 8px;
@@ -556,6 +914,163 @@ h2 {
   min-height: 320px;
 }
 
+/* Rendered Markdown inside report panels (keeps the dark report theme). */
+.markdown-body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body .md-h1,
+.markdown-body .md-h2,
+.markdown-body .md-h3,
+.markdown-body .md-h4,
+.markdown-body .md-h5,
+.markdown-body .md-h6 {
+  color: #ffffff;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 18px 0 8px;
+}
+
+.markdown-body .md-h1 {
+  border-bottom: 1px solid #2b3a4a;
+  font-size: 20px;
+  padding-bottom: 6px;
+}
+
+.markdown-body .md-h2 {
+  border-bottom: 1px solid #233140;
+  font-size: 17px;
+  padding-bottom: 4px;
+}
+
+.markdown-body .md-h3 {
+  font-size: 15px;
+}
+
+.markdown-body .md-h4,
+.markdown-body .md-h5,
+.markdown-body .md-h6 {
+  color: #b9c7d6;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.markdown-body .md-p {
+  margin: 8px 0;
+}
+
+.markdown-body .md-list {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.markdown-body .md-list .md-list {
+  margin: 4px 0;
+}
+
+.markdown-body .md-li {
+  margin: 3px 0;
+}
+
+.markdown-body .md-li > .md-p {
+  margin: 4px 0;
+}
+
+.markdown-body a.md-link {
+  color: #6fb1ff;
+  text-decoration: underline;
+}
+
+.markdown-body a.md-link:hover {
+  color: #9ccaff;
+}
+
+.markdown-body strong {
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.markdown-body em {
+  font-style: italic;
+}
+
+.markdown-body del {
+  opacity: 0.7;
+}
+
+.markdown-body code.md-code-inline {
+  background: #1d2a38;
+  border: 1px solid #2b3a4a;
+  border-radius: 4px;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  padding: 1px 5px;
+}
+
+.markdown-body pre.md-code {
+  background: #0a0f16;
+  border: 1px solid #2b3a4a;
+  border-radius: 6px;
+  margin: 10px 0;
+  overflow: auto;
+  padding: 12px;
+}
+
+.markdown-body pre.md-code code {
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 12.5px;
+  white-space: pre;
+}
+
+.markdown-body blockquote.md-quote {
+  border-left: 3px solid #3a4d61;
+  color: #b9c7d6;
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+}
+
+.markdown-body hr.md-hr {
+  border: 0;
+  border-top: 1px solid #2b3a4a;
+  margin: 14px 0;
+}
+
+.markdown-body table.md-table {
+  border-collapse: collapse;
+  display: block;
+  margin: 10px 0;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.markdown-body table.md-table th,
+.markdown-body table.md-table td {
+  border: 1px solid #2b3a4a;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.markdown-body table.md-table th {
+  background: #1d2a38;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.markdown-body table.md-table tr:nth-child(even) td {
+  background: #131c26;
+}
+
 .report-detail .stored-report-meta {
   border-top: 0;
   white-space: pre-wrap;
@@ -563,6 +1078,31 @@ h2 {
 
 .report-viewer {
   min-height: calc(100vh - 220px);
+}
+
+.condensed-summary {
+  display: flex;
+  flex-direction: column;
+}
+
+.condensed-summary-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+
+.condensed-summary-title {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.condensed-summary-body {
+  min-height: 0;
 }
 
 @media (max-width: 860px) {
@@ -597,5 +1137,9 @@ h2 {
     flex: 1 1 auto;
     margin-right: 0;
     width: 100%;
+  }
+
+  .approval-llm-fields {
+    grid-template-columns: 1fr;
   }
 }

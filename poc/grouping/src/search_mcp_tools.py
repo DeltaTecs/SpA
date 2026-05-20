@@ -6,17 +6,21 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Optional
+from urllib.parse import urlencode
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
-from mcp_client import MCPClient, MCPToolSpec
+from mcp_client import MCPClient, MCPToolSpec, redact_url
 
 
 logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[str], None]
-GROUPING_SEARCH_MCP_TOOL_NAMES = frozenset({"tavily_search"})
+# Project-wide cap on Tavily tools exposed to the LLM. Kept in sync with
+# TAVILY_ALLOWED_TOOL_NAMES in the vuln_scan mcp_proxy_tools module.
+GROUPING_SEARCH_MCP_TOOL_NAMES = frozenset({"tavily_search", "tavily_extract"})
+TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
 
 
 @dataclass(frozen=True)
@@ -50,9 +54,12 @@ def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
             for server_id, label, url in _parse_server_list(raw)
         ]
 
-    url = os.environ.get("SEARCH_MCP_URL")
+    url = os.environ.get("SEARCH_MCP_URL") or os.environ.get("TAVILY_MCP_URL")
     if not url:
-        return []
+        tavily_api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+        if not tavily_api_key:
+            return []
+        url = _tavily_remote_mcp_url(tavily_api_key)
 
     return [
         MCPServerSpec(
@@ -99,16 +106,18 @@ def build_search_mcp_tools(
     catalog_lines = ["=== Available Search MCP Tool ==="]
 
     for server in server_list:
-        _progress(progress_callback, f"Connecting MCP server {server.label} at {server.url}.")
+        _progress(
+            progress_callback,
+            f"Connecting MCP server {server.label} at {redact_url(server.url)}.",
+        )
         client = MCPClient(server.url)
         tool_specs = client.list_tools(timeout=server.tool_timeout_seconds)
         _progress(progress_callback, f"{server.label}: loaded {len(tool_specs)} MCP tools.")
 
         for spec in tool_specs:
             if spec.name not in GROUPING_SEARCH_MCP_TOOL_NAMES:
-                # Tavily also advertises extract/crawl/map/research tools. Grouping
-                # only needs public search context, so keep the packet assignment
-                # tool surface to database operations plus this one search primitive.
+                # Tavily also advertises crawl/map/research tools. They are
+                # outside the project-wide allowlist and never reach the LLM.
                 _progress(
                     progress_callback,
                     f"{server.label}: MCP tool hidden from grouping: {spec.name}",
@@ -167,6 +176,10 @@ def _parse_server_list(raw: str) -> list[tuple[str, str, str]]:
         label = server_id.replace("_", " ").title()
         servers.append((server_id, label, url.strip()))
     return servers
+
+
+def _tavily_remote_mcp_url(api_key: str) -> str:
+    return f"{TAVILY_REMOTE_MCP_ENDPOINT}?{urlencode({'tavilyApiKey': api_key})}"
 
 
 def _args_schema(tool_name: str, input_schema: Dict[str, Any]) -> type[BaseModel]:

@@ -1,24 +1,26 @@
 services:
 
   # database for packets and annotations
-  postgres:
+  db:
     image: postgres:15
     container_name: ${DB_CONTAINER_NAME}
     environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_USER: ${DB_ADMIN_USER}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
     ports:
       - "${DB_PORT_HOST}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
       - ./db:/docker-entrypoint-initdb.d:ro
     networks:
       - app-network
     healthcheck:
       # pg_isready by default attempts to connect to a database with the same name as the user.
       # The DB we create is `main`, so include `-d main` so the healthcheck targets the correct DB.
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_ADMIN_USER} -d ${DB_NAME}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -35,34 +37,40 @@ services:
     networks:
       - app-network
     depends_on:
-      - postgres
+      - db
 
   # service for processing pcap files and inserting into the database
   pcap-processor:
     build: ./pcap_processing
     container_name: ${PCAP_PROCESSOR_CONTAINER_NAME}
-    env_file:
-      - ./.env
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     volumes:
       - ./pcap_processing/parsing:/app/parsing
       - ./pcap_processing/util:/app/util
       - ./pcap_processing/reset_db.py:/app/reset_db.py
       - ./pcap_processing/run_pipeline_internal.sh:/app/run_pipeline_internal.sh
       - ./db:/app/db
-      - ./.env:/app/.env:ro
     networks:
       - app-network
     depends_on:
-      - postgres
+      - db
     tty: true
 
   # service for exposing the packet database via MCP
   mcp-packet-db:
     build: ./mcp/packet_db_server
     container_name: mcp-packet-db
-    env_file:
-      - ./.env
     environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - MCP_TRANSPORT=streamable-http
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8765
@@ -72,13 +80,38 @@ services:
     networks:
       - app-network
     depends_on:
-      - postgres
+      - db
+
+  # VPN egress for active HexStrike scans. scanner-api still reaches the MCP
+  # servers over the internal scanner-hexstrike-network on ports 8766/8767.
+  hexstrike-vpn:
+    image: qmcgaw/gluetun:v3
+    container_name: hexstrike-vpn
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${PROTONVPN_WIREGUARD_PRIVATE_KEY:?set PROTONVPN_WIREGUARD_PRIVATE_KEY in poc/.env}
+      - SERVER_COUNTRIES=${PROTONVPN_SERVER_COUNTRIES:-Netherlands}
+      - FIREWALL_INPUT_PORTS=8766,8767
+      - TZ=${TZ:-Europe/Berlin}
+    volumes:
+      - gluetun_data:/gluetun
+    networks:
+      scanner-hexstrike-network:
+        aliases:
+          - mcp-hexstrike
 
   # penetration testing MCP tools
   mcp-hexstrike:
     build: ./mcp/hexstrike
     container_name: mcp-hexstrike
     restart: unless-stopped
+    network_mode: "service:hexstrike-vpn"
     environment:
       - HEXSTRIKE_MODE=mcp-http
       - HEXSTRIKE_ENABLE_BASH_MCP=1
@@ -92,27 +125,10 @@ services:
       - HEXSTRIKE_MCP_HTTP_PORT=8767
       - HEXSTRIKE_MCP_HTTP_TIMEOUT=900
       - LOG_LEVEL=VERBOSE
-    ports:
-      - "8766:8766"
-      - "8767:8767"
-    networks:
-      - app-network
+    depends_on:
+      - hexstrike-vpn
     tty: true
     stdin_open: true
-
-  # web search MCP tools backed by Tavily
-  mcp-search-engine:
-    build: ./mcp/search_engine
-    container_name: mcp-search-engine
-    restart: unless-stopped
-    environment:
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - TAVILY_HUMAN_ID=${TAVILY_HUMAN_ID:-}
-      - TAVILY_DEFAULT_PARAMETERS=${TAVILY_DEFAULT_PARAMETERS:-}
-    ports:
-      - "8768:8768"
-    networks:
-      - app-network
 
   # LLM based network packet grouping/aggregation into events
   grouping:
@@ -128,21 +144,37 @@ services:
               count: all
               capabilities: [gpu]
     environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - MCP_URL=http://mcp-packet-db:8765
-      - SEARCH_MCP_URL=http://mcp-search-engine:8768
       - PYTHONPATH=/app/src:/app/mcp_packet_db_server/src
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
+      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
+      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
+      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
+      - PROVIDER=${PROVIDER:-ollama}
+      - MODEL=${MODEL:-}
+      - API_KEY=${API_KEY:-}
+      - API_BASE_URL=${API_BASE_URL:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
     volumes:
       - ./grouping:/app
       - ./mcp/packet_db_server/src:/app/mcp_packet_db_server/src:ro
-      - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama
     networks:
       - app-network
     depends_on:
       - mcp-packet-db
-      - mcp-search-engine
     tty: true
     stdin_open: true
 
@@ -162,18 +194,15 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - MCP_URL=http://mcp-packet-db:8765
-      - SEARCH_MCP_URL=http://mcp-search-engine:8768
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
     volumes:
       - ./vuln_scan/backend/llm:/app
       - ./vuln_scan/data:/app/data
-      - ./.env:/app/.env:ro
       - ollama_models:/root/.ollama
     networks:
       - app-network
     depends_on:
       - mcp-packet-db
-      - mcp-search-engine
     tty: true
     stdin_open: true
 
@@ -184,29 +213,67 @@ services:
       dockerfile: backend/api/Dockerfile
     container_name: scanner-api
     restart: unless-stopped
-    env_file:
-      - ./.env
     environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
       - MCP_URL=http://mcp-packet-db:8765
       - OLLAMA_HOST=http://scanner-llm:11434
       - APP_DETAILS=/data/app_details.txt
       - USER_INTEND=/data/user_intend.txt
-      - SEARCH_MCP_URL=http://mcp-search-engine:8768
-      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,search_engine=http://mcp-search-engine:8768,hexstrike=http://mcp-hexstrike:8767,bash=http://mcp-hexstrike:8766
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
+      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
+      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
+      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
+      - SCANNER_PROVIDER=${SCANNER_PROVIDER:-}
+      - SCANNER_MODEL=${SCANNER_MODEL:-}
+      - SCANNER_OLLAMA_MODEL=${SCANNER_OLLAMA_MODEL:-}
+      - SCANNER_DEEPSEEK_MODEL=${SCANNER_DEEPSEEK_MODEL:-}
+      - SCANNER_OPENAI_MODEL=${SCANNER_OPENAI_MODEL:-}
+      - SCANNER_GEMINI_MODEL=${SCANNER_GEMINI_MODEL:-}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-}
+      - SCANNER_OLLAMA_MODELS=${SCANNER_OLLAMA_MODELS:-}
+      - SCANNER_DEEPSEEK_MODELS=${SCANNER_DEEPSEEK_MODELS:-}
+      - SCANNER_OPENAI_MODELS=${SCANNER_OPENAI_MODELS:-}
+      - SCANNER_GEMINI_MODELS=${SCANNER_GEMINI_MODELS:-}
+      - OLLAMA_MODELS=${OLLAMA_MODELS:-}
+      - DEEPSEEK_MODELS=${DEEPSEEK_MODELS:-}
+      - OPENAI_MODELS=${OPENAI_MODELS:-}
+      - GEMINI_MODELS=${GEMINI_MODELS:-}
+      - PROVIDER=${PROVIDER:-}
+      - MODEL=${MODEL:-}
+      - API_KEY=${API_KEY:-}
+      - API_BASE_URL=${API_BASE_URL:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://hexstrike-vpn:8767,bash=http://hexstrike-vpn:8766
       - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
       - LOG_LEVEL=VERBOSE
+      - SCAN_LOG_ROOT=/logs/vuln_scan
+      - PYTHONDONTWRITEBYTECODE=1
     volumes:
-      - ./vuln_scan/backend/api:/app
-      - ./vuln_scan/backend/llm:/llm
+      - ./vuln_scan/backend/api:/app:ro
+      - ./vuln_scan/backend/llm:/llm:ro
       - ./vuln_scan/data:/data:ro
+      - ./logs:/logs
     ports:
       - "8090:8000"
     networks:
       - app-network
+      - scanner-hexstrike-network
     depends_on:
       - mcp-packet-db
-      - mcp-search-engine
+      - hexstrike-vpn
       - mcp-hexstrike
       - scanner-llm
 
@@ -223,11 +290,15 @@ services:
       - scanner-api
 
 volumes:
-  postgres_data:
+  db_data:
+    driver: local
+  gluetun_data:
     driver: local
   ollama_models:
     driver: local
 
 networks:
   app-network:
+    driver: bridge
+  scanner-hexstrike-network:
     driver: bridge

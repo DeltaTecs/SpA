@@ -304,12 +304,28 @@ def update_event_description_record(cursor, event_id: int, description: str) -> 
 
 
 def ensure_packet_event_metadata_columns(cursor) -> None:
-    """Make older databases compatible with assignment metadata writes."""
+    """Verify reset/init migrations have created assignment metadata columns."""
 
-    cursor.execute("ALTER TABLE packet_event ADD COLUMN IF NOT EXISTS reason text")
     cursor.execute(
-        "ALTER TABLE packet_event ADD COLUMN IF NOT EXISTS confidence double precision"
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'packet_event'
+          AND column_name IN ('reason', 'confidence')
+        """
     )
+    present = {
+        row["column_name"] if isinstance(row, dict) else row[0]
+        for row in cursor.fetchall() or []
+    }
+    missing = {"reason", "confidence"} - present
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "packet_event is missing required column(s): "
+            f"{missing_text}; run the database reset/admin migration"
+        )
 
 
 def packet_flow_tuple(cursor, packet_id: int) -> Optional[Dict[str, Any]]:

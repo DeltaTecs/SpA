@@ -2,11 +2,11 @@
 
 Vulnerability assessment triage for authorized targets. Phase one loads a
 database event, gives an LLM read-only access to selected packet MCP tools, and
-emits a summary. If `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS` is configured,
-phase one also exposes search-engine MCP tools, such as Tavily search, as
-read-only context tools. Phase two reuses the same analyzer, event context, and
-MCP client foundations, then exposes configured MCP servers through a permission
-proxy.
+emits a summary. If web search is enabled for a run and `SEARCH_MCP_URL` or
+`SEARCH_MCP_SERVERS` is configured, phase one also exposes approved
+search-engine MCP tools as read-only context tools. Phase two reuses the same
+analyzer, event context, and MCP client foundations, then exposes configured MCP
+servers through a permission proxy.
 
 ## MCP Tools Exposed To The LLM
 
@@ -18,8 +18,11 @@ proxy.
 The scanner orchestrator also uses `event_packets(event_id)` to resolve the
 packets assigned to the requested event before invoking the LLM.
 
-Search tools are discovered from `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS` and
-use server-prefixed names such as `search_engine__tavily_search`.
+Search tools are discovered from `SEARCH_MCP_URL` or `SEARCH_MCP_SERVERS`. If
+neither is set and `TAVILY_API_KEY` is present, the scanner uses Tavily's
+official remote MCP endpoint at `https://mcp.tavily.com/mcp/`. Search tools use
+server-prefixed names such as `search_engine__tavily_search`. Tavily tools are
+limited project-wide to `tavily_search` and `tavily_extract`.
 
 Phase-two tools are discovered from `PHASE2_MCP_SERVERS` and exposed with
 server-prefixed names such as `packet__conversation_packets`,
@@ -31,9 +34,7 @@ except the packet DB tools `packet_info`,
 exposed in phase two. Every phase-two tool call blocks on the API/UI approval
 callback before the underlying MCP call runs.
 
-The Compose stack runs Tavily through `mcp-search-engine` at
-`http://mcp-search-engine:8768`. Set `TAVILY_API_KEY` in `poc/.env` before using
-the search tools.
+Set `TAVILY_API_KEY` in `poc/.env` before using the Tavily remote MCP tools.
 
 All prompts currently end with the test directive that instructs the model to
 reply `TEST COMPLETE` without running tools or analysis.

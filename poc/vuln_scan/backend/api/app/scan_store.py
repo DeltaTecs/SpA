@@ -9,40 +9,13 @@ from analysis_types import phase_two_scan_type_rows
 from .db import connection
 
 
-CREATE_SCAN_TYPE_TABLE = """
-CREATE TABLE IF NOT EXISTS scan_type (
-  scan_type_id bigserial PRIMARY KEY,
-  title text NOT NULL UNIQUE,
-  prompt text NOT NULL DEFAULT ''
-)
-"""
-
-
-CREATE_SCANS_TABLE = """
-CREATE TABLE IF NOT EXISTS scans (
-  scan_id bigserial PRIMARY KEY,
-  scan_type_id bigint NOT NULL REFERENCES scan_type(scan_type_id),
-  event_id bigint NOT NULL REFERENCES event(event_id) ON DELETE CASCADE,
-  llm_provider text NOT NULL DEFAULT '',
-  llm_model text NOT NULL DEFAULT '',
-  user_constrains text NOT NULL DEFAULT '',
-  tools_used text NOT NULL DEFAULT '',
-  summary text NOT NULL DEFAULT ''
-)
-"""
-
-
-CREATE_SCANS_EVENT_INDEX = """
-CREATE INDEX IF NOT EXISTS idx_scans_event_id ON scans(event_id)
-"""
+REQUIRED_SCAN_TABLES = ("scan_type", "scans")
 
 
 def ensure_scan_tables() -> None:
     with connection() as conn:
         with conn.cursor() as cursor:
-            cursor.execute(CREATE_SCAN_TYPE_TABLE)
-            cursor.execute(CREATE_SCANS_TABLE)
-            cursor.execute(CREATE_SCANS_EVENT_INDEX)
+            _assert_tables_exist(cursor, REQUIRED_SCAN_TABLES)
             _seed_scan_types(cursor)
 
 
@@ -104,7 +77,8 @@ def list_phase_two_scans(event_id: int) -> list[dict]:
                   scans.llm_model,
                   scans.user_constrains,
                   scans.tools_used,
-                  scans.summary
+                  scans.summary,
+                  scans.condensed_summary
                 FROM scans
                 JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
                 WHERE scans.event_id = %s
@@ -113,6 +87,58 @@ def list_phase_two_scans(event_id: int) -> list[dict]:
                 (event_id,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+
+def get_phase_two_scans(scan_ids: Sequence[int]) -> list[dict]:
+    unique_ids = sorted({int(scan_id) for scan_id in scan_ids})
+    if not unique_ids:
+        return []
+    ensure_scan_tables()
+    with connection() as conn:
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT
+                  scans.scan_id,
+                  scans.scan_type_id,
+                  scan_type.title AS scan_type_title,
+                  scan_type.prompt AS scan_type_prompt,
+                  scans.event_id,
+                  scans.llm_provider,
+                  scans.llm_model,
+                  scans.user_constrains,
+                  scans.tools_used,
+                  scans.summary,
+                  scans.condensed_summary
+                FROM scans
+                JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
+                WHERE scans.scan_id = ANY(%s)
+                ORDER BY scans.scan_id ASC
+                """,
+                (unique_ids,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+
+def set_scan_condensed_summary(scan_id: int, condensed_summary: str) -> bool:
+    """Persist the LLM-condensed summary for a scan. Returns False if scan is absent."""
+    ensure_scan_tables()
+    with connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE scans
+                SET condensed_summary = %s
+                WHERE scan_id = %s
+                """,
+                (condensed_summary, int(scan_id)),
+            )
+            return cursor.rowcount > 0
+
+
+def clear_scan_condensed_summary(scan_id: int) -> bool:
+    """Remove the stored condensed summary for a scan. Returns False if scan is absent."""
+    return set_scan_condensed_summary(scan_id, "")
 
 
 def _seed_scan_types(cursor) -> None:
@@ -125,6 +151,29 @@ def _seed_scan_types(cursor) -> None:
         """,
         phase_two_scan_type_rows(),
     )
+
+
+def _assert_tables_exist(cursor, table_names: Sequence[str]) -> None:
+    cursor.execute(
+        """
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND table_name = ANY(%s)
+        """,
+        (list(table_names),),
+    )
+    present = {
+        row["table_name"] if isinstance(row, dict) else row[0]
+        for row in cursor.fetchall() or []
+    }
+    missing = set(table_names) - present
+    if missing:
+        missing_text = ", ".join(sorted(missing))
+        raise RuntimeError(
+            "Database schema is missing required table(s): "
+            f"{missing_text}; run the database reset/admin migration"
+        )
 
 
 def _scan_type_id(cursor, title: str) -> int:

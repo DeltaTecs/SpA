@@ -43,6 +43,7 @@ def run_analysis(
     app_details: Optional[str] = None,
     user_actions: Optional[List[UserAction]] = None,
     db_access: Optional[DatabaseAccess] = None,
+    enable_web_search: bool = False,
 ) -> None:
     """Assign payload-bearing packets to events in capture order."""
 
@@ -56,7 +57,11 @@ def run_analysis(
 
     logger.info("Found %d packets for recording %d", len(packet_ids), recording_id)
     stats = {"processed": 0, "skipped": 0, "errors": 0}
-    search_tools, search_tool_catalog = build_search_mcp_tools_from_env()
+    if enable_web_search:
+        search_tools, search_tool_catalog = build_search_mcp_tools_from_env()
+    else:
+        logger.info("Web-search MCP tool disabled (use --web-search to enable).")
+        search_tools, search_tool_catalog = [], ""
 
     for index, metadata in enumerate(packet_metadata, start=1):
         packet_id = metadata.packet_id
@@ -102,6 +107,7 @@ def run_analysis(
                 tool_catalog=search_tool_catalog,
                 has_app_details=app_details is not None,
                 has_user_actions=bool(user_actions),
+                include_search_tools=bool(search_tools),
             )
             if mutation_state.get("done"):
                 stats["processed"] += 1

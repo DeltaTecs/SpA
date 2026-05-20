@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check e:/workspaces/SpA/poc/vuln_scan/frontend/app.js)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('e:/workspaces/SpA/poc/vuln_scan/backend/api/app/main.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Bash(python -m unittest test.test_scan_store -v)",
+      "Bash(python -m unittest test_scan_store -v)",
+      "Bash(python -m py_compile poc/vuln_scan/backend/api/app/main.py poc/vuln_scan/backend/api/app/scan_store.py)",
+      "Bash(node --check poc/vuln_scan/frontend/app.js)",
+      "Bash(cd poc *)",
+      "Read(//e/workspaces/**)",
+      "Bash(python -m unittest test.test_analysis_sessions -v)",
+      "Bash(python -m unittest test.test_prompts -v)",
+      "Bash(python -m unittest discover -s test -v)",
+      "Bash(python -m py_compile api/app/main.py api/app/analysis_sessions.py llm/src/llm_analyzer.py llm/src/prompts.py llm/src/smart_approver.py)",
+      "Bash(node --check app.js)",
+      "Bash(python -m unittest discover -s test -p \"test_analysis_sessions.py\")",
+      "Bash(git diff *)",
+      "Bash(python -m unittest discover -s test)",
+      "Bash(grep -E \"ok$|FAIL$\")"
+    ]
+  }
+}

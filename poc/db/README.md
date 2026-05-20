@@ -2,23 +2,7 @@
 
 The `docker-compose.yml` is located in the parent directory (`../`). It runs a PostgreSQL instance and uses the initialization SQL script in this directory to create the schema and seed default protocol names/stacks.
 
-Quick start (PowerShell):
-
-```powershell
-cd ..
-docker compose up -d
-docker compose ps
-```
-
-Verify the DB was initialized (example using `psql` from the host or another container):
-
-```powershell
-# connect from host if psql is installed
-psql -h localhost -U appuser -d main -W
-SELECT * FROM protocol;
-```
-
-Dump / load (overwrite)
+## Dump / load (overwrite)
 
 PowerShell (Windows):
 
@@ -37,9 +21,13 @@ Bash (Linux/WSL/macOS):
 ```
 
 Notes:
-- `load` always overwrites existing schema objects.
+- `load` does not clear existing table content, but simply inserts into the tables.
 - The scripts read DB/container settings from `poc/.env` by default.
 
 Notes:
-- `init_db.sql` is mounted into `/docker-entrypoint-initdb.d/` so it runs only on first container initialization.
+- `init_db.sql` is mounted into `/docker-entrypoint-initdb.d/` so the base
+  schema is created on first container initialization.
+- Runtime role creation and grants are applied by `pcap_processing/reset_db.py`
+  when the database is reset. Run `./reset_db.ps1` or `./reset_db.sh` after
+  creating a fresh volume before relying on `dbuser`.
 - Change credentials in `docker-compose.yml` as needed.

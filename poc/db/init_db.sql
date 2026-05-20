@@ -142,7 +142,8 @@ CREATE TABLE IF NOT EXISTS scans (
   llm_model text NOT NULL DEFAULT '',
   user_constrains text NOT NULL DEFAULT '',
   tools_used text NOT NULL DEFAULT '',
-  summary text NOT NULL DEFAULT ''
+  summary text NOT NULL DEFAULT '',
+  condensed_summary text NOT NULL DEFAULT ''
 );
 
 -- Many-to-many between packet and header_information

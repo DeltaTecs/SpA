@@ -1,23 +1,26 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 import os
 import re
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, Dict, Iterable, Mapping, Optional
+from urllib.parse import urlencode
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
-from mcp_client import MCPClient, MCPToolSpec
+from mcp_client import MCPClient, MCPToolSpec, redact_url
 
 
 logger = logging.getLogger(__name__)
 
-ApprovalCallback = Callable[[dict[str, Any]], bool]
+# An approval callback returns ``(approved, reason)``. ``reason`` explains a
+# denial so the requesting LLM can adjust the tool call; it is empty for
+# approvals.
+ApprovalCallback = Callable[[dict[str, Any]], tuple[bool, str]]
 ProgressCallback = Callable[[str], None]
 ToolStartCallback = Callable[[dict[str, Any]], str]
 ToolStopRequestedCallback = Callable[[str], bool]
@@ -35,6 +38,10 @@ PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES = {
     "packet_payload_hexdump",
     "packets_in_time_window",
 }
+TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
+# Project-wide cap on Tavily MCP tools the LLM may ever see. Other Tavily tools
+# (crawl, map, research, ...) are hidden regardless of stage or approval mode.
+TAVILY_ALLOWED_TOOL_NAMES = frozenset({"tavily_search", "tavily_extract"})
 
 
 @dataclass(frozen=True)
@@ -85,7 +92,9 @@ class PermissionedMCPToolProxy:
         tools: list[StructuredTool] = []
 
         for server in self.servers:
-            self._progress(f"Connecting MCP server {server.label} at {server.url}.")
+            self._progress(
+                f"Connecting MCP server {server.label} at {redact_url(server.url)}."
+            )
             client = MCPClient(
                 server.url,
                 connect_timeout=30,
@@ -107,6 +116,14 @@ class PermissionedMCPToolProxy:
                 ):
                     self._progress(
                         f"{server.label}: MCP tool hidden from phase two: {spec.name}"
+                    )
+                    continue
+                if (
+                    _is_search_engine_server(server)
+                    and spec.name not in TAVILY_ALLOWED_TOOL_NAMES
+                ):
+                    self._progress(
+                        f"{server.label}: search tool not in project allowlist: {spec.name}"
                     )
                     continue
                 allowed_tool_names = self.allowed_tool_names_by_server_id.get(
@@ -147,14 +164,16 @@ class PermissionedMCPToolProxy:
         tool_call = {
             "server_id": exposed.server.server_id,
             "server_label": exposed.server.label,
-            "server_url": exposed.server.url,
+            "server_url": redact_url(exposed.server.url),
             "exposed_tool_name": exposed.exposed_name,
             "tool_name": exposed.spec.name,
             "arguments": arguments,
         }
         self._progress(f"Awaiting approval for tool {exposed.exposed_name}.")
-        if not self.approval_callback(tool_call):
-            return f"Tool call denied by user: {json.dumps(tool_call, sort_keys=True)}"
+        approved, denial_reason = self.approval_callback(tool_call)
+        if not approved:
+            self._progress(f"Tool {exposed.exposed_name} was not approved.")
+            return _format_denial_message(exposed.exposed_name, denial_reason)
 
         self._progress(f"Running approved tool {exposed.exposed_name}.")
         client = self.clients[exposed.server.server_id]
@@ -267,33 +286,22 @@ class PermissionedMCPToolProxy:
 def analysis_mcp_server_specs_from_env() -> list[MCPServerSpec]:
     timeout = float(os.environ.get("PHASE2_MCP_TOOL_TIMEOUT_SECONDS", "900"))
     raw = os.environ.get("PHASE2_MCP_SERVERS")
-    if raw:
-        return [
-            MCPServerSpec(server_id=server_id, label=label, url=url, tool_timeout_seconds=timeout)
+    if not raw or not raw.strip():
+        raise RuntimeError(
+            "PHASE2_MCP_SERVERS must be set to a comma-separated MCP server list."
+        )
+
+    return _append_search_mcp_server_specs(
+        [
+            MCPServerSpec(
+                server_id=server_id,
+                label=label,
+                url=url,
+                tool_timeout_seconds=timeout,
+            )
             for server_id, label, url in _parse_server_list(raw)
         ]
-
-    specs = [
-        MCPServerSpec(
-            server_id="packet",
-            label="Packet DB",
-            url=os.environ.get("MCP_URL", "http://mcp-packet-db:8765"),
-            tool_timeout_seconds=timeout,
-        ),
-        MCPServerSpec(
-            server_id="hexstrike",
-            label="HexStrike",
-            url=os.environ.get("HEXSTRIKE_MCP_URL", "http://mcp-hexstrike:8767"),
-            tool_timeout_seconds=timeout,
-        ),
-        MCPServerSpec(
-            server_id="bash",
-            label="Bash",
-            url=os.environ.get("BASH_MCP_URL", "http://mcp-hexstrike:8766"),
-            tool_timeout_seconds=timeout,
-        ),
-    ]
-    return specs
+    )
 
 
 def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
@@ -312,9 +320,12 @@ def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
             for server_id, label, url in _parse_server_list(raw)
         ]
 
-    url = os.environ.get("SEARCH_MCP_URL")
+    url = os.environ.get("SEARCH_MCP_URL") or os.environ.get("TAVILY_MCP_URL")
     if not url:
-        return []
+        tavily_api_key = os.environ.get("TAVILY_API_KEY", "").strip()
+        if not tavily_api_key:
+            return []
+        url = _tavily_remote_mcp_url(tavily_api_key)
 
     return [
         MCPServerSpec(
@@ -324,6 +335,20 @@ def search_mcp_server_specs_from_env() -> list[MCPServerSpec]:
             tool_timeout_seconds=timeout,
         )
     ]
+
+
+def _append_search_mcp_server_specs(
+    specs: list[MCPServerSpec],
+) -> list[MCPServerSpec]:
+    """Add the official Tavily remote MCP server unless already configured."""
+
+    if any(_is_search_engine_server(server) for server in specs):
+        return specs
+    return [*specs, *search_mcp_server_specs_from_env()]
+
+
+def _tavily_remote_mcp_url(api_key: str) -> str:
+    return f"{TAVILY_REMOTE_MCP_ENDPOINT}?{urlencode({'tavilyApiKey': api_key})}"
 
 
 def build_auto_approved_mcp_tools(
@@ -340,7 +365,7 @@ def build_auto_approved_mcp_tools(
 
     proxy = PermissionedMCPToolProxy(
         server_list,
-        approval_callback=lambda _tool_call: True,
+        approval_callback=lambda _tool_call: (True, ""),
         progress_callback=progress_callback,
     )
     try:
@@ -352,6 +377,21 @@ def build_auto_approved_mcp_tools(
         return [], ""
 
     return tools, proxy.tool_catalog()
+
+
+def _format_denial_message(tool_name: str, reason: str) -> str:
+    """Build the tool result returned to the LLM when a call is not approved.
+
+    The reason is included verbatim so the model can revise the call (for
+    example, narrow its scope) and try again instead of giving up.
+    """
+    reason = (reason or "").strip() or "No reason was provided."
+    return (
+        f"Tool call to `{tool_name}` was not approved.\n"
+        f"Reason: {reason}\n"
+        "Revise the tool call to satisfy the stated constraints and safety "
+        "requirements, or continue the analysis without this tool."
+    )
 
 
 def _parse_server_list(raw: str) -> list[tuple[str, str, str]]:
@@ -439,6 +479,12 @@ def _is_packet_db_server(server: MCPServerSpec) -> bool:
         or "packet_db" in server_id
         or "packetdb" in server_id
     )
+
+
+def _is_search_engine_server(server: MCPServerSpec) -> bool:
+    server_id = _safe_identifier(server.server_id)
+    label = _safe_identifier(server.label)
+    return server_id in {"search", "search_engine", "tavily"} or "search" in label
 
 
 def _safe_identifier(value: str) -> str:

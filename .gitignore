@@ -50,6 +50,7 @@ htmlcov/
 # --- OS / misc ---
 .DS_Store
 Thumbs.db
+.claude/
 
 # Logs
 *.log
@@ -69,3 +70,6 @@ poc/vuln_scan/data
 .tmp/
 .tmp.*
 *.tmp
+
+# logs
+logs/

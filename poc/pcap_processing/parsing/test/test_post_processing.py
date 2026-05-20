@@ -15,8 +15,10 @@ class TestPostProcessing(unittest.TestCase):
         cls.db_host = os.environ.get('DB_HOST', 'localhost')
         cls.db_port = os.environ.get('DB_PORT', '5432')
         cls.db_name = os.environ.get('DB_NAME', 'main')
-        cls.db_user = os.environ.get('DB_USER', 'appuser')
-        cls.db_password = os.environ.get('DB_PASSWORD', 'appuser_password')
+        cls.db_admin_user = os.environ.get('DB_ADMIN_USER', 'dbadmin')
+        cls.db_admin_password = os.environ.get('DB_ADMIN_PASSWORD', 'dbadmin')
+        cls.db_user = os.environ.get('DB_USER', 'dbuser')
+        cls.db_password = os.environ.get('DB_PASSWORD', 'dbuser')
         
         # Paths
         cls.base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +30,16 @@ class TestPostProcessing(unittest.TestCase):
 
         # Reset DB
         print(f"Resetting database {cls.db_name}...")
-        reset_db(cls.db_host, cls.db_port, cls.db_name, cls.db_user, cls.db_password, cls.init_sql_path)
+        reset_db(
+            cls.db_host,
+            cls.db_port,
+            cls.db_name,
+            cls.db_admin_user,
+            cls.db_admin_password,
+            cls.init_sql_path,
+            cls.db_user,
+            cls.db_password,
+        )
 
         # Run pcap_to_db.py
         print("Running pcap_to_db.py...")
@@ -112,7 +123,7 @@ class TestPostProcessing(unittest.TestCase):
         payload = row[0]
         self.assertIsNotNone(payload, "Packet 366 has no clear_application_payload")
         
-        # payload is bytes (bytea in postgres), so we need to decode or check bytes
+        # payload is bytes (bytea in db), so we need to decode or check bytes
         # The user said "contains the string ...". 
         # If the payload is text, it might be bytes in python.
         

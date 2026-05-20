@@ -208,8 +208,6 @@ RUN set -eux; \
 FROM python:3.11-slim-bookworm
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG PROTONVPN_RELEASE_VERSION=1.0.8
-ARG PROTONVPN_RELEASE_SHA256=0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180
 
 ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_VENV=/opt/hexstrike-venv \
@@ -246,40 +244,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN set -eux; \
     apt-get update; \
-    protonvpn_release="protonvpn-stable-release_${PROTONVPN_RELEASE_VERSION}_all.deb"; \
-    curl -fsSLo "/tmp/${protonvpn_release}" "https://repo.protonvpn.com/debian/dists/stable/main/binary-all/${protonvpn_release}"; \
-    echo "${PROTONVPN_RELEASE_SHA256}  /tmp/${protonvpn_release}" | sha256sum -c -; \
-    apt-get install -y --no-install-recommends "/tmp/${protonvpn_release}"; \
-    rm -f "/tmp/${protonvpn_release}"; \
-    rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    apt-get update; \
-    systemctl_path="$(command -v systemctl || true)"; \
-    restore_systemctl() { \
-      if [[ -n "${systemctl_path}" && -x "${systemctl_path}.real" ]]; then \
-        mv -f "${systemctl_path}.real" "${systemctl_path}"; \
-      fi; \
-    }; \
-    trap restore_systemctl EXIT; \
-    if [[ -n "${systemctl_path}" ]]; then \
-      mv "${systemctl_path}" "${systemctl_path}.real"; \
-      printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${systemctl_path}"; \
-      chmod +x "${systemctl_path}"; \
-    fi; \
-    apt-get install -y --no-install-recommends \
-      dbus \
-      gnome-keyring \
-      network-manager \
-      openvpn \
-      proton-vpn-cli \
-      wireguard-tools; \
-    restore_systemctl; \
-    trap - EXIT; \
-    rm -rf /var/lib/apt/lists/*
-
-RUN set -eux; \
-    apt-get update; \
     category_tools=( \
       nmap masscan amass fierce dnsenum theharvester responder enum4linux-ng arp-scan nbtscan \
       samba-common-bin smbmap gobuster feroxbuster dirsearch ffuf dirb nikto sqlmap wpscan \
@@ -312,6 +276,28 @@ COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
 COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/
+
+# HexStrike defaults come from Kali-style wordlist paths, while Debian packages
+# install the same bundled dictionaries under tool-specific directories.
+RUN set -eux; \
+    mkdir -p /usr/share/wordlists; \
+    if [[ ! -e /usr/share/wordlists/dirb ]]; then \
+      ln -s /usr/share/dirb/wordlists /usr/share/wordlists/dirb; \
+    fi; \
+    mkdir -p /usr/share/wordlists/dirbuster /usr/share/wordlists/dirsearch; \
+    if [[ ! -e /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt ]]; then \
+      if [[ -e /usr/share/wfuzz/wordlist/general/medium.txt ]]; then \
+        ln -s /usr/share/wfuzz/wordlist/general/medium.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+      else \
+        ln -s /usr/share/dirb/wordlists/big.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+      fi; \
+    fi; \
+    if [[ ! -e /usr/share/wordlists/dirsearch/common.txt ]]; then \
+      ln -s /opt/dirsearch/db/dicc.txt /usr/share/wordlists/dirsearch/common.txt; \
+    fi; \
+    test -r /usr/share/wordlists/dirb/common.txt; \
+    test -r /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
+    test -r /usr/share/wordlists/dirsearch/common.txt
 
 RUN set -eux; \
     chmod +x /usr/local/bin/hexstrike-bash-mcp; \

@@ -13,6 +13,7 @@ sys.path.insert(0, str(API_DIR))
 sys.path.insert(0, str(LLM_SRC_DIR))
 
 from app import scan_store  # noqa: E402
+from analysis_types import phase_two_scan_type_rows  # noqa: E402
 
 
 class _FakeCursor:
@@ -20,6 +21,7 @@ class _FakeCursor:
         self.executed: list[tuple[str, tuple[Any, ...] | None]] = []
         self.fetchone_value: tuple[int, ...] | None = None
         self.fetchall_value: list[dict[str, Any]] = []
+        self.rowcount: int = 1
 
     def __enter__(self) -> "_FakeCursor":
         return self
@@ -29,7 +31,12 @@ class _FakeCursor:
 
     def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> None:
         self.executed.append((sql, params))
-        if "SELECT scan_type_id" in sql:
+        if "information_schema.tables" in sql:
+            self.fetchall_value = [
+                {"table_name": "scan_type"},
+                {"table_name": "scans"},
+            ]
+        elif "SELECT scan_type_id" in sql:
             self.fetchone_value = (7,)
         elif "RETURNING scan_id" in sql:
             self.fetchone_value = (42,)
@@ -46,6 +53,7 @@ class _FakeCursor:
                     "user_constrains": "stay in scope",
                     "tools_used": "hexstrike__nmap_scan",
                     "summary": "## Report",
+                    "condensed_summary": "## Condensed",
                 }
             ]
 
@@ -84,26 +92,9 @@ class ScanStoreTest(unittest.TestCase):
 
         seed_sql, seed_params = cursor.executed[-1]
         self.assertIn("INSERT INTO scan_type", seed_sql)
-        self.assertIn(
-            (
-                "Recon: Domain",
-                "Perform a security analysis and discovery of all domains mentioned in the event. Do not go beyond domain level scanning.",
-            ),
-            seed_params,
-        )
-        self.assertIn(
-            (
-                "Recon: HTTP Path/API",
-                "Perform discovery on any HTTP API or path found in the event.",
-            ),
-            seed_params,
-        )
-        self.assertIn(
-            (
-                "Post Recon - Explorative",
-                "Do not perform network scans or http analysis. Do not focus on authentication mechanisms. Perform a broad, explorative analysis of the remote service. Look for intricate, high impact vulnerabilities.",
-            ),
-            seed_params,
+        self.assertEqual(seed_params, phase_two_scan_type_rows())
+        self.assertTrue(
+            any("ADD COLUMN IF NOT EXISTS condensed_summary" in sql for sql, _ in cursor.executed)
         )
 
     def test_save_completed_phase_two_scan_inserts_requested_fields(self) -> None:
@@ -159,6 +150,44 @@ class ScanStoreTest(unittest.TestCase):
         self.assertEqual(select_params, (13,))
         self.assertEqual(reports[0]["scan_id"], 42)
         self.assertEqual(reports[0]["summary"], "## Report")
+        self.assertEqual(reports[0]["condensed_summary"], "## Condensed")
+
+
+    def test_set_scan_condensed_summary_updates_row(self) -> None:
+        cursor = _FakeCursor()
+        original_connection = scan_store.connection
+        original_ensure = scan_store.ensure_scan_tables
+        scan_store.connection = lambda: _fake_connection(cursor)
+        scan_store.ensure_scan_tables = lambda: None
+        try:
+            updated = scan_store.set_scan_condensed_summary(42, "## Condensed")
+        finally:
+            scan_store.connection = original_connection
+            scan_store.ensure_scan_tables = original_ensure
+
+        self.assertTrue(updated)
+        update_sql, update_params = cursor.executed[-1]
+        self.assertIn("UPDATE scans", update_sql)
+        self.assertIn("condensed_summary", update_sql)
+        self.assertEqual(update_params, ("## Condensed", 42))
+
+    def test_clear_scan_condensed_summary_reports_missing_scan(self) -> None:
+        cursor = _FakeCursor()
+        cursor.rowcount = 0
+        original_connection = scan_store.connection
+        original_ensure = scan_store.ensure_scan_tables
+        scan_store.connection = lambda: _fake_connection(cursor)
+        scan_store.ensure_scan_tables = lambda: None
+        try:
+            cleared = scan_store.clear_scan_condensed_summary(999)
+        finally:
+            scan_store.connection = original_connection
+            scan_store.ensure_scan_tables = original_ensure
+
+        self.assertFalse(cleared)
+        update_sql, update_params = cursor.executed[-1]
+        self.assertIn("UPDATE scans", update_sql)
+        self.assertEqual(update_params, ("", 999))
 
 
 if __name__ == "__main__":

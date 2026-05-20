@@ -14,6 +14,7 @@ PROVIDER="${PROVIDER:-ollama}"
 API_KEY="${API_KEY:-}"
 API_BASE_URL="${API_BASE_URL:-}"
 GROUPING_VERBOSE="${GROUPING_VERBOSE:-0}"
+GROUPING_ENABLE_WEB_SEARCH="${GROUPING_ENABLE_WEB_SEARCH:-0}"
 
 if [ "$PROVIDER" = "deepseek" ] && [ -z "$API_KEY" ] && [ -n "${DEEPSEEK_API_KEY:-}" ]; then
     API_KEY="$DEEPSEEK_API_KEY"
@@ -134,6 +135,12 @@ if [ -n "$USER_INTEND" ]; then
     CMD_ARGS+=(--user-intend "$USER_INTEND")
     echo "User intend: $USER_INTEND"
 fi
+case "$GROUPING_ENABLE_WEB_SEARCH" in
+    1|true|TRUE|yes|YES|on|ON)
+        CMD_ARGS+=(--web-search)
+        echo "Web search: enabled"
+        ;;
+esac
 
 python3 /app/src/packet_analyzer.py "${CMD_ARGS[@]}"
 

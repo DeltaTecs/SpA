@@ -306,8 +306,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--db-host", default="localhost", help="Database host")
     parser.add_argument("--db-port", type=int, default=5432, help="Database port")
     parser.add_argument("--db-name", default="main", help="Database name")
-    parser.add_argument("--db-user", default="appuser", help="Database user")
-    parser.add_argument("--db-password", default="appuser_password", help="Database password")
+    parser.add_argument("--db-user", default="dbuser", help="Database user")
+    parser.add_argument("--db-password", default="dbuser", help="Database password")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable debug logging")
     parser.add_argument(
         "--prune-encrypted-control",

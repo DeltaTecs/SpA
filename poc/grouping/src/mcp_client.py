@@ -14,11 +14,12 @@ import os
 import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 
 logger = logging.getLogger(__name__)
+SENSITIVE_QUERY_KEYS = {"api_key", "apikey", "key", "token", "tavilyapikey"}
 
 
 def _trace_mcp_calls() -> bool:
@@ -81,33 +82,50 @@ class MCPClient:
                     raise RuntimeError(f"Initialize failed: {resp.status_code}")
                 
                 self._session_id = resp.headers.get("mcp-session-id")
-                if not self._session_id:
-                    raise RuntimeError("No session ID in response")
-                
-                logger.info("MCP connected: session=%s", self._session_id)
-                
-                # Send initialized notification
-                headers["Mcp-Session-Id"] = self._session_id
+                logger.info(
+                    "MCP connected: session=%s",
+                    self._session_id or "(stateless)",
+                )
+
+                # Remote MCP servers may be stateless and omit mcp-session-id.
+                # Local FastMCP servers still return one, so include it when present.
+                if self._session_id:
+                    headers["Mcp-Session-Id"] = self._session_id
                 notif = {"jsonrpc": "2.0", "method": "notifications/initialized"}
                 self.session.post(self._endpoint, json=notif, headers=headers, timeout=5)
                 return
                 
             except requests.ConnectionError:
                 if attempt % 5 == 0:
-                    logger.info("Waiting for MCP server at %s ...", self.base_url)
+                    logger.info(
+                        "Waiting for MCP server at %s ...",
+                        redact_url(self.base_url),
+                    )
             except Exception as e:
                 logger.warning("MCP connection error (attempt %d): %s", attempt + 1, e)
             time.sleep(1)
 
-        raise RuntimeError(f"MCP server not reachable at {self.base_url}")
+        raise RuntimeError(f"MCP server not reachable at {redact_url(self.base_url)}")
 
     def _parse_sse_response(self, text: str) -> dict:
         """Parse SSE event stream and extract JSON-RPC result."""
+        data_lines: list[str] = []
         for line in text.splitlines():
             if line.startswith("data:"):
-                data = line[5:].strip()
-                if data.startswith("{"):
-                    return json.loads(data)
+                data_lines.append(line[5:].lstrip())
+                continue
+            if data_lines and line.strip():
+                data_lines.append(line)
+                continue
+            if not line.strip() and data_lines:
+                parsed = _parse_sse_data_lines(data_lines)
+                if parsed is not None:
+                    return parsed
+                data_lines = []
+        if data_lines:
+            parsed = _parse_sse_data_lines(data_lines)
+            if parsed is not None:
+                return parsed
         raise RuntimeError(f"No JSON data in response: {text[:200]}")
 
     def request(
@@ -118,14 +136,12 @@ class MCPClient:
         timeout: float = 30,
     ) -> dict:
         """Invoke one MCP JSON-RPC method and return the parsed response."""
-        if not self._session_id:
-            raise RuntimeError("MCP client not connected")
-
         headers = {
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
-            "Mcp-Session-Id": self._session_id,
         }
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
         payload = {
             "jsonrpc": "2.0",
             "id": 1,
@@ -297,11 +313,41 @@ def _mcp_endpoint(base_url: str) -> str:
     parsed = urlsplit(base_url.rstrip("/"))
     path = parsed.path.rstrip("/")
     if path.endswith("/mcp"):
+        endpoint_path = parsed.path if parsed.path.endswith("/") else path
         return urlunsplit(
-            (parsed.scheme, parsed.netloc, path, parsed.query, parsed.fragment)
+            (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
         )
 
     endpoint_path = f"{path}/mcp" if path else "/mcp"
     return urlunsplit(
         (parsed.scheme, parsed.netloc, endpoint_path, parsed.query, parsed.fragment)
     )
+
+
+def redact_url(url: str) -> str:
+    """Hide credential-like query parameters before URLs reach logs."""
+
+    parsed = urlsplit(url)
+    if not parsed.query:
+        return url
+
+    query = [
+        (key, "***" if key.lower() in SENSITIVE_QUERY_KEYS else value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+    ]
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
+    )
+
+
+def _parse_sse_data_lines(data_lines: list[str]) -> Optional[dict]:
+    """Parse JSON-RPC data from standard and Tavily-style SSE line framing."""
+
+    for data in ("".join(data_lines).strip(), "\n".join(data_lines).strip()):
+        if not data.startswith("{"):
+            continue
+        try:
+            return json.loads(data)
+        except json.JSONDecodeError:
+            continue
+    return None

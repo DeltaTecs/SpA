@@ -23,10 +23,7 @@ RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS = (
     "rustscan_fast_scan",
     "masscan_high_speed",
     "nbtscan_netbios",
-    "enum4linux_scan",
-    "enum4linux_ng_advanced",
     "rpcclient_enumeration",
-    "smbmap_scan",
     "netexec_scan",
     "gobuster_scan",
     "ffuf_scan",
@@ -35,17 +32,10 @@ RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS = (
     "dirsearch_scan",
     "katana_crawl",
     "hakrawler_crawl",
-    "gau_discovery",
-    "waybackurls_discovery",
     "arjun_parameter_discovery",
     "paramspider_discovery",
     "paramspider_mining",
     "x8_parameter_discovery",
-    "analyze_target_intelligence",
-    "detect_technologies_ai",
-    "ai_reconnaissance_workflow",
-    "bugbounty_reconnaissance_workflow",
-    "bugbounty_osint_gathering",
 )
 
 RECON_PORTS_HEXSTRIKE_MCP_TOOLS = (
@@ -57,8 +47,6 @@ RECON_PORTS_HEXSTRIKE_MCP_TOOLS = (
     "nbtscan_netbios",
     "fierce_scan",
     "dnsenum_scan",
-    "autorecon_scan",
-    "autorecon_comprehensive",
     "netexec_scan",
     "enum4linux_scan",
     "enum4linux_ng_advanced",
@@ -108,10 +96,6 @@ RECON_HTTP_PATH_API_HEXSTRIKE_MCP_TOOLS = (
 )
 
 AUTHENTICATION_HEXSTRIKE_MCP_TOOLS = (
-    "bugbounty_authentication_bypass_testing",
-    "bugbounty_business_logic_testing",
-    "bugbounty_comprehensive_assessment",
-    "bugbounty_vulnerability_hunting",
     "api_fuzzer",
     "graphql_scanner",
     "jwt_analyzer",
@@ -135,14 +119,7 @@ AUTHENTICATION_HEXSTRIKE_MCP_TOOLS = (
     "paramspider_mining",
     "x8_parameter_discovery",
     "qsreplace_parameter_replacement",
-    "ai_test_payload",
-    "ai_generate_attack_suite",
     "analyze_target_intelligence",
-    "select_optimal_tools_ai",
-    "optimize_tool_parameters_ai",
-    "create_attack_chain_ai",
-    "intelligent_smart_scan",
-    "ai_vulnerability_assessment",
 )
 
 CONFIGURATION_HEXSTRIKE_MCP_TOOLS = (
@@ -174,10 +151,6 @@ CONFIGURATION_HEXSTRIKE_MCP_TOOLS = (
     "falco_runtime_monitoring",
     "exiftool_extract",
     "analyze_target_intelligence",
-    "detect_technologies_ai",
-    "ai_vulnerability_assessment",
-    "create_vulnerability_report",
-    "create_scan_summary",
     "format_tool_output_visual",
 )
 
@@ -231,13 +204,6 @@ POST_RECON_HEXSTRIKE_MCP_TOOLS = (
     "wafw00f_scan",
     "fierce_scan",
     "generate_exploit_from_cve",
-    "discover_attack_chains",
-    "advanced_payload_generation",
-    "bugbounty_reconnaissance_workflow",
-    "bugbounty_vulnerability_hunting",
-    "bugbounty_file_upload_testing",
-    "bugbounty_comprehensive_assessment",
-    "bugbounty_authentication_bypass_testing",
     "browser_agent_inspect",
     "http_set_rules",
     "http_set_scope",
