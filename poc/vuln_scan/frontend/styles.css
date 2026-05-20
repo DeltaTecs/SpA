@@ -681,6 +681,31 @@ h2 {
   min-height: calc(100vh - 220px);
 }
 
+.condensed-summary {
+  display: flex;
+  flex-direction: column;
+}
+
+.condensed-summary-header {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 16px 0;
+}
+
+.condensed-summary-title {
+  color: #596677;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.condensed-summary-body {
+  min-height: 0;
+}
+
 @media (max-width: 860px) {
   .topbar {
     align-items: flex-start;

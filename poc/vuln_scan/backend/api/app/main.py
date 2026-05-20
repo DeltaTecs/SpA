@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import threading
@@ -34,13 +35,16 @@ from .analysis_sessions import AnalysisRun, AnalysisSessionStore
 from .prescan_sessions import PrescanRun, PrescanSessionStore
 from .prescan_store import get_prescan, list_prescans, prescan_dict, save_prescan
 from .scan_store import (
+    clear_scan_condensed_summary,
     get_phase_two_scans,
     list_phase_two_scans,
     save_completed_phase_two_scan,
+    set_scan_condensed_summary,
 )
 
 
 configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Vulnerability Scanner API")
 app.add_middleware(
@@ -121,6 +125,7 @@ class StoredScanReportItem(BaseModel):
     user_constrains: str = ""
     tools_used: str = ""
     summary: str = ""
+    condensed_summary: str = ""
 
 
 @dataclass(frozen=True)
@@ -186,6 +191,13 @@ def prescan(event_id: int) -> ScanResponse:
 @app.get("/events/{event_id}/scans", response_model=List[StoredScanReportItem])
 def stored_scan_reports(event_id: int) -> List[StoredScanReportItem]:
     return [StoredScanReportItem(**row) for row in list_phase_two_scans(event_id)]
+
+
+@app.delete("/scans/{scan_id}/condensed-summary")
+def delete_scan_condensed_summary(scan_id: int) -> dict:
+    if not clear_scan_condensed_summary(scan_id):
+        raise HTTPException(status_code=404, detail=f"No scan with scan_id {scan_id}")
+    return {"scan_id": scan_id, "condensed_summary": ""}
 
 
 @app.post("/phase1")
@@ -665,12 +677,34 @@ def _compact_prior_report_section(
         on_progress=progress_callback,
         scan_logger=scan_logger,
     )
+    _persist_condensed_summary(section, compacted, progress_callback)
     label = f"Compacted {section.label}"
     return PriorReportSection(
         scan_id=section.scan_id,
         label=label,
         markdown=f"--- {label} ---\n{compacted}",
     )
+
+
+def _persist_condensed_summary(
+    section: PriorReportSection,
+    condensed_summary: str,
+    progress_callback: Callable[[str], None],
+) -> None:
+    """Store the freshly condensed summary on the scan row it was derived from."""
+    try:
+        set_scan_condensed_summary(section.scan_id, condensed_summary)
+        progress_callback(
+            f"Stored condensed summary for prior scan report #{section.scan_id}."
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to store condensed summary for scan %d: %s", section.scan_id, exc
+        )
+        progress_callback(
+            f"Could not store condensed summary for prior scan report "
+            f"#{section.scan_id}: {exc}"
+        )
 
 
 def _prior_report_compaction_worker_count(report_count: int) -> int:

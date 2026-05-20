@@ -76,6 +76,9 @@ const selectedEvent = document.querySelector("#selectedEvent");
 const selectedReportLabel = document.querySelector("#selectedReport");
 const selectedReportMeta = document.querySelector("#selectedReportMeta");
 const selectedReportBody = document.querySelector("#selectedReportBody");
+const condensedSummarySection = document.querySelector("#condensedSummarySection");
+const condensedSummaryBody = document.querySelector("#condensedSummaryBody");
+const deleteCondensedSummaryButton = document.querySelector("#deleteCondensedSummaryButton");
 const statusLine = document.querySelector("#statusLine");
 const report = document.querySelector("#report");
 const startButton = document.querySelector("#startButton");
@@ -113,6 +116,7 @@ const priorReportsSummary = document.querySelector("#priorReportsSummary");
 const compactIncludedReports = document.querySelector("#compactIncludedReports");
 
 refreshButton.addEventListener("click", loadEvents);
+deleteCondensedSummaryButton.addEventListener("click", deleteCondensedSummary);
 refreshStoredReportsButton.addEventListener("click", () => refreshStoredReportsForSelectedEvent());
 startButton.addEventListener("click", startPhaseOne);
 enablePhaseOneWebSearch.addEventListener("change", () => {
@@ -723,12 +727,48 @@ function renderSelectedReport(reportItem) {
     selectedReportLabel.textContent = "Select a report from the reports list.";
     selectedReportMeta.textContent = "";
     selectedReportBody.textContent = "";
+    renderCondensedSummary(null);
     return;
   }
 
   selectedReportLabel.textContent = `Selected report ${reportItem.scan_id} for event ${reportItem.event_id}.`;
   selectedReportMeta.textContent = storedReportMetaText(reportItem);
   selectedReportBody.textContent = reportItem.summary || "(empty report)";
+  renderCondensedSummary(reportItem);
+}
+
+function renderCondensedSummary(reportItem) {
+  const condensed = reportItem?.condensed_summary?.trim();
+  if (!condensed) {
+    condensedSummarySection.hidden = true;
+    condensedSummaryBody.textContent = "";
+    deleteCondensedSummaryButton.disabled = true;
+    return;
+  }
+  condensedSummarySection.hidden = false;
+  condensedSummaryBody.textContent = condensed;
+  deleteCondensedSummaryButton.disabled = false;
+}
+
+async function deleteCondensedSummary() {
+  const reportItem = selectedReport();
+  if (!reportItem || !reportItem.condensed_summary) {
+    return;
+  }
+  const scanId = reportItem.scan_id;
+  deleteCondensedSummaryButton.disabled = true;
+  try {
+    const response = await fetch(`/api/scans/${scanId}/condensed-summary`, {method: "DELETE"});
+    if (!response.ok) {
+      throw new Error(await errorText(response));
+    }
+    reportItem.condensed_summary = "";
+    setStatus(`Deleted condensed summary for report ${scanId}.`);
+  } catch (error) {
+    setStatus(`Could not delete condensed summary for report ${scanId}: ${error.message}`, true);
+  } finally {
+    renderDetailPane();
+  }
 }
 
 function renderStoredReports() {

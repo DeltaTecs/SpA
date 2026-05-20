@@ -77,7 +77,8 @@ def list_phase_two_scans(event_id: int) -> list[dict]:
                   scans.llm_model,
                   scans.user_constrains,
                   scans.tools_used,
-                  scans.summary
+                  scans.summary,
+                  scans.condensed_summary
                 FROM scans
                 JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
                 WHERE scans.event_id = %s
@@ -107,7 +108,8 @@ def get_phase_two_scans(scan_ids: Sequence[int]) -> list[dict]:
                   scans.llm_model,
                   scans.user_constrains,
                   scans.tools_used,
-                  scans.summary
+                  scans.summary,
+                  scans.condensed_summary
                 FROM scans
                 JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
                 WHERE scans.scan_id = ANY(%s)
@@ -116,6 +118,27 @@ def get_phase_two_scans(scan_ids: Sequence[int]) -> list[dict]:
                 (unique_ids,),
             )
             return [dict(row) for row in cursor.fetchall()]
+
+
+def set_scan_condensed_summary(scan_id: int, condensed_summary: str) -> bool:
+    """Persist the LLM-condensed summary for a scan. Returns False if scan is absent."""
+    ensure_scan_tables()
+    with connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE scans
+                SET condensed_summary = %s
+                WHERE scan_id = %s
+                """,
+                (condensed_summary, int(scan_id)),
+            )
+            return cursor.rowcount > 0
+
+
+def clear_scan_condensed_summary(scan_id: int) -> bool:
+    """Remove the stored condensed summary for a scan. Returns False if scan is absent."""
+    return set_scan_condensed_summary(scan_id, "")
 
 
 def _seed_scan_types(cursor) -> None:
