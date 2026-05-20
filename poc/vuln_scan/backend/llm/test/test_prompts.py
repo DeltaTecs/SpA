@@ -9,6 +9,7 @@ SRC_DIR = Path(__file__).resolve().parents[1] / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from prompts import (  # noqa: E402
+    build_phase_two_system_prompt,
     build_prior_report_compaction_system_prompt,
     build_prior_reports_compaction_system_prompt,
     build_smart_approval_system_prompt,
@@ -16,6 +17,40 @@ from prompts import (  # noqa: E402
 
 
 class PromptTest(unittest.TestCase):
+    def test_phase_two_prompt_lists_hexstrike_wordlists(self) -> None:
+        prompt = build_phase_two_system_prompt(
+            analysis_types=["Recon: HTTP Path/API"],
+            has_app_details=False,
+            has_user_actions=False,
+            has_prescan=True,
+        )
+
+        self.assertIn("Wordlists available in the HexStrike container", prompt)
+        self.assertIn(
+            "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt",
+            prompt,
+        )
+        self.assertIn(
+            "/usr/share/seclists/Discovery/Web-Content/raft-medium-words-lowercase.txt",
+            prompt,
+        )
+        self.assertIn(
+            "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+            prompt,
+        )
+        self.assertIn(
+            "/usr/share/wordlists/assetnote/httparchive_directories_1m.txt",
+            prompt,
+        )
+        self.assertIn(
+            "/usr/share/wordlists/assetnote/httparchive_apiroutes.txt",
+            prompt,
+        )
+        self.assertIn(
+            "/usr/share/wordlists/assetnote/httparchive_parameters_top_1m.txt",
+            prompt,
+        )
+
     def test_prior_report_compaction_prompt_preserves_technical_findings(self) -> None:
         prompt = build_prior_report_compaction_system_prompt()
 

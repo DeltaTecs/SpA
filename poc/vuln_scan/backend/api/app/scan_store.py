@@ -28,6 +28,7 @@ def save_completed_phase_two_scan(
     user_constraints: str,
     tools_used: Sequence[str],
     summary: str,
+    duration_seconds: float,
 ) -> int:
     ensure_scan_tables()
     with connection() as conn:
@@ -42,9 +43,10 @@ def save_completed_phase_two_scan(
                   llm_model,
                   user_constrains,
                   tools_used,
-                  summary
+                  summary,
+                  duration
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING scan_id
                 """,
                 (
@@ -55,6 +57,7 @@ def save_completed_phase_two_scan(
                     user_constraints,
                     ", ".join(tools_used),
                     summary,
+                    duration_seconds,
                 ),
             )
             row = cursor.fetchone()
@@ -78,7 +81,8 @@ def list_phase_two_scans(event_id: int) -> list[dict]:
                   scans.user_constrains,
                   scans.tools_used,
                   scans.summary,
-                  scans.condensed_summary
+                  scans.condensed_summary,
+                  scans.duration
                 FROM scans
                 JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
                 WHERE scans.event_id = %s
@@ -109,7 +113,8 @@ def get_phase_two_scans(scan_ids: Sequence[int]) -> list[dict]:
                   scans.user_constrains,
                   scans.tools_used,
                   scans.summary,
-                  scans.condensed_summary
+                  scans.condensed_summary,
+                  scans.duration
                 FROM scans
                 JOIN scan_type ON scan_type.scan_type_id = scans.scan_type_id
                 WHERE scans.scan_id = ANY(%s)

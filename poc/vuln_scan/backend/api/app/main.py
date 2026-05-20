@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
@@ -138,6 +139,7 @@ class StoredScanReportItem(BaseModel):
     tools_used: str = ""
     summary: str = ""
     condensed_summary: str = ""
+    duration: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -527,6 +529,7 @@ def _run_phase2_background(
     api_base_url: Optional[str],
 ) -> None:
     run.start()
+    scan_started_at = time.monotonic()
     scan_logger = create_scan_run_logger(
         phase="phase2",
         run_id=run.run_id,
@@ -625,6 +628,7 @@ def _run_phase2_background(
             if scan_logger is not None:
                 scan_logger.info("Phase 2 run aborted before completion.")
             return
+        scan_duration_seconds = time.monotonic() - scan_started_at
         scan_id = save_completed_phase_two_scan(
             scan_type_title=(
                 run.analysis_types[0] if run.analysis_types else DEFAULT_ANALYSIS_TYPE
@@ -635,8 +639,12 @@ def _run_phase2_background(
             user_constraints=run.constraints,
             tools_used=run.tools_used(),
             summary=result,
+            duration_seconds=scan_duration_seconds,
         )
-        run.add_progress(f"Stored phase-two scan report: scan_id {scan_id}.")
+        run.add_progress(
+            f"Stored phase-two scan report: scan_id {scan_id} "
+            f"(took {scan_duration_seconds:.0f}s)."
+        )
         run.complete(result)
         if scan_logger is not None:
             scan_logger.info(

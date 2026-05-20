@@ -208,6 +208,8 @@ RUN set -eux; \
 FROM python:3.11-slim-bookworm
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG ASSETNOTE_WORDLIST_DATE=2026_01_27
+ARG ASSETNOTE_AUTOMATED_BASE=https://wordlists-cdn.assetnote.io/data/automated
 
 ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_VENV=/opt/hexstrike-venv \
@@ -278,26 +280,88 @@ COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/
 
 # HexStrike defaults come from Kali-style wordlist paths, while Debian packages
-# install the same bundled dictionaries under tool-specific directories.
+# install some bundled dictionaries under tool-specific directories. Keep the
+# high-signal web discovery wordlists at stable, explicit paths.
 RUN set -eux; \
+    seclists_dir="/usr/share/seclists/Discovery/Web-Content"; \
+    assetnote_dir="/usr/share/wordlists/assetnote"; \
     mkdir -p /usr/share/wordlists; \
+    mkdir -p "${seclists_dir}" "${assetnote_dir}"; \
+    ensure_wordlist() { \
+      local dest="$1"; \
+      local url="$2"; \
+      shift 2; \
+      if [[ -s "${dest}" ]]; then \
+        return 0; \
+      fi; \
+      if [[ -s "${dest}.gz" ]]; then \
+        gzip -dc "${dest}.gz" > "${dest}"; \
+      fi; \
+      for source in "$@"; do \
+        if [[ -s "${source}" ]]; then \
+          cp "${source}" "${dest}"; \
+          return 0; \
+        fi; \
+        if [[ -s "${source}.gz" ]]; then \
+          gzip -dc "${source}.gz" > "${dest}"; \
+          return 0; \
+        fi; \
+      done; \
+      if [[ ! -s "${dest}" ]]; then \
+        curl -fsSL "${url}" -o "${dest}.tmp"; \
+        test -s "${dest}.tmp"; \
+        mv "${dest}.tmp" "${dest}"; \
+      fi; \
+    }; \
     if [[ ! -e /usr/share/wordlists/dirb ]]; then \
       ln -s /usr/share/dirb/wordlists /usr/share/wordlists/dirb; \
     fi; \
+    if [[ ! -e /usr/share/wordlists/SecLists ]]; then \
+      ln -s /usr/share/seclists /usr/share/wordlists/SecLists; \
+    fi; \
+    if [[ ! -e /usr/share/SecLists ]]; then \
+      ln -s /usr/share/seclists /usr/share/SecLists; \
+    fi; \
+    ensure_wordlist \
+      "${seclists_dir}/raft-medium-directories.txt" \
+      "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-directories.txt"; \
+    ensure_wordlist \
+      "${seclists_dir}/raft-medium-words-lowercase.txt" \
+      "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/raft-medium-words-lowercase.txt"; \
+    ensure_wordlist \
+      "${seclists_dir}/directory-list-2.3-medium.txt" \
+      "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/DirBuster-2007_directory-list-2.3-medium.txt" \
+      "${seclists_dir}/DirBuster-2007_directory-list-2.3-medium.txt" \
+      "/usr/share/dirbuster/wordlists/directory-list-2.3-medium.txt" \
+      "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt"; \
+    ensure_wordlist \
+      "${assetnote_dir}/httparchive_directories_1m_${ASSETNOTE_WORDLIST_DATE}.txt" \
+      "${ASSETNOTE_AUTOMATED_BASE}/httparchive_directories_1m_${ASSETNOTE_WORDLIST_DATE}.txt"; \
+    ensure_wordlist \
+      "${assetnote_dir}/httparchive_apiroutes_${ASSETNOTE_WORDLIST_DATE}.txt" \
+      "${ASSETNOTE_AUTOMATED_BASE}/httparchive_apiroutes_${ASSETNOTE_WORDLIST_DATE}.txt"; \
+    ensure_wordlist \
+      "${assetnote_dir}/httparchive_parameters_top_1m_${ASSETNOTE_WORDLIST_DATE}.txt" \
+      "${ASSETNOTE_AUTOMATED_BASE}/httparchive_parameters_top_1m_${ASSETNOTE_WORDLIST_DATE}.txt"; \
+    ln -sf "httparchive_directories_1m_${ASSETNOTE_WORDLIST_DATE}.txt" "${assetnote_dir}/httparchive_directories_1m.txt"; \
+    ln -sf "httparchive_apiroutes_${ASSETNOTE_WORDLIST_DATE}.txt" "${assetnote_dir}/httparchive_apiroutes.txt"; \
+    ln -sf "httparchive_parameters_top_1m_${ASSETNOTE_WORDLIST_DATE}.txt" "${assetnote_dir}/httparchive_parameters_top_1m.txt"; \
     mkdir -p /usr/share/wordlists/dirbuster /usr/share/wordlists/dirsearch; \
     if [[ ! -e /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt ]]; then \
-      if [[ -e /usr/share/wfuzz/wordlist/general/medium.txt ]]; then \
-        ln -s /usr/share/wfuzz/wordlist/general/medium.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
-      else \
-        ln -s /usr/share/dirb/wordlists/big.txt /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
-      fi; \
+      ln -s "${seclists_dir}/directory-list-2.3-medium.txt" /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
     fi; \
     if [[ ! -e /usr/share/wordlists/dirsearch/common.txt ]]; then \
       ln -s /opt/dirsearch/db/dicc.txt /usr/share/wordlists/dirsearch/common.txt; \
     fi; \
     test -r /usr/share/wordlists/dirb/common.txt; \
     test -r /usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt; \
-    test -r /usr/share/wordlists/dirsearch/common.txt
+    test -r /usr/share/wordlists/dirsearch/common.txt; \
+    test -r "${seclists_dir}/raft-medium-directories.txt"; \
+    test -r "${seclists_dir}/raft-medium-words-lowercase.txt"; \
+    test -r "${seclists_dir}/directory-list-2.3-medium.txt"; \
+    test -r "${assetnote_dir}/httparchive_directories_1m.txt"; \
+    test -r "${assetnote_dir}/httparchive_apiroutes.txt"; \
+    test -r "${assetnote_dir}/httparchive_parameters_top_1m.txt"
 
 RUN set -eux; \
     chmod +x /usr/local/bin/hexstrike-bash-mcp; \

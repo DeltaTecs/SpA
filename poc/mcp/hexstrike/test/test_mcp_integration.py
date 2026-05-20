@@ -28,6 +28,14 @@ BASH_MCP_SCRIPT = Path("/usr/local/bin/hexstrike-bash-mcp")
 HEXSTRIKE_MCP_SCRIPT = HEXSTRIKE_HOME / "hexstrike_mcp.py"
 HEXSTRIKE_SERVER_SCRIPT = HEXSTRIKE_HOME / "hexstrike_server.py"
 HEXSTRIKE_FILE_ROOT = Path("/tmp/hexstrike_files")
+EXPECTED_WORDLISTS = (
+    Path("/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"),
+    Path("/usr/share/seclists/Discovery/Web-Content/raft-medium-words-lowercase.txt"),
+    Path("/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt"),
+    Path("/usr/share/wordlists/assetnote/httparchive_directories_1m.txt"),
+    Path("/usr/share/wordlists/assetnote/httparchive_apiroutes.txt"),
+    Path("/usr/share/wordlists/assetnote/httparchive_parameters_top_1m.txt"),
+)
 
 
 def _free_port() -> int:
@@ -254,6 +262,14 @@ class HexStrikeProcessTestCase(unittest.TestCase):
         )
         self._processes.append(process)
         return process
+
+
+class TestHexStrikeWordlists(unittest.TestCase):
+    def test_required_wordlists_are_present(self) -> None:
+        for path in EXPECTED_WORDLISTS:
+            with self.subTest(path=str(path)):
+                self.assertTrue(path.is_file(), f"Expected wordlist file at {path}")
+                self.assertGreater(path.stat().st_size, 0)
 
 
 class TestHexStrikeBashMcp(HexStrikeProcessTestCase):

@@ -143,7 +143,8 @@ CREATE TABLE IF NOT EXISTS scans (
   user_constrains text NOT NULL DEFAULT '',
   tools_used text NOT NULL DEFAULT '',
   summary text NOT NULL DEFAULT '',
-  condensed_summary text NOT NULL DEFAULT ''
+  condensed_summary text NOT NULL DEFAULT '',
+  duration double precision
 );
 
 -- Many-to-many between packet and header_information

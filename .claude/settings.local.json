@@ -18,7 +18,8 @@
       "Bash(python -m unittest discover -s test -p \"test_analysis_sessions.py\")",
       "Bash(git diff *)",
       "Bash(python -m unittest discover -s test)",
-      "Bash(grep -E \"ok$|FAIL$\")"
+      "Bash(grep -E \"ok$|FAIL$\")",
+      "Bash(python -m pytest test/test_scan_store.py -q)"
     ]
   }
 }

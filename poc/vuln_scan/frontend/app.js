@@ -904,14 +904,46 @@ function reportRowMetaText(reportItem) {
   return tools ? `${provider} / ${model}, tools: ${tools}` : `${provider} / ${model}`;
 }
 
+// Collapses the stored comma-separated tool list into unique names, keeping the
+// order in which each tool first appears so a tool used repeatedly is shown once.
+function uniqueToolNames(toolsUsed) {
+  const names = (toolsUsed || "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter(Boolean);
+  return [...new Set(names)];
+}
+
+// Formats a scan's wall-clock duration (seconds) as a compact human string,
+// e.g. 45 -> "45s", 154 -> "2m 34s", 3725 -> "1h 2m". Returns a placeholder
+// for reports recorded before duration tracking existed.
+function formatScanDuration(seconds) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) {
+    return "(not recorded)";
+  }
+  const total = Math.round(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
 function storedReportMetaText(reportItem) {
-  const toolsUsed = reportItem.tools_used?.trim() || "(none recorded)";
+  const tools = uniqueToolNames(reportItem.tools_used);
+  const toolsUsed = tools.length ? tools.join(", ") : "(none recorded)";
   const constraints = reportItem.user_constrains?.trim() || "(none)";
   return [
     `Report #${reportItem.scan_id} - ${reportItem.scan_type_title || "Unknown scan type"}`,
     `${reportItem.llm_provider || "provider"} / ${reportItem.llm_model || "model"}`,
     `Tools: ${toolsUsed}`,
     `Constraints: ${constraints}`,
+    `Duration: ${formatScanDuration(reportItem.duration)}`,
   ].join("\n");
 }
 

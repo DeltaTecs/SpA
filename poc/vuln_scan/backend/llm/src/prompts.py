@@ -3,6 +3,34 @@ from __future__ import annotations
 from analysis_types import ANALYSIS_TYPE_DESCRIPTIONS
 
 
+PHASE_TWO_WORDLISTS: tuple[tuple[str, str], ...] = (
+    (
+        "SecLists raft medium directories",
+        "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt",
+    ),
+    (
+        "SecLists raft medium lowercase words",
+        "/usr/share/seclists/Discovery/Web-Content/raft-medium-words-lowercase.txt",
+    ),
+    (
+        "SecLists directory-list 2.3 medium",
+        "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+    ),
+    (
+        "Assetnote HTTP Archive directories",
+        "/usr/share/wordlists/assetnote/httparchive_directories_1m.txt",
+    ),
+    (
+        "Assetnote HTTP Archive API routes",
+        "/usr/share/wordlists/assetnote/httparchive_apiroutes.txt",
+    ),
+    (
+        "Assetnote HTTP Archive parameters",
+        "/usr/share/wordlists/assetnote/httparchive_parameters_top_1m.txt",
+    ),
+)
+
+
 def build_phase_one_system_prompt(
     *,
     has_app_details: bool,
@@ -97,6 +125,9 @@ def build_phase_two_system_prompt(
     if not type_lines:
         type_lines.append("- No analysis track was selected.")
     type_text = "\n".join(type_lines)
+    wordlist_text = "\n".join(
+        f"- {name}: {path}" for name, path in PHASE_TWO_WORDLISTS
+    )
 
     return f"""You are performing LLM vulnerability analysis for an authorized bug bounty or penetration test.
 
@@ -110,6 +141,9 @@ Analysis tracks requested:
 
 Context handling:
 {extra_context}
+
+Wordlists available in the HexStrike container:
+{wordlist_text}
 
 Available tool categories may include packet database tools, search-engine tools,
 HexStrike MCP tools, and a Bash MCP server.
@@ -130,7 +164,7 @@ Approve the call ONLY IF ALL of the following hold:
 1. User constraints: The call fully complies with every user constraint shown
    below. Constraints are mandatory. If a constraint limits scope, targets,
    rate, aggressiveness, or technique, the call must stay strictly within it.
-   If the call could violate any constraint, do not approve it.
+   If the call could violate any constraint, do NOT approve it.
 2. Local machine safety: The call poses no risk to the local machine or the
    assistant's own environment. Reject destructive, persistent, or
    system-altering shell/filesystem actions (for example: deleting or

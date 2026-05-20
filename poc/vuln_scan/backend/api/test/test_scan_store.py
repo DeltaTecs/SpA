@@ -54,6 +54,7 @@ class _FakeCursor:
                     "tools_used": "hexstrike__nmap_scan",
                     "summary": "## Report",
                     "condensed_summary": "## Condensed",
+                    "duration": 154.0,
                 }
             ]
 
@@ -96,6 +97,9 @@ class ScanStoreTest(unittest.TestCase):
         self.assertTrue(
             any("ADD COLUMN IF NOT EXISTS condensed_summary" in sql for sql, _ in cursor.executed)
         )
+        self.assertTrue(
+            any("ADD COLUMN IF NOT EXISTS duration" in sql for sql, _ in cursor.executed)
+        )
 
     def test_save_completed_phase_two_scan_inserts_requested_fields(self) -> None:
         cursor = _FakeCursor()
@@ -112,6 +116,7 @@ class ScanStoreTest(unittest.TestCase):
                 user_constraints="stay in scope",
                 tools_used=["hexstrike__nmap_scan", "bash__bash"],
                 summary="## Report",
+                duration_seconds=154.0,
             )
         finally:
             scan_store.connection = original_connection
@@ -120,6 +125,7 @@ class ScanStoreTest(unittest.TestCase):
         self.assertEqual(scan_id, 42)
         insert_sql, insert_params = cursor.executed[-1]
         self.assertIn("user_constrains", insert_sql)
+        self.assertIn("duration", insert_sql)
         self.assertEqual(
             insert_params,
             (
@@ -130,6 +136,7 @@ class ScanStoreTest(unittest.TestCase):
                 "stay in scope",
                 "hexstrike__nmap_scan, bash__bash",
                 "## Report",
+                154.0,
             ),
         )
 
@@ -148,9 +155,11 @@ class ScanStoreTest(unittest.TestCase):
         select_sql, select_params = cursor.executed[-1]
         self.assertIn("JOIN scan_type", select_sql)
         self.assertEqual(select_params, (13,))
+        self.assertIn("scans.duration", select_sql)
         self.assertEqual(reports[0]["scan_id"], 42)
         self.assertEqual(reports[0]["summary"], "## Report")
         self.assertEqual(reports[0]["condensed_summary"], "## Condensed")
+        self.assertEqual(reports[0]["duration"], 154.0)
 
 
     def test_set_scan_condensed_summary_updates_row(self) -> None:
