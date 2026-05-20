@@ -24,8 +24,8 @@ PROVIDERS: Dict[str, dict] = {
     },
     "openai": {
         "label": "OpenAI",
-        "default_model": "gpt-4o-mini",
-        "models": ("gpt-4o-mini", "gpt-4o"),
+        "default_model": "gpt-5-mini",
+        "models": ("gpt-5.5", "gpt-5.4", "gpt-5-mini"),
         "model_envs": ("SCANNER_OPENAI_MODELS", "OPENAI_MODELS"),
         "api_key_envs": ("OPENAI_API_KEY",),
     },

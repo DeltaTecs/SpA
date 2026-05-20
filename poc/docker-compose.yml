@@ -82,11 +82,36 @@ services:
     depends_on:
       - db
 
+  # VPN egress for active HexStrike scans. scanner-api still reaches the MCP
+  # servers over the internal scanner-hexstrike-network on ports 8766/8767.
+  hexstrike-vpn:
+    image: qmcgaw/gluetun:v3
+    container_name: hexstrike-vpn
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - VPN_SERVICE_PROVIDER=protonvpn
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${PROTONVPN_WIREGUARD_PRIVATE_KEY:?set PROTONVPN_WIREGUARD_PRIVATE_KEY in poc/.env}
+      - SERVER_COUNTRIES=${PROTONVPN_SERVER_COUNTRIES:-Netherlands}
+      - FIREWALL_INPUT_PORTS=8766,8767
+      - TZ=${TZ:-Europe/Berlin}
+    volumes:
+      - gluetun_data:/gluetun
+    networks:
+      scanner-hexstrike-network:
+        aliases:
+          - mcp-hexstrike
+
   # penetration testing MCP tools
   mcp-hexstrike:
     build: ./mcp/hexstrike
     container_name: mcp-hexstrike
     restart: unless-stopped
+    network_mode: "service:hexstrike-vpn"
     environment:
       - HEXSTRIKE_MODE=mcp-http
       - HEXSTRIKE_ENABLE_BASH_MCP=1
@@ -100,8 +125,8 @@ services:
       - HEXSTRIKE_MCP_HTTP_PORT=8767
       - HEXSTRIKE_MCP_HTTP_TIMEOUT=900
       - LOG_LEVEL=VERBOSE
-    networks:
-      - scanner-hexstrike-network
+    depends_on:
+      - hexstrike-vpn
     tty: true
     stdin_open: true
 
@@ -230,7 +255,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://mcp-hexstrike:8767,bash=http://mcp-hexstrike:8766
+      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://hexstrike-vpn:8767,bash=http://hexstrike-vpn:8766
       - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
       - LOG_LEVEL=VERBOSE
@@ -248,6 +273,7 @@ services:
       - scanner-hexstrike-network
     depends_on:
       - mcp-packet-db
+      - hexstrike-vpn
       - mcp-hexstrike
       - scanner-llm
 
@@ -265,6 +291,8 @@ services:
 
 volumes:
   db_data:
+    driver: local
+  gluetun_data:
     driver: local
   ollama_models:
     driver: local

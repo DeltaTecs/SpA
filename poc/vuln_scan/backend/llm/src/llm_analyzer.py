@@ -103,8 +103,10 @@ class ScannerAnalyzer:
             kwargs = {
                 "model": self.model_name,
                 "api_key": self.api_key,
-                "temperature": 0.1,
             }
+            # GPT-5 family reasoning models only accept the default temperature.
+            if not _is_openai_reasoning_model(self.model_name):
+                kwargs["temperature"] = 0.1
             if base_url:
                 kwargs["base_url"] = base_url
             self.llm = ChatOpenAI(**kwargs)
@@ -750,6 +752,12 @@ def _parse_smart_approval_decision(response_text: Optional[str]) -> Dict[str, An
     if not reasoning:
         reasoning = "Approved." if approved else "No reason was provided."
     return {"approved": approved, "reasoning": reasoning, "error": False}
+
+
+def _is_openai_reasoning_model(model_name: str) -> bool:
+    """Return True for OpenAI reasoning models that reject a custom temperature."""
+    name = (model_name or "").strip().lower()
+    return name.startswith("gpt-5") or name.startswith("o1") or name.startswith("o3")
 
 
 def _content_to_text(content: Any) -> str:
