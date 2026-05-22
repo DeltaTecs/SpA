@@ -235,12 +235,12 @@ class ScannerAnalyzer:
         prompt_parts: list[str] = []
         if external_context:
             prompt_parts.append(external_context)
-        if constraints.strip():
-            prompt_parts.append(
-                "=== Analysis Constraints ===\n"
-                f"{constraints.strip()}\n"
-                "=== End Analysis Constraints ==="
-            )
+        constraints_text = constraints.strip() or "(no custom user constraints provided)"
+        prompt_parts.append(
+            "=== Analysis Constraints ===\n"
+            f"{constraints_text}\n"
+            "=== End Analysis Constraints ==="
+        )
         if prescan_markdown.strip():
             prompt_parts.append(
                 "=== Event Summary ===\n"

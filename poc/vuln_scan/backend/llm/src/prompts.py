@@ -137,6 +137,9 @@ def build_phase_two_system_prompt(
 Scope:
 - Only analyze targets and behavior described by the supplied event, external context, and user constraints.
 - MCP tool calls are proxied; every tool call is shown to the user before it runs.
+- Before making any MCP tool call, ensure the tool name, target, arguments comply
+  with every custom user constraint in the Analysis Constraints section. If you cannot form a compliant
+  tool call, do not call the tool; explain the blocker in the report.
 - Prefer low-impact verification steps.
 
 Analysis tracks requested:
