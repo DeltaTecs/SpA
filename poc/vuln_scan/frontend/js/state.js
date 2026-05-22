@@ -51,4 +51,5 @@ export const state = {
   compactIncludedReports: true,
   maxReasoningEffort: false,
   unlimitedRounds: false,
+  bashMode: false,
 };

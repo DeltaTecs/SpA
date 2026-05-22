@@ -275,6 +275,7 @@ COPY --from=builder /opt/pipx /opt/pipx
 COPY --from=builder /opt/secbin /opt/secbin
 COPY --from=go-tools /opt/secbin /opt/secbin
 COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
+COPY cli_tools_catalog.py /usr/local/bin/cli_tools_catalog.py
 COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/

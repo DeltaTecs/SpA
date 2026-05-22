@@ -42,6 +42,7 @@ def _make_run(
     escalate_smart_rejections: bool = True,
     max_reasoning_effort: bool = False,
     unlimited_rounds: bool = False,
+    bash_mode: bool = False,
 ) -> AnalysisRun:
     return AnalysisRun(
         event_id=1,
@@ -54,6 +55,7 @@ def _make_run(
         escalate_smart_rejections=escalate_smart_rejections,
         max_reasoning_effort=max_reasoning_effort,
         unlimited_rounds=unlimited_rounds,
+        bash_mode=bash_mode,
     )
 
 
@@ -89,10 +91,15 @@ class StaticApprovalModeTest(unittest.TestCase):
             APPROVAL_MODE_MANUAL,
             max_reasoning_effort=True,
             unlimited_rounds=True,
+            bash_mode=True,
         )
         snapshot = run.snapshot()
         self.assertTrue(snapshot["max_reasoning_effort"])
         self.assertTrue(snapshot["unlimited_rounds"])
+        self.assertTrue(snapshot["bash_mode"])
+
+    def test_bash_mode_defaults_to_false(self) -> None:
+        self.assertFalse(_make_run(APPROVAL_MODE_MANUAL).snapshot()["bash_mode"])
 
     def test_auto_all_approves_any_tool_without_blocking(self) -> None:
         run = _make_run(APPROVAL_MODE_AUTO_ALL)

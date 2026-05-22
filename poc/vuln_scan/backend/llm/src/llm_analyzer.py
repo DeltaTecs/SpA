@@ -214,6 +214,7 @@ class ScannerAnalyzer:
         tool_catalog: str = "",
         has_app_details: bool = False,
         has_user_actions: bool = False,
+        bash_mode: bool = False,
         max_rounds: Optional[int] = 24,
         reasoning_effort: str = "high",
         custom_goal: str = "",
@@ -230,6 +231,7 @@ class ScannerAnalyzer:
             has_prescan=bool(prescan_markdown.strip()),
             has_prior_reports=bool(prior_reports_markdown.strip()),
             custom_goal=custom_goal,
+            bash_mode=bash_mode,
         )
 
         prompt_parts: list[str] = []

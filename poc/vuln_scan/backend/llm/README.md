@@ -34,6 +34,13 @@ except the packet DB tools `packet_info`,
 exposed in phase two. Every phase-two tool call blocks on the API/UI approval
 callback before the underlying MCP call runs.
 
+When a phase-two run enables **bash mode** (the `bash_mode` request flag), no
+HexStrike MCP scanning tools are exposed at all. Instead the analysis runs the
+underlying CLI tools itself through the Bash MCP server: `bash__bash` plus the
+bash-mode-only helpers `bash__list_cli_tools` (the catalogue of installed
+scanner/recon binaries) and `bash__cli_tool_usage` (a safe example invocation,
+or the tool's full `--help` output when `detailed=true`).
+
 Set `TAVILY_API_KEY` in `poc/.env` before using the Tavily remote MCP tools.
 
 All prompts currently end with the test directive that instructs the model to

@@ -47,6 +47,7 @@ export async function startPhaseTwo() {
     compact_included_reports: state.compactIncludedReports,
     max_reasoning_effort: state.maxReasoningEffort,
     unlimited_rounds: state.unlimitedRounds,
+    bash_mode: state.bashMode,
     ...(isCustomAnalysisSelected()
       ? {custom_goal: state.customGoal.trim(), custom_tool_set: state.customToolSet}
       : {}),

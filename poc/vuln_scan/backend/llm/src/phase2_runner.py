@@ -31,6 +31,7 @@ def run_phase_two_analysis(
     constraints: str,
     custom_goal: str = "",
     custom_tool_set: str = "",
+    bash_mode: bool = False,
     mcp_servers: Sequence[MCPServerSpec],
     approval_callback: ApprovalCallback,
     progress_callback: Callable[[str], None],
@@ -53,6 +54,7 @@ def run_phase_two_analysis(
         scan_logger.log_input("constraints", constraints)
         scan_logger.log_input("custom_goal", custom_goal or "(none)")
         scan_logger.log_input("custom_tool_set", custom_tool_set or "(none)")
+        scan_logger.log_input("bash_mode", bash_mode)
         scan_logger.log_input(
             "mcp_servers",
             [
@@ -102,9 +104,36 @@ def run_phase_two_analysis(
 
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
     external_context = prepared.external_context(app_details, user_actions)
-    allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(
-        analysis_types, custom_tool_set=custom_tool_set
-    )
+
+    active_mcp_servers = list(mcp_servers)
+    if bash_mode:
+        # Bash mode: drop the HexStrike MCP server entirely. The LLM runs the
+        # underlying CLI tools itself through the Bash MCP server instead.
+        active_mcp_servers = [
+            server for server in active_mcp_servers if not _is_hexstrike_server(server)
+        ]
+        allowed_hexstrike_tools = frozenset()
+        allowed_tool_names_by_server_id: dict[str, frozenset[str]] = {}
+        _progress(
+            "Bash mode: HexStrike MCP tools are disabled; the analysis uses the "
+            "Bash MCP server (bash, list_cli_tools, cli_tool_usage)."
+        )
+    else:
+        allowed_hexstrike_tools = hexstrike_mcp_tools_for_analysis_types(
+            analysis_types, custom_tool_set=custom_tool_set
+        )
+        hexstrike_server_ids = {
+            server.server_id
+            for server in active_mcp_servers
+            if _is_hexstrike_server(server)
+        }
+        allowed_tool_names_by_server_id = {
+            server_id: allowed_hexstrike_tools for server_id in hexstrike_server_ids
+        }
+        _progress(
+            "Selected analysis tracks enable "
+            f"{len(allowed_hexstrike_tools)} HexStrike MCP tools."
+        )
 
     if scan_logger is not None:
         scan_logger.log_input("recording_id", prepared.recording_id)
@@ -113,17 +142,6 @@ def run_phase_two_analysis(
         scan_logger.log_input(
             "allowed_hexstrike_tools", sorted(allowed_hexstrike_tools)
         )
-
-    hexstrike_server_ids = {
-        server.server_id for server in mcp_servers if _is_hexstrike_server(server)
-    }
-    allowed_tool_names_by_server_id = {
-        server_id: allowed_hexstrike_tools for server_id in hexstrike_server_ids
-    }
-    _progress(
-        "Selected analysis tracks enable "
-        f"{len(allowed_hexstrike_tools)} HexStrike MCP tools."
-    )
 
     wrapped_approval = approval_callback
     wrapped_tool_start = tool_start_callback
@@ -192,13 +210,14 @@ def run_phase_two_analysis(
             wrapped_tool_finish = _logging_tool_finish
 
     proxy = PermissionedMCPToolProxy(
-        mcp_servers,
+        active_mcp_servers,
         approval_callback=wrapped_approval,
         progress_callback=_progress,
         tool_start_callback=wrapped_tool_start,
         tool_stop_requested_callback=wrapped_tool_stop_requested,
         tool_finish_callback=wrapped_tool_finish,
         allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
+        bash_mode=bash_mode,
     )
     tools = proxy.build_tools()
     tool_catalog = proxy.tool_catalog()
@@ -230,6 +249,7 @@ def run_phase_two_analysis(
         tool_catalog=tool_catalog,
         has_app_details=app_details is not None,
         has_user_actions=bool(user_actions),
+        bash_mode=bash_mode,
         max_rounds=max_rounds,
         reasoning_effort=reasoning_effort,
         on_progress=_progress,

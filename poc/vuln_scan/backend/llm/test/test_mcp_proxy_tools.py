@@ -254,6 +254,65 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         self.assertEqual(proxy.control_stop_tools, {"hexstrike": "stop_active_tool"})
         self.assertNotIn("sqlmap_scan", proxy.tool_catalog())
 
+    def test_bash_mode_exposes_cli_helper_tools(self) -> None:
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("bash", "run a command", {"type": "object"}),
+            _MCPToolSpec("list_cli_tools", "list tools", {"type": "object"}),
+            _MCPToolSpec("cli_tool_usage", "tool usage", {"type": "object"}),
+            _MCPToolSpec("stop_active_bash", "control", {"type": "object"}),
+        ]
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="bash",
+                    label="Bash",
+                    url="http://bash.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+            bash_mode=True,
+        )
+
+        tools = proxy.build_tools()
+
+        self.assertEqual(
+            [tool.name for tool in tools],
+            ["bash__bash", "bash__list_cli_tools", "bash__cli_tool_usage"],
+        )
+        self.assertEqual(proxy.control_stop_tools, {"bash": "stop_active_bash"})
+
+    def test_non_bash_mode_hides_cli_helper_tools(self) -> None:
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("bash", "run a command", {"type": "object"}),
+            _MCPToolSpec("list_cli_tools", "list tools", {"type": "object"}),
+            _MCPToolSpec("cli_tool_usage", "tool usage", {"type": "object"}),
+        ]
+        progress: list[str] = []
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="bash",
+                    label="Bash",
+                    url="http://bash.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+            progress_callback=progress.append,
+        )
+
+        tools = proxy.build_tools()
+
+        self.assertEqual([tool.name for tool in tools], ["bash__bash"])
+        self.assertNotIn("list_cli_tools", proxy.tool_catalog())
+        self.assertTrue(
+            any(
+                "available only in bash mode: list_cli_tools" in item
+                for item in progress
+            )
+        )
+
     def test_search_mcp_server_specs_from_env_uses_search_url(self) -> None:
         original_url = os.environ.pop("SEARCH_MCP_URL", None)
         original_servers = os.environ.pop("SEARCH_MCP_SERVERS", None)

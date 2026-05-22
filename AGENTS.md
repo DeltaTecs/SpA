@@ -82,7 +82,8 @@ All services run via [poc/docker-compose.yml](poc/docker-compose.yml). The share
 ### 5. Active scanning MCP — [poc/mcp/hexstrike/](poc/mcp/hexstrike/)
 - [poc/mcp/hexstrike/Dockerfile](poc/mcp/hexstrike/Dockerfile) – assembles the HexStrike toolchain (subfinder, httpx, nuclei, nmap, gobuster, ffuf, sqlmap, etc.).
 - [poc/mcp/hexstrike/entrypoint.sh](poc/mcp/hexstrike/entrypoint.sh) – picks one of `api / mcp / mcp-http / bash-mcp / shell`.
-- [poc/mcp/hexstrike/bash_mcp_server.py](poc/mcp/hexstrike/bash_mcp_server.py) – the bash-execution MCP server (port 8766).
+- [poc/mcp/hexstrike/bash_mcp_server.py](poc/mcp/hexstrike/bash_mcp_server.py) – the bash-execution MCP server (port 8766). Also exposes the bash-mode helpers `list_cli_tools` and `cli_tool_usage`.
+- [poc/mcp/hexstrike/cli_tools_catalog.py](poc/mcp/hexstrike/cli_tools_catalog.py) – curated catalogue of the CLI security tools installed in the image (descriptions + low-impact example invocations), backing `list_cli_tools`/`cli_tool_usage`.
 - [poc/mcp/hexstrike/http_mcp_bridge.py](poc/mcp/hexstrike/http_mcp_bridge.py) – streamable-http bridge in front of HexStrike's stdio MCP (port 8767).
 - Wired into phase 2 via `PHASE2_MCP_SERVERS` env var in [poc/docker-compose.yml](poc/docker-compose.yml).
 
@@ -144,6 +145,7 @@ All services run via [poc/docker-compose.yml](poc/docker-compose.yml). The share
 3. Build a [PermissionedMCPToolProxy](poc/vuln_scan/backend/llm/src/mcp_proxy_tools.py) over the MCP servers configured in `PHASE2_MCP_SERVERS` (`packet=…:8765, hexstrike=…:8767, bash=…:8766`):
    - For each server it lists tools, filters HexStrike to the track allow-list, hides a few low-value packet tools (`event_packets`, `packet_info`, …) that would just re-emit context already in the prompt, and assigns a unique exposed name to each remaining tool.
    - Every call goes through `approval_callback` first. The API thread (`AnalysisRun.decide_tool_request`) parks the call as a `ToolApprovalRequest`, surfaces it to the frontend, and unblocks the run only after the operator approves or denies it. While a tool is running, the user can also request `tool/stop` — the proxy propagates that into the underlying MCP if it supports a control tool.
+   - **Bash mode** (the `bash_mode` request flag): when enabled, the HexStrike MCP server is dropped entirely — no HexStrike scanning tools are exposed. The run instead drives the CLI tools itself via the Bash MCP server, which additionally exposes `list_cli_tools` (catalogue of installed binaries) and `cli_tool_usage` (per-tool example / `--help`). Outside bash mode those two helpers are hidden and the plain `bash` tool stays available.
 4. [ScannerAnalyzer.analyze_vulnerabilities()](poc/vuln_scan/backend/llm/src/llm_analyzer.py) runs the model with the phase-2 system prompt from [prompts.py](poc/vuln_scan/backend/llm/src/prompts.py). The prompt:
    - States this is an authorised pentest.
    - Restricts scope to targets and behaviour described in the event.

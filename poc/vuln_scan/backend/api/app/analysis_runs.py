@@ -104,6 +104,7 @@ class AnalysisRun:
         unlimited_rounds: bool = False,
         custom_goal: str = "",
         custom_tool_set: str = "",
+        bash_mode: bool = False,
     ):
         self.run_id = uuid.uuid4().hex
         self.event_id = event_id
@@ -113,6 +114,9 @@ class AnalysisRun:
         # the selected HexStrike tool set. Empty for the fixed analysis types.
         self.custom_goal = custom_goal
         self.custom_tool_set = custom_tool_set
+        # Bash mode hides every HexStrike MCP scanning tool; the analysis runs
+        # CLI tools itself through the Bash MCP server instead.
+        self.bash_mode = bash_mode
         self.provider = provider
         self.model = model
         self.approval_timeout_seconds = approval_timeout_seconds
@@ -528,6 +532,7 @@ class AnalysisRun:
                 "constraints": self.constraints,
                 "custom_goal": self.custom_goal,
                 "custom_tool_set": self.custom_tool_set,
+                "bash_mode": self.bash_mode,
                 "provider": self.provider,
                 "model": self.model,
                 "approval_mode": self.approval_mode,
@@ -587,6 +592,7 @@ class AnalysisSessionStore:
         unlimited_rounds: bool = False,
         custom_goal: str = "",
         custom_tool_set: str = "",
+        bash_mode: bool = False,
     ) -> AnalysisRun:
         run = AnalysisRun(
             event_id=event_id,
@@ -603,6 +609,7 @@ class AnalysisSessionStore:
             unlimited_rounds=unlimited_rounds,
             custom_goal=custom_goal,
             custom_tool_set=custom_tool_set,
+            bash_mode=bash_mode,
         )
         with self._lock:
             self._runs[run.run_id] = run

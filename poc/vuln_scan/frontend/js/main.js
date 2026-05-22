@@ -18,6 +18,7 @@ import {
   approvalModelSelect,
   approvalModeRadios,
   approvalProviderSelect,
+  bashMode,
   compactIncludedReports,
   configureApprovalButton,
   constraintsInput,
@@ -117,6 +118,10 @@ maxReasoningEffort.addEventListener("change", () => {
 });
 unlimitedRounds.addEventListener("change", () => {
   state.unlimitedRounds = unlimitedRounds.checked;
+  renderPhaseTwo();
+});
+bashMode.addEventListener("change", () => {
+  state.bashMode = bashMode.checked;
   renderPhaseTwo();
 });
 constraintsInput.addEventListener("input", () => {

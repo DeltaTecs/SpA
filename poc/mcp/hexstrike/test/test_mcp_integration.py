@@ -330,6 +330,55 @@ class TestHexStrikeBashMcp(HexStrikeProcessTestCase):
         self.assertIn("Working directory does not exist or is not a directory", text)
         self.assertIn(missing_dir, text)
 
+    def test_list_cli_tools_reports_installed_binaries(self) -> None:
+        tool_names = asyncio.run(_list_streamable_tools(self.base_url))
+        self.assertIn("list_cli_tools", tool_names)
+        self.assertIn("cli_tool_usage", tool_names)
+
+        result = asyncio.run(
+            _call_streamable_tool(self.base_url, "list_cli_tools", {})
+        )
+        text = _result_text(result)
+
+        # nmap and nuclei are installed in the HexStrike image.
+        self.assertIn("nmap", text)
+        self.assertIn("nuclei", text)
+        self.assertIn("cli_tool_usage", text)
+
+    def test_cli_tool_usage_returns_example_then_help(self) -> None:
+        example = asyncio.run(
+            _call_streamable_tool(
+                self.base_url, "cli_tool_usage", {"binary_name": "nmap"}
+            )
+        )
+        example_text = _result_text(example)
+        # The short example sets a custom User-Agent and a request rate limit.
+        self.assertIn("nmap -sV", example_text)
+        self.assertIn("User-Agent", example_text)
+        self.assertIn("--max-rate", example_text)
+
+        detailed = asyncio.run(
+            _call_streamable_tool(
+                self.base_url,
+                "cli_tool_usage",
+                {"binary_name": "nmap", "detailed": True},
+            )
+        )
+        detailed_text = _result_text(detailed)
+        self.assertIn("$ nmap -h", detailed_text)
+        self.assertIn("Usage", detailed_text)
+
+    def test_cli_tool_usage_rejects_unknown_tool(self) -> None:
+        result = asyncio.run(
+            _call_streamable_tool(
+                self.base_url,
+                "cli_tool_usage",
+                {"binary_name": f"not-a-tool-{uuid.uuid4().hex}"},
+            )
+        )
+        text = _result_text(result)
+        self.assertIn("Unknown CLI tool", text)
+
 
 class TestHexStrikeMcpTools(HexStrikeProcessTestCase):
     def setUp(self) -> None:

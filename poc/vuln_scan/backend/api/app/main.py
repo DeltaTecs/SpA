@@ -118,6 +118,7 @@ class PhaseTwoRequest(BaseModel):
     compact_included_reports: bool = False
     max_reasoning_effort: bool = False
     unlimited_rounds: bool = False
+    bash_mode: bool = False
 
 
 class ToolDecisionRequest(BaseModel):
@@ -285,6 +286,7 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         unlimited_rounds=request.unlimited_rounds,
         custom_goal=custom_goal,
         custom_tool_set=custom_tool_set,
+        bash_mode=request.bash_mode,
     )
 
     thread = threading.Thread(
@@ -593,6 +595,7 @@ def _run_phase2_background(
                 "compact_included_reports": request.compact_included_reports,
                 "max_reasoning_effort": request.max_reasoning_effort,
                 "unlimited_rounds": request.unlimited_rounds,
+                "bash_mode": run.bash_mode,
                 "has_app_details_content": request.app_details_content is not None,
                 "has_user_intend_content": request.user_intend_content is not None,
             },
@@ -650,6 +653,7 @@ def _run_phase2_background(
             constraints=request.constraints,
             custom_goal=run.custom_goal,
             custom_tool_set=run.custom_tool_set,
+            bash_mode=run.bash_mode,
             mcp_servers=analysis_mcp_server_specs_from_env(),
             approval_callback=run.request_tool_permission,
             progress_callback=run.add_progress,

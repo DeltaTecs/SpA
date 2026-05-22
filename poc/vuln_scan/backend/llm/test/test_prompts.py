@@ -51,6 +51,33 @@ class PromptTest(unittest.TestCase):
             prompt,
         )
 
+    def test_phase_two_prompt_bash_mode_describes_cli_helper_tools(self) -> None:
+        prompt = build_phase_two_system_prompt(
+            analysis_types=["Recon: HTTP Path/API"],
+            has_app_details=False,
+            has_user_actions=False,
+            has_prescan=True,
+            bash_mode=True,
+        )
+
+        self.assertIn("Bash mode is enabled", prompt)
+        self.assertIn("list_cli_tools", prompt)
+        self.assertIn("cli_tool_usage", prompt)
+        # HexStrike MCP scanning tools are not offered in bash mode.
+        self.assertNotIn("HexStrike MCP tools, and a Bash MCP server", prompt)
+
+    def test_phase_two_prompt_without_bash_mode_offers_hexstrike_tools(self) -> None:
+        prompt = build_phase_two_system_prompt(
+            analysis_types=["Recon: HTTP Path/API"],
+            has_app_details=False,
+            has_user_actions=False,
+            has_prescan=True,
+        )
+
+        self.assertIn("HexStrike MCP tools", prompt)
+        self.assertNotIn("Bash mode is enabled", prompt)
+        self.assertNotIn("list_cli_tools", prompt)
+
     def test_prior_report_compaction_prompt_preserves_technical_findings(self) -> None:
         prompt = build_prior_report_compaction_system_prompt()
 

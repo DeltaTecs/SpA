@@ -38,6 +38,10 @@ PHASE2_HIDDEN_PACKET_DB_TOOL_NAMES = {
     "packet_payload_hexdump",
     "packets_in_time_window",
 }
+# Tools the Bash MCP server exposes only to a phase-two run in "bash mode".
+# Outside bash mode they are hidden so the analysis relies on the HexStrike MCP
+# tools instead; the plain `bash` tool stays available in both modes.
+BASH_MODE_ONLY_TOOL_NAMES = {"list_cli_tools", "cli_tool_usage"}
 TAVILY_REMOTE_MCP_ENDPOINT = "https://mcp.tavily.com/mcp/"
 # Project-wide cap on Tavily MCP tools the LLM may ever see. Other Tavily tools
 # (crawl, map, research, ...) are hidden regardless of stage or approval mode.
@@ -72,6 +76,7 @@ class PermissionedMCPToolProxy:
         tool_stop_requested_callback: Optional[ToolStopRequestedCallback] = None,
         tool_finish_callback: Optional[ToolFinishCallback] = None,
         allowed_tool_names_by_server_id: Optional[Mapping[str, Collection[str]]] = None,
+        bash_mode: bool = False,
     ):
         self.servers = list(servers)
         self.approval_callback = approval_callback
@@ -79,6 +84,9 @@ class PermissionedMCPToolProxy:
         self.tool_start_callback = tool_start_callback
         self.tool_stop_requested_callback = tool_stop_requested_callback
         self.tool_finish_callback = tool_finish_callback
+        # In bash mode the LLM also gets the Bash MCP server's CLI-helper tools
+        # (list_cli_tools / cli_tool_usage); outside it they are hidden.
+        self.bash_mode = bash_mode
         self.allowed_tool_names_by_server_id = {
             server_id: frozenset(tool_names)
             for server_id, tool_names in (allowed_tool_names_by_server_id or {}).items()
@@ -124,6 +132,15 @@ class PermissionedMCPToolProxy:
                 ):
                     self._progress(
                         f"{server.label}: search tool not in project allowlist: {spec.name}"
+                    )
+                    continue
+                if (
+                    _is_bash_server(server)
+                    and not self.bash_mode
+                    and spec.name in BASH_MODE_ONLY_TOOL_NAMES
+                ):
+                    self._progress(
+                        f"{server.label}: MCP tool available only in bash mode: {spec.name}"
                     )
                     continue
                 allowed_tool_names = self.allowed_tool_names_by_server_id.get(
@@ -496,6 +513,12 @@ def _is_search_engine_server(server: MCPServerSpec) -> bool:
     server_id = _safe_identifier(server.server_id)
     label = _safe_identifier(server.label)
     return server_id in {"search", "search_engine", "tavily"} or "search" in label
+
+
+def _is_bash_server(server: MCPServerSpec) -> bool:
+    server_id = _safe_identifier(server.server_id)
+    label = _safe_identifier(server.label)
+    return "bash" in server_id or "bash" in label
 
 
 def _safe_identifier(value: str) -> str:

@@ -35,6 +35,7 @@ import {
   approvalModeRadios,
   approvalModeSummary,
   approvalProviderSelect,
+  bashMode,
   compactIncludedReports,
   configureApprovalButton,
   constraintsInput,
@@ -73,6 +74,8 @@ export function renderPhaseTwo() {
   maxReasoningEffort.disabled = running;
   unlimitedRounds.checked = state.unlimitedRounds;
   unlimitedRounds.disabled = running;
+  bashMode.checked = state.bashMode;
+  bashMode.disabled = running;
   renderAnalysisTypeSelect(running);
   renderCustomAnalysisFields(running);
   configureApprovalButton.disabled = running;

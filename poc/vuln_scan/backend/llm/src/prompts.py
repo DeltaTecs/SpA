@@ -97,6 +97,7 @@ def build_phase_two_system_prompt(
     has_prescan: bool,
     has_prior_reports: bool = False,
     custom_goal: str = "",
+    bash_mode: bool = False,
 ) -> str:
     context_notes = []
     if has_app_details:
@@ -132,6 +133,13 @@ def build_phase_two_system_prompt(
         f"- {name}: {path}" for name, path in PHASE_TWO_WORDLISTS
     )
 
+    if bash_mode:
+        tooling_text = """Available tool categories include packet database tools, search-engine tools,
+and a Bash MCP server with plenty of offensive security tools installed."""
+    else:
+        tooling_text = """Available tool categories may include packet database tools, search-engine tools,
+HexStrike MCP tools, and a Bash MCP server."""
+
     return f"""You are performing LLM vulnerability analysis for an authorized bug bounty or penetration test.
 
 Scope:
@@ -148,8 +156,7 @@ Context handling:
 Wordlists available in the HexStrike container:
 {wordlist_text}
 
-Available tool categories may include packet database tools, search-engine tools,
-HexStrike MCP tools, and a Bash MCP server.
+{tooling_text}
 When a tool is needed, call the most specific tool with complete arguments.
 
 Return a concise Markdown report with executive summary and detailed findings.

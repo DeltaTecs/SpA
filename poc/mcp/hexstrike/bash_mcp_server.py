@@ -17,6 +17,14 @@ try:
 except ImportError as e:  # pragma: no cover
     raise RuntimeError("mcp package is required") from e
 
+from cli_tools_catalog import (
+    find_cli_tool,
+    format_cli_tool_list,
+    format_tool_example,
+    format_tool_help,
+    is_installed,
+)
+
 
 MCP_HOST = os.environ.get("HEXSTRIKE_BASH_MCP_HOST", "0.0.0.0")
 MCP_PORT = int(os.environ.get("HEXSTRIKE_BASH_MCP_PORT", "8766"))
@@ -24,6 +32,8 @@ DEFAULT_CWD = os.environ.get("HEXSTRIKE_BASH_MCP_CWD", "/workspace")
 DEFAULT_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_TIMEOUT", "60"))
 MAX_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_TIMEOUT", "300"))
 MAX_OUTPUT_BYTES = int(os.environ.get("HEXSTRIKE_BASH_MCP_MAX_OUTPUT_BYTES", "65536"))
+# How long a `cli_tool_usage(detailed=True)` --help invocation may run.
+HELP_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_BASH_MCP_HELP_TIMEOUT", "30"))
 logger = logging.getLogger(__name__)
 _active_processes_lock = threading.RLock()
 _active_processes: dict[int, "ActiveBashProcess"] = {}
@@ -175,6 +185,103 @@ def stop_active_bash() -> str:
         _terminate_process_group(record.process)
 
     return f"Stop requested for {len(active)} active Bash process(es)."
+
+
+@mcp.tool()
+def list_cli_tools() -> str:
+    """List the CLI security tools installed in the HexStrike container.
+
+    These are the binaries HexStrike would otherwise invoke itself. Run them
+    yourself with the `bash` tool, and call `cli_tool_usage` to learn how.
+    """
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool input name=list_cli_tools arguments={}")
+
+    output = format_cli_tool_list()
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool output name=list_cli_tools output=%s", _log_payload(output))
+    return output
+
+
+@mcp.tool()
+def cli_tool_usage(binary_name: str, detailed: bool = False) -> str:
+    """Explain how to use one CLI security tool from `list_cli_tools`.
+
+    With ``detailed=False`` (the default) a short, low-impact example invocation
+    is returned. With ``detailed=True`` the tool's own ``--help`` output is
+    returned instead. Examples set a custom HTTP User-Agent and a request rate
+    limit wherever the tool supports them.
+    """
+
+    arguments = {"binary_name": binary_name, "detailed": detailed}
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "MCP tool input name=cli_tool_usage arguments=%s", _log_payload(arguments)
+        )
+
+    tool = find_cli_tool(binary_name)
+    if tool is None:
+        output = (
+            f"Unknown CLI tool: {binary_name!r}. "
+            "Call list_cli_tools for the catalogue of available tools."
+        )
+    else:
+        installed = is_installed(tool.binary)
+        if not detailed:
+            output = format_tool_example(tool, installed=installed)
+        elif not installed:
+            output = (
+                format_tool_example(tool, installed=installed)
+                + "\n\nDetailed --help is unavailable because the binary is not "
+                "installed in this container."
+            )
+        else:
+            help_command, help_text = _capture_tool_help(tool)
+            output = format_tool_help(
+                tool, help_command=help_command, help_text=help_text
+            )
+
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "MCP tool output name=cli_tool_usage output=%s", _log_payload(output)
+        )
+    return output
+
+
+def _capture_tool_help(tool) -> tuple[str, str]:
+    """Run a catalogued tool's help command and return ``(command, output)``."""
+
+    argv = [tool.binary, *tool.help_arg.split()]
+    command = " ".join(argv).strip()
+    cwd = DEFAULT_CWD if os.path.isdir(DEFAULT_CWD) else None
+
+    try:
+        process = subprocess.Popen(
+            argv,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError as exc:
+        return command, f"Could not run `{command}`: {exc}"
+
+    try:
+        output, _ = process.communicate(timeout=HELP_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(process)
+        output, _ = process.communicate()
+        output = (
+            f"{_text(output)}\n\n(`{command}` timed out after "
+            f"{HELP_TIMEOUT_SECONDS} seconds)"
+        )
+
+    text, truncated = _truncate(_text(output), MAX_OUTPUT_BYTES)
+    if truncated:
+        text = f"{text}\n\n(help output truncated)"
+    return command, text
 
 
 def _terminate_process_group(process: subprocess.Popen[str]) -> None:

@@ -65,6 +65,7 @@ export const stopToolButton = document.querySelector("#stopToolButton");
 export const constraintsInput = document.querySelector("#constraintsInput");
 export const maxReasoningEffort = document.querySelector("#maxReasoningEffort");
 export const unlimitedRounds = document.querySelector("#unlimitedRounds");
+export const bashMode = document.querySelector("#bashMode");
 
 // --- Phase two: approval configuration --------------------------------------
 export const configureApprovalButton = document.querySelector("#configureApprovalButton");
