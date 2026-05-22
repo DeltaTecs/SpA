@@ -43,6 +43,11 @@ from scanner_models import ScanSummary
 logger = logging.getLogger(__name__)
 CancelCallback = Callable[[], bool]
 
+# Tool-call rounds allowed to the smart approver when it researches an
+# improvement suggestion with the search tools. A couple of searches is plenty;
+# the cap keeps a single approval decision from running away.
+SMART_APPROVAL_MAX_TOOL_ROUNDS = 6
+
 
 class AnalysisCancelled(RuntimeError):
     """Raised when a running vulnerability analysis is aborted by the user."""
@@ -387,20 +392,30 @@ class ScannerAnalyzer:
         constraints: str,
         analysis_types: Sequence[str],
         event_id: int,
+        suggestion_tools: Optional[Sequence[Any]] = None,
         cancel_callback: Optional[CancelCallback] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Dict[str, Any]:
         """Decide whether a single phase-two MCP tool call may run automatically.
 
-        Returns a dict with keys ``approved`` (bool), ``reasoning`` (str) and
-        ``error`` (bool). ``error`` is True when the LLM produced no parseable
-        decision; callers should then fall back to manual approval.
+        Returns a dict with keys ``approved`` (bool), ``reasoning`` (str),
+        ``suggestion`` (str) and ``error`` (bool). ``error`` is True when the
+        LLM produced no parseable decision; callers should then fall back to
+        manual approval.
+
+        When ``suggestion_tools`` is non-empty (the Tavily search/extract
+        tools), the reviewer may call them to research a minor improvement to
+        the call and return it in ``suggestion``.
         """
         if self.llm is None:
             raise RuntimeError("Analyzer is not initialized")
 
+        tools = list(suggestion_tools or [])
+        suggest_improvement = bool(tools)
         tool_label = _tool_call_label(tool_call)
-        system_prompt = build_smart_approval_system_prompt()
+        system_prompt = build_smart_approval_system_prompt(
+            suggest_improvement=suggest_improvement
+        )
         human_prompt = _build_smart_approval_human_prompt(
             tool_call=tool_call,
             constraints=constraints,
@@ -413,12 +428,23 @@ class ScannerAnalyzer:
             scan_logger.log_llm_request("system_prompt", system_prompt)
             scan_logger.log_llm_request("human_prompt", human_prompt)
 
-        response_text = self._invoke_plain(
-            system_prompt=system_prompt,
-            human_prompt=human_prompt,
-            cancel_callback=cancel_callback,
-            scan_logger=scan_logger,
-        )
+        if suggest_improvement:
+            response_text = self._invoke_with_tools(
+                system_prompt=system_prompt,
+                human_prompt=human_prompt,
+                tools=tools,
+                event_id=event_id,
+                max_rounds=SMART_APPROVAL_MAX_TOOL_ROUNDS,
+                cancel_callback=cancel_callback,
+                scan_logger=scan_logger,
+            )
+        else:
+            response_text = self._invoke_plain(
+                system_prompt=system_prompt,
+                human_prompt=human_prompt,
+                cancel_callback=cancel_callback,
+                scan_logger=scan_logger,
+            )
         decision = _parse_smart_approval_decision(response_text)
 
         if scan_logger is not None:
@@ -907,6 +933,7 @@ def _parse_smart_approval_decision(response_text: Optional[str]) -> Dict[str, An
                 text[:500]
                 or "The smart approver returned no parseable decision."
             ),
+            "suggestion": "",
             "error": True,
         }
 
@@ -914,7 +941,14 @@ def _parse_smart_approval_decision(response_text: Optional[str]) -> Dict[str, An
     reasoning = str(raw.get("reasoning") or raw.get("reason") or "").strip()
     if not reasoning:
         reasoning = "Approved." if approved else "No reason was provided."
-    return {"approved": approved, "reasoning": reasoning, "error": False}
+    # Optional; only present when the reviewer ran with suggest-improvement on.
+    suggestion = str(raw.get("suggestion") or "").strip()
+    return {
+        "approved": approved,
+        "reasoning": reasoning,
+        "suggestion": suggestion,
+        "error": False,
+    }
 
 
 def _is_openai_reasoning_model(model_name: str) -> bool:

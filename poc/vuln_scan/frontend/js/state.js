@@ -38,6 +38,7 @@ export const state = {
   approvalProvider: null,
   approvalModel: null,
   escalateSmartRejections: true,
+  suggestImprovement: false,
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,

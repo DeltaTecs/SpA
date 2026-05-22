@@ -23,7 +23,11 @@ from analysis_types import (
 from phase1_runner import run_phase_one_summary
 from logging_setup import configure_logging
 from mcp_client import MCPClient
-from mcp_proxy_tools import analysis_mcp_server_specs_from_env
+from mcp_proxy_tools import (
+    analysis_mcp_server_specs_from_env,
+    build_auto_approved_mcp_tools,
+    search_mcp_server_specs_from_env,
+)
 from phase2_runner import run_phase_two_analysis
 from scan_logger import ScanRunLogger, create_scan_run_logger
 from smart_approver import SmartToolApprover
@@ -108,6 +112,7 @@ class PhaseTwoRequest(BaseModel):
     approval_provider: Optional[str] = None
     approval_model: Optional[str] = None
     escalate_smart_rejections: bool = True
+    suggest_improvement: bool = False
     provider: Optional[str] = None
     model: Optional[str] = None
     api_key: Optional[str] = None
@@ -282,6 +287,7 @@ def start_phase2(request: PhaseTwoRequest) -> dict:
         approval_provider=approval_provider,
         approval_model=approval_model,
         escalate_smart_rejections=request.escalate_smart_rejections,
+        suggest_improvement=request.suggest_improvement,
         max_reasoning_effort=request.max_reasoning_effort,
         unlimited_rounds=request.unlimited_rounds,
         custom_goal=custom_goal,
@@ -444,6 +450,36 @@ def _approval_llm_settings(request: PhaseTwoRequest):
     return provider, model, api_key, api_base_url
 
 
+def _build_suggestion_search_tools(run: AnalysisRun) -> list:
+    """Build the Tavily search tools the smart approver uses for suggestions.
+
+    Returns an empty list when no search MCP server is configured or its tools
+    are unavailable; the approver then reviews calls normally but without
+    researching improvements.
+    """
+    specs = search_mcp_server_specs_from_env()
+    if not specs:
+        run.add_progress(
+            "Suggest improvement is on, but no search MCP server is configured; "
+            "the smart approver will review without researching improvements."
+        )
+        return []
+    tools, _catalog = build_auto_approved_mcp_tools(
+        specs, progress_callback=run.add_progress
+    )
+    if tools:
+        run.add_progress(
+            f"Smart approver can research improvements with {len(tools)} "
+            "search tool(s)."
+        )
+    else:
+        run.add_progress(
+            "Suggest improvement is on, but the search MCP tools are "
+            "unavailable; the smart approver will review without them."
+        )
+    return tools
+
+
 def _attach_smart_approver(
     run: AnalysisRun,
     request: PhaseTwoRequest,
@@ -465,11 +501,15 @@ def _attach_smart_approver(
             api_base_url=api_base_url,
         )
         run.register_abort_callback(approval_analyzer.cancel_active_requests)
+        suggestion_tools = (
+            _build_suggestion_search_tools(run) if run.suggest_improvement else []
+        )
         approver = SmartToolApprover(
             analyzer=approval_analyzer,
             constraints=request.constraints,
             analysis_types=run.analysis_types,
             event_id=run.event_id,
+            suggestion_tools=suggestion_tools,
             cancel_callback=run.is_abort_requested,
             scan_logger=scan_logger,
         )
@@ -594,6 +634,7 @@ def _run_phase2_background(
                 "approval_provider": run.approval_provider,
                 "approval_model": run.approval_model,
                 "escalate_smart_rejections": run.escalate_smart_rejections,
+                "suggest_improvement": run.suggest_improvement,
                 "prior_report_ids": list(request.prior_report_ids),
                 "compact_included_reports": request.compact_included_reports,
                 "max_reasoning_effort": request.max_reasoning_effort,

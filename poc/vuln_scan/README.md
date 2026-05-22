@@ -63,7 +63,10 @@ MCP tool calls are approved:
   is needed to prove a vulnerability. Database tools are auto-approved. By
   default a call the reviewer rejects is escalated to manual approval, with the
   reviewer's reasoning shown on the approval card; this escalation can be turned
-  off in the menu, in which case the rejection is final. The reviewer's LLM
+  off in the menu, in which case the rejection is final. The **Suggest
+  improvement** option lets the reviewer use the Tavily search and extract tools
+  to research the tool call and add a minor improvement suggestion (such as an
+  extra flag) to the feedback returned to the analysis LLM. The reviewer's LLM
   provider and model are chosen in the same menu, independent of the analysis
   LLM.
 

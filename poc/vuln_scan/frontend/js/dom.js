@@ -76,6 +76,7 @@ export const approvalLlmConfig = document.querySelector("#approvalLlmConfig");
 export const approvalProviderSelect = document.querySelector("#approvalProviderSelect");
 export const approvalModelSelect = document.querySelector("#approvalModelSelect");
 export const escalateSmartRejections = document.querySelector("#escalateSmartRejections");
+export const suggestImprovement = document.querySelector("#suggestImprovement");
 export const approvalModeRadios = document.querySelectorAll('input[name="approvalMode"]');
 
 // --- Phase two: progress & prior reports ------------------------------------

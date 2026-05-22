@@ -48,6 +48,7 @@ import {
   priorReportsSummary,
   startAnalysisButton,
   stopToolButton,
+  suggestImprovement,
   toolApprovals,
   unlimitedRounds,
 } from "./dom.js";
@@ -348,6 +349,9 @@ export function renderApprovalDialog() {
 
   escalateSmartRejections.checked = state.escalateSmartRejections;
   escalateSmartRejections.disabled = !smartMode;
+
+  suggestImprovement.checked = state.suggestImprovement;
+  suggestImprovement.disabled = !smartMode;
 }
 
 // Extra phase-two payload fields that only apply to the smart approval mode.
@@ -359,6 +363,7 @@ export function approvalPayload() {
     approval_provider: state.approvalProvider,
     approval_model: state.approvalModel,
     escalate_smart_rejections: state.escalateSmartRejections,
+    suggest_improvement: state.suggestImprovement,
   };
 }
 
@@ -610,6 +615,14 @@ function renderSmartReview(review) {
   reason.textContent = review.reasoning || "(no reasoning provided)";
 
   box.append(heading, reason);
+
+  if (review.suggestion) {
+    const suggestion = document.createElement("div");
+    suggestion.className = "tool-approval-review-suggestion";
+    suggestion.textContent = `Suggested improvement: ${review.suggestion}`;
+    box.append(suggestion);
+  }
+
   return box;
 }
 

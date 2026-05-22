@@ -36,6 +36,7 @@ import {
   startAnalysisButton,
   startButton,
   stopToolButton,
+  suggestImprovement,
   unlimitedRounds,
   userIntendBrowseButton,
   userIntendFileInput,
@@ -107,6 +108,9 @@ approvalModelSelect.addEventListener("change", () => {
 });
 escalateSmartRejections.addEventListener("change", () => {
   state.escalateSmartRejections = escalateSmartRejections.checked;
+});
+suggestImprovement.addEventListener("change", () => {
+  state.suggestImprovement = suggestImprovement.checked;
 });
 compactIncludedReports.addEventListener("change", () => {
   state.compactIncludedReports = compactIncludedReports.checked;

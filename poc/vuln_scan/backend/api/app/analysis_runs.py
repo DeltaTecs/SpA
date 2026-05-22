@@ -101,6 +101,7 @@ class AnalysisRun:
         approval_provider: Optional[str] = None,
         approval_model: Optional[str] = None,
         escalate_smart_rejections: bool = True,
+        suggest_improvement: bool = False,
         max_reasoning_effort: bool = False,
         unlimited_rounds: bool = False,
         custom_goal: str = "",
@@ -130,6 +131,9 @@ class AnalysisRun:
         # user for a manual decision. When False, the rejection is final and is
         # returned straight to the analysis LLM.
         self.escalate_smart_rejections = escalate_smart_rejections
+        # When True, the smart approver may research and attach a minor
+        # improvement suggestion to its decision (see SmartToolApprover).
+        self.suggest_improvement = suggest_improvement
         self.max_reasoning_effort = max_reasoning_effort
         self.unlimited_rounds = unlimited_rounds
         self.status = "queued"
@@ -574,6 +578,7 @@ class AnalysisRun:
                 "approval_provider": self.approval_provider,
                 "approval_model": self.approval_model,
                 "escalate_smart_rejections": self.escalate_smart_rejections,
+                "suggest_improvement": self.suggest_improvement,
                 "max_reasoning_effort": self.max_reasoning_effort,
                 "unlimited_rounds": self.unlimited_rounds,
                 "status": self.status,
@@ -629,6 +634,7 @@ class AnalysisSessionStore:
         approval_provider: Optional[str] = None,
         approval_model: Optional[str] = None,
         escalate_smart_rejections: bool = True,
+        suggest_improvement: bool = False,
         max_reasoning_effort: bool = False,
         unlimited_rounds: bool = False,
         custom_goal: str = "",
@@ -646,6 +652,7 @@ class AnalysisSessionStore:
             approval_provider=approval_provider,
             approval_model=approval_model,
             escalate_smart_rejections=escalate_smart_rejections,
+            suggest_improvement=suggest_improvement,
             max_reasoning_effort=max_reasoning_effort,
             unlimited_rounds=unlimited_rounds,
             custom_goal=custom_goal,
@@ -669,14 +676,28 @@ def _is_approving_decision(decision: Optional[dict[str, Any]]) -> bool:
     )
 
 
+def _with_suggestion(reason: str, decision: Optional[dict[str, Any]]) -> str:
+    """Append the smart approver's minor improvement suggestion to ``reason``.
+
+    The suggestion is only present when the run enabled "suggest improvement";
+    otherwise the reason is returned unchanged.
+    """
+    suggestion = str((decision or {}).get("suggestion") or "").strip()
+    if suggestion:
+        return f"{reason} Suggested improvement: {suggestion}"
+    return reason
+
+
 def _smart_rejection_reason(decision: Optional[dict[str, Any]]) -> str:
     """Reason string returned to the analysis LLM for a smart-approver rejection."""
     reasoning = str((decision or {}).get("reasoning") or "").strip()
     if reasoning:
-        return reasoning
-    if decision is None or decision.get("error"):
-        return "The smart approver could not evaluate the tool call."
-    return "The smart approver rejected the tool call."
+        base = reasoning
+    elif decision is None or decision.get("error"):
+        base = "The smart approver could not evaluate the tool call."
+    else:
+        base = "The smart approver rejected the tool call."
+    return _with_suggestion(base, decision)
 
 
 def _smart_review_rejection_message(
@@ -687,20 +708,23 @@ def _smart_review_rejection_message(
         prefix = f"Smart approver could not evaluate {tool_name}"
     else:
         prefix = f"Smart approver rejected {tool_name}"
-    return prefix + (f": {reasoning}" if reasoning else ".")
+    return _with_suggestion(prefix + (f": {reasoning}" if reasoning else "."), decision)
 
 
 def _manual_denial_reason(request: ToolApprovalRequest) -> str:
     """Reason returned to the analysis LLM when a call is denied in manual review."""
+    review = request.smart_review
     user_reason = (request.decision_reason or "").strip()
     if user_reason:
-        return user_reason
-    review = request.smart_review
+        return _with_suggestion(user_reason, review)
     if review and not _is_approving_decision(review):
         reasoning = str(review.get("reasoning") or "").strip()
         if reasoning:
-            return f"Denied in manual review (smart approver note: {reasoning})"
-    return "The tool call was denied in manual review."
+            return _with_suggestion(
+                f"Denied in manual review (smart approver note: {reasoning})",
+                review,
+            )
+    return _with_suggestion("The tool call was denied in manual review.", review)
 
 
 def _is_mcp_database_tool_call(tool_call: dict[str, Any]) -> bool:

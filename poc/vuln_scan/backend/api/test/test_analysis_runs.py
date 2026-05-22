@@ -40,6 +40,7 @@ def _make_run(
     *,
     approval_timeout_seconds: float = 5.0,
     escalate_smart_rejections: bool = True,
+    suggest_improvement: bool = False,
     max_reasoning_effort: bool = False,
     unlimited_rounds: bool = False,
     bash_mode: bool = False,
@@ -53,6 +54,7 @@ def _make_run(
         approval_timeout_seconds=approval_timeout_seconds,
         approval_mode=approval_mode,
         escalate_smart_rejections=escalate_smart_rejections,
+        suggest_improvement=suggest_improvement,
         max_reasoning_effort=max_reasoning_effort,
         unlimited_rounds=unlimited_rounds,
         bash_mode=bash_mode,
@@ -209,6 +211,49 @@ class SmartApprovalModeTest(unittest.TestCase):
         run.decide_tool_request(request_id, True)
         result["thread"].join(timeout=5)  # type: ignore[union-attr]
         self.assertEqual(result["decision"], (True, ""))
+
+    def test_suggest_improvement_defaults_to_false(self) -> None:
+        self.assertFalse(
+            _make_run(APPROVAL_MODE_SMART_NON_DB).snapshot()["suggest_improvement"]
+        )
+
+    def test_snapshot_includes_suggest_improvement(self) -> None:
+        run = _make_run(APPROVAL_MODE_SMART_NON_DB, suggest_improvement=True)
+        self.assertTrue(run.snapshot()["suggest_improvement"])
+
+    def test_smart_rejection_appends_improvement_suggestion_to_feedback(self) -> None:
+        run = _make_run(APPROVAL_MODE_SMART_NON_DB, escalate_smart_rejections=False)
+        run.attach_smart_reviewer(
+            lambda _call: {
+                "approved": False,
+                "reasoning": "scan rate is too aggressive",
+                "suggestion": "add --max-rate 50",
+                "error": False,
+            }
+        )
+        approved, reason = run.request_tool_permission(NON_DB_CALL)
+        self.assertFalse(approved)
+        self.assertIn("scan rate is too aggressive", reason)
+        self.assertIn("Suggested improvement: add --max-rate 50", reason)
+
+    def test_escalated_denial_appends_smart_suggestion_to_feedback(self) -> None:
+        run = _make_run(APPROVAL_MODE_SMART_NON_DB, escalate_smart_rejections=True)
+        run.attach_smart_reviewer(
+            lambda _call: {
+                "approved": False,
+                "reasoning": "missing output throttle",
+                "suggestion": "add --max-rate 50",
+                "error": False,
+            }
+        )
+        result = _decide_in_background(run, NON_DB_CALL)
+        request_id = _wait_for_pending_request(run)
+        run.decide_tool_request(request_id, False)
+        result["thread"].join(timeout=5)  # type: ignore[union-attr]
+
+        approved, reason = result["decision"]
+        self.assertFalse(approved)
+        self.assertIn("Suggested improvement: add --max-rate 50", reason)
 
 
 class ManualApprovalModeTest(unittest.TestCase):

@@ -163,8 +163,31 @@ Return a concise Markdown report with executive summary and detailed findings.
 """
 
 
-def build_smart_approval_system_prompt() -> str:
-    return """You are the safety reviewer for an authorized bug-bounty / penetration-testing assistant.
+def build_smart_approval_system_prompt(*, suggest_improvement: bool = False) -> str:
+    """Build the smart-approver system prompt.
+
+    When ``suggest_improvement`` is True the reviewer is told it may use the
+    Tavily search tools to research a minor improvement to the call and to
+    return it in an extra ``suggestion`` field.
+    """
+    suggestion_guidance = ""
+    suggestion_field = ""
+    if suggest_improvement:
+        suggestion_guidance = """
+Improvement suggestions:
+- You may call the `tavily_search` and `tavily_extract` tools to look up public
+  documentation for the proposed tool or command.
+- Use them only to identify a minor, concrete improvement to THIS tool call -
+  for example an extra flag changes the tool call to satisfy the user constraints.
+- Put it in the "suggestion" field, or use an empty string when the call needs
+  no improvement.
+"""
+        suggestion_field = (
+            ',\n  "suggestion": "<optional minor improvement to the tool call, '
+            'such as an extra flag; empty string if none>"'
+        )
+
+    return f"""You are the safety reviewer for an authorized bug-bounty / penetration-testing assistant.
 
 Another LLM is performing vulnerability analysis and wants to run a single MCP
 tool call. Your job is to decide whether that call may run automatically,
@@ -188,12 +211,12 @@ Approve the call ONLY IF ALL of the following hold:
    account takeover, lateral movement, and persistence. Do not access data of other users.
 
 When in doubt, reject.
-
+{suggestion_guidance}
 Respond with exactly one JSON object and nothing else:
-{
+{{
   "approved": <true|false>,
-  "reasoning": "<one or two sentences naming the specific constraint or risk that drove the decision>"
-}
+  "reasoning": "<one or two sentences naming the specific constraint or risk that drove the decision>"{suggestion_field}
+}}
 """
 
 

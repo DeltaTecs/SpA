@@ -108,6 +108,25 @@ class PromptTest(unittest.TestCase):
         self.assertIn('"approved"', prompt)
         self.assertIn('"reasoning"', prompt)
 
+    def test_smart_approval_prompt_omits_suggestion_by_default(self) -> None:
+        prompt = build_smart_approval_system_prompt()
+
+        # Without the option the reviewer has no search tools and no suggestion.
+        self.assertNotIn("suggestion", prompt)
+        self.assertNotIn("tavily_search", prompt)
+
+    def test_smart_approval_prompt_with_suggest_improvement_adds_search_tools(
+        self,
+    ) -> None:
+        prompt = build_smart_approval_system_prompt(suggest_improvement=True)
+
+        # The reviewer is told about the search tools and the extra JSON field.
+        self.assertIn("tavily_search", prompt)
+        self.assertIn("tavily_extract", prompt)
+        self.assertIn('"suggestion"', prompt)
+        # The core review criteria still apply.
+        self.assertIn("do NOT approve", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

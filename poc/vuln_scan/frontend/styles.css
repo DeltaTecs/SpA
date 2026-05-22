@@ -682,6 +682,13 @@ h2 {
   line-height: 1.45;
 }
 
+.tool-approval-review-suggestion {
+  color: #394656;
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.45;
+}
+
 .constraints-field {
   color: #596677;
   display: grid;
