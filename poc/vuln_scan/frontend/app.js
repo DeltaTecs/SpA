@@ -84,8 +84,7 @@ const state = {
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
-  phase1RunId: null,
-  phase1Run: null,
+  phase1RunsByEvent: {},
   phase1PollTimer: null,
   storedReportsByEvent: {},
   loadingReportEventIds: new Set(),
@@ -364,7 +363,9 @@ async function loadStoredReports(eventId, options = {}) {
 
 async function startPhaseOne() {
   const event = selected();
-  if (!event || isEventRunning(event.event_id) || isPhaseOneRunning()) {
+  // Only this event's own in-progress scan blocks a restart; a pre-scan running
+  // on a different event must not stand in the way.
+  if (!event || isEventRunning(event.event_id)) {
     return;
   }
 
@@ -390,8 +391,8 @@ async function startPhaseOne() {
     if (!response.ok) {
       throw new Error(await errorText(response));
     }
-    state.phase1Run = await response.json();
-    state.phase1RunId = state.phase1Run.run_id;
+    const run = await response.json();
+    state.phase1RunsByEvent[run.event_id] = run;
     renderDetailPane();
     schedulePhaseOnePolling();
   } catch (error) {
@@ -403,10 +404,13 @@ async function startPhaseOne() {
   }
 }
 
+// A single shared timer drives every active pre-scan; it keeps polling until no
+// event has a run in progress, so concurrent scans are all covered.
 function schedulePhaseOnePolling() {
-  stopPhaseOnePolling();
-  state.phase1PollTimer = window.setInterval(refreshPhaseOneRun, 1500);
-  refreshPhaseOneRun();
+  if (!state.phase1PollTimer) {
+    state.phase1PollTimer = window.setInterval(refreshPhaseOneRuns, 1500);
+  }
+  refreshPhaseOneRuns();
 }
 
 function stopPhaseOnePolling() {
@@ -416,18 +420,35 @@ function stopPhaseOnePolling() {
   }
 }
 
-async function refreshPhaseOneRun() {
-  if (!state.phase1RunId) {
+async function refreshPhaseOneRuns() {
+  const activeRuns = Object.values(state.phase1RunsByEvent).filter(
+    (run) => ACTIVE_PRESCAN_STATUSES.has(run.status),
+  );
+  if (activeRuns.length === 0) {
     stopPhaseOnePolling();
     return;
   }
+
+  await Promise.all(activeRuns.map(refreshPhaseOneRun));
+
+  if (!hasActivePhaseOneRuns()) {
+    stopPhaseOnePolling();
+  }
+  renderConfig();
+  renderEvents();
+  renderDetailPane();
+}
+
+// Fetches one run's latest snapshot and folds it back into state. Never throws:
+// a failed poll is recorded against its own event so it cannot stall the others.
+async function refreshPhaseOneRun(previous) {
   try {
-    const response = await fetch(`/api/phase1/${state.phase1RunId}`);
+    const response = await fetch(`/api/phase1/${previous.run_id}`);
     if (!response.ok) {
       throw new Error(await errorText(response));
     }
     const run = await response.json();
-    state.phase1Run = run;
+    state.phase1RunsByEvent[run.event_id] = run;
     if (run.status === "completed") {
       state.results[run.event_id] = {
         event_id: run.event_id,
@@ -441,15 +462,14 @@ async function refreshPhaseOneRun() {
       state.runningEventIds.delete(run.event_id);
       setStatus(`Pre-scan failed for event ${run.event_id}: ${run.error || "unknown error"}`, true);
     }
-    if (!isPhaseOneRunning()) {
-      stopPhaseOnePolling();
-    }
-    renderConfig();
-    renderEvents();
-    renderDetailPane();
   } catch (error) {
-    setStatus(`Could not refresh pre-scan: ${error.message}`, true);
-    stopPhaseOnePolling();
+    state.runningEventIds.delete(previous.event_id);
+    state.phase1RunsByEvent[previous.event_id] = {
+      ...previous,
+      status: "failed",
+      error: error.message,
+    };
+    setStatus(`Could not refresh pre-scan for event ${previous.event_id}: ${error.message}`, true);
   }
 }
 
@@ -718,7 +738,7 @@ function renderEvents() {
 
     const meta = document.createElement("div");
     meta.className = "event-meta";
-    const recordings = event.recording_ids.length ? event.recording_ids.join(", ") : "unknown";
+    const recording = event.recording_ids.length ? event.recording_ids[0] : "unknown";
     const evaluationState = isEventRunning(event.event_id)
       ? "evaluating"
       : state.results[event.event_id]
@@ -728,7 +748,7 @@ function renderEvents() {
     const reportText = reportCount === undefined
       ? ""
       : `, ${reportCount} ${reportCount === 1 ? "report" : "reports"}`;
-    meta.textContent = `${event.packet_count} packets, recordings ${recordings}, ${evaluationState}${reportText}`;
+    meta.textContent = `${event.packet_count} packets, recording ${recording}, ${evaluationState}${reportText}`;
 
     button.append(title, meta);
     eventList.append(button);
@@ -754,7 +774,7 @@ function renderEventDetail() {
   startButton.textContent = isRunning ? "Evaluating..." : "Evaluate";
   startButton.disabled = isRunning || !event || !state.selectedProvider || !state.selectedModel;
   enablePhaseOneWebSearch.checked = state.enablePhaseOneWebSearch;
-  enablePhaseOneWebSearch.disabled = isRunning || isPhaseOneRunning();
+  enablePhaseOneWebSearch.disabled = isRunning;
   selectedEvent.textContent = event
     ? `Selected event ${event.event_id}: ${event.description || "(no description)"}`
     : "Select an event.";
@@ -784,8 +804,25 @@ function renderPrescanProcess() {
   prescanProcess.classList.toggle("error", process.error);
 }
 
+// Describes the pre-scan status for the currently selected event only, so the
+// status box follows event selection instead of a single global scan.
 function currentPrescanProcess() {
-  const run = state.phase1Run;
+  const event = selected();
+  if (!event) {
+    return {label: "Idle", active: false, terminal: false, error: false};
+  }
+
+  const run = state.phase1RunsByEvent[event.event_id] || null;
+
+  // A pre-scan was just started for this event but no run snapshot exists yet:
+  // either the POST is still in flight, or only a stale terminal run is on file.
+  if (
+    isEventRunning(event.event_id)
+    && (!run || run.status === "completed" || run.status === "failed")
+  ) {
+    return {label: "Starting pre-scan...", active: true, terminal: false, error: false};
+  }
+
   if (!run) {
     return {label: "Idle", active: false, terminal: false, error: false};
   }
@@ -803,7 +840,7 @@ function currentPrescanProcess() {
 
   return {
     label: latestMessage || humanizeStatus(run.status),
-    active: isPhaseOneRunning(),
+    active: true,
     terminal: false,
     error: false,
   };
@@ -1475,8 +1512,10 @@ function isPhaseTwoRunning() {
   return Boolean(state.phase2Run && ACTIVE_ANALYSIS_STATUSES.has(state.phase2Run.status));
 }
 
-function isPhaseOneRunning() {
-  return Boolean(state.phase1Run && ACTIVE_PRESCAN_STATUSES.has(state.phase1Run.status));
+function hasActivePhaseOneRuns() {
+  return Object.values(state.phase1RunsByEvent).some(
+    (run) => ACTIVE_PRESCAN_STATUSES.has(run.status),
+  );
 }
 
 function canStopActiveTool() {
