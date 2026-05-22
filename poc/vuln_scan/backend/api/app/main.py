@@ -642,6 +642,11 @@ def _run_phase2_background(
             connect_timeout=30,
             default_timeout=float(os.environ.get("PHASE2_MCP_TOOL_TIMEOUT_SECONDS", "900")),
         )
+        # Resolve a round's tool calls concurrently only when an automatic
+        # approval mode is active; pure manual review stays sequential.
+        max_concurrent_tool_calls = (
+            _approval_worker_count() if run.automatic_approval_enabled else 1
+        )
         result = run_phase_two_analysis(
             packet_mcp_client=packet_mcp_client,
             analyzer=analyzer,
@@ -655,6 +660,7 @@ def _run_phase2_background(
             progress_callback=run.add_progress,
             tool_start_callback=run.start_tool_execution,
             tool_stop_requested_callback=run.is_tool_stop_requested,
+            tool_stop_handler_callback=run.register_active_tool_stop_handler,
             tool_finish_callback=run.finish_tool_execution,
             app_details=_optional_app_details(request),
             user_actions=_optional_user_actions(request),
@@ -662,6 +668,7 @@ def _run_phase2_background(
             prior_reports_markdown=prior_reports_markdown,
             reasoning_effort="max" if request.max_reasoning_effort else "high",
             max_rounds=None if request.unlimited_rounds else 24,
+            max_concurrent_tool_calls=max_concurrent_tool_calls,
             scan_logger=scan_logger,
         )
         if run.abort_requested:
@@ -901,6 +908,20 @@ def _persist_condensed_summary(
             f"Could not store condensed summary for prior scan report "
             f"#{section.scan_id}: {exc}"
         )
+
+
+def _approval_worker_count() -> int:
+    """Max tool calls per LLM turn whose approval is resolved concurrently.
+
+    Used only for automatic approval modes; bounds how many smart-approval LLM
+    reviews run at once. Configurable via ``PHASE2_APPROVAL_WORKERS``.
+    """
+    raw_value = os.environ.get("PHASE2_APPROVAL_WORKERS", "4")
+    try:
+        configured_count = int(raw_value)
+    except ValueError:
+        configured_count = 4
+    return max(1, configured_count)
 
 
 def _prior_report_compaction_worker_count(report_count: int) -> int:

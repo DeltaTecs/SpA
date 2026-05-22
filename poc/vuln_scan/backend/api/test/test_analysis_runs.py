@@ -67,6 +67,19 @@ def _wait_for_pending_request(run: AnalysisRun, timeout: float = 5.0) -> str:
     raise AssertionError("no pending tool request appeared")
 
 
+def _wait_for_pending_count(
+    run: AnalysisRun, count: int, timeout: float = 5.0
+) -> list:
+    """Wait until exactly ``count`` tool requests await a manual decision."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pending = run.snapshot()["pending_tool_requests"]
+        if len(pending) == count:
+            return pending
+        time.sleep(0.02)
+    raise AssertionError(f"expected {count} pending tool request(s)")
+
+
 def _decide_in_background(run: AnalysisRun, tool_call: dict) -> dict:
     """Request permission on a worker thread; return a dict the caller fills."""
     result: dict[str, tuple[bool, str]] = {}
@@ -110,6 +123,18 @@ class StaticApprovalModeTest(unittest.TestCase):
         run.decide_tool_request(request_id, True)
         result["thread"].join(timeout=5)  # type: ignore[union-attr]
         self.assertEqual(result["decision"], (True, ""))
+
+    def test_automatic_approval_enabled_reflects_the_mode(self) -> None:
+        self.assertFalse(
+            _make_run(APPROVAL_MODE_MANUAL).automatic_approval_enabled
+        )
+        for mode in (
+            APPROVAL_MODE_AUTO_DB,
+            APPROVAL_MODE_AUTO_ALL,
+            APPROVAL_MODE_SMART_NON_DB,
+        ):
+            with self.subTest(mode=mode):
+                self.assertTrue(_make_run(mode).automatic_approval_enabled)
 
 
 class SmartApprovalModeTest(unittest.TestCase):
@@ -203,6 +228,48 @@ class SmartApprovalModeTest(unittest.TestCase):
         result["thread"].join(timeout=5)  # type: ignore[union-attr]
         self.assertEqual(result["decision"], (True, ""))
 
+    def test_concurrent_smart_escalations_each_queue_for_manual_review(self) -> None:
+        """Each rejected call in a batch escalates and waits in its own slot.
+
+        With automatic approval the phase-two runner reviews a round's tool
+        calls concurrently, so several rejections can escalate at once. Every
+        one must remain individually reviewable until the user decides it.
+        """
+        run = _make_run(APPROVAL_MODE_SMART_NON_DB, escalate_smart_rejections=True)
+        run.attach_smart_reviewer(
+            lambda _call: {
+                "approved": False,
+                "reasoning": "out of scope",
+                "error": False,
+            }
+        )
+
+        first = _decide_in_background(
+            run, dict(NON_DB_CALL, exposed_tool_name="hexstrike__a")
+        )
+        second = _decide_in_background(
+            run, dict(NON_DB_CALL, exposed_tool_name="hexstrike__b")
+        )
+
+        # Both rejected calls escalate and wait together in the review queue.
+        pending = _wait_for_pending_count(run, 2)
+        self.assertEqual(run.snapshot()["status"], "waiting_for_tool_approval")
+
+        # Deciding one leaves the run waiting until the second is reviewed too.
+        run.decide_tool_request(pending[0]["request_id"], True)
+        remaining = _wait_for_pending_count(run, 1)
+        self.assertEqual(remaining[0]["request_id"], pending[1]["request_id"])
+        self.assertEqual(run.snapshot()["status"], "waiting_for_tool_approval")
+
+        run.decide_tool_request(pending[1]["request_id"], False, "denied by user")
+        first["thread"].join(timeout=5)  # type: ignore[union-attr]
+        second["thread"].join(timeout=5)  # type: ignore[union-attr]
+
+        decisions = {first["decision"], second["decision"]}
+        self.assertIn((True, ""), decisions)
+        self.assertIn((False, "denied by user"), decisions)
+        self.assertEqual(run.snapshot()["status"], "running")
+
 
 class ManualApprovalModeTest(unittest.TestCase):
     def test_manual_denial_returns_the_user_supplied_reason(self) -> None:
@@ -257,6 +324,10 @@ class ManualApprovalModeTest(unittest.TestCase):
     def test_abort_requests_active_tool_stop(self) -> None:
         run = _make_run(APPROVAL_MODE_MANUAL)
         execution_id = run.start_tool_execution(NON_DB_CALL)
+        stop_calls: list[str] = []
+        run.register_active_tool_stop_handler(
+            execution_id, lambda: stop_calls.append(execution_id)
+        )
 
         run.abort()
 
@@ -267,6 +338,31 @@ class ManualApprovalModeTest(unittest.TestCase):
             "stop_requested",
         )
         self.assertTrue(run.is_tool_stop_requested(execution_id))
+        self.assertEqual(stop_calls, [execution_id])
+
+    def test_stop_handler_registered_after_abort_is_invoked(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        execution_id = run.start_tool_execution(NON_DB_CALL)
+        stop_calls: list[str] = []
+
+        run.abort()
+        run.register_active_tool_stop_handler(
+            execution_id, lambda: stop_calls.append(execution_id)
+        )
+
+        self.assertEqual(stop_calls, [execution_id])
+
+    def test_request_active_tool_stop_invokes_registered_stop_handler(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        execution_id = run.start_tool_execution(NON_DB_CALL)
+        stop_calls: list[str] = []
+        run.register_active_tool_stop_handler(
+            execution_id, lambda: stop_calls.append(execution_id)
+        )
+
+        self.assertTrue(run.request_active_tool_stop())
+
+        self.assertEqual(stop_calls, [execution_id])
 
     def test_tool_started_after_abort_is_immediately_stop_requested(self) -> None:
         run = _make_run(APPROVAL_MODE_AUTO_ALL)

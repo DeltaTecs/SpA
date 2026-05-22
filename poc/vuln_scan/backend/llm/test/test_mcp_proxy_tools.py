@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import threading
+import time
 import types
 import unittest
 from dataclasses import dataclass
@@ -429,6 +430,119 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         called_tools = [item[1] for item in _FakeMCPClient.call_log]
         self.assertEqual(called_tools, ["long_scan", "stop_active_tool"])
         self.assertEqual(finished, ["execution-1"])
+
+    def test_registered_stop_handler_requests_server_control_tool(self) -> None:
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("long_scan", "visible", {"type": "object"}),
+            _MCPToolSpec("stop_active_tool", "control", {"type": "object"}),
+        ]
+        _FakeMCPClient.blocking_tool_names = {"long_scan"}
+        finished: list[str] = []
+        stop_requested = threading.Event()
+        registered: dict[str, Any] = {}
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="hexstrike",
+                    label="HexStrike",
+                    url="http://hexstrike.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+            tool_start_callback=lambda _call: "execution-1",
+            tool_stop_requested_callback=lambda _execution_id: stop_requested.is_set(),
+            tool_stop_handler_callback=(
+                lambda execution_id, callback: registered.update(
+                    {"execution_id": execution_id, "callback": callback}
+                )
+            ),
+            tool_finish_callback=finished.append,
+        )
+        proxy.build_tools()
+        result: dict[str, str] = {}
+
+        thread = threading.Thread(
+            target=lambda: result.update(
+                {
+                    "value": proxy.call(
+                        "hexstrike__long_scan", {"target": "example.com"}
+                    )
+                }
+            )
+        )
+        thread.start()
+        self.assertTrue(_FakeMCPClient.tool_started_event.wait(timeout=2))
+        for _ in range(20):
+            if "callback" in registered:
+                break
+            time.sleep(0.05)
+
+        self.assertEqual(registered.get("execution_id"), "execution-1")
+        stop_requested.set()
+        registered["callback"]()
+        thread.join(timeout=5)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(result["value"], "Tool call stopped by user.")
+        called_tools = [item[1] for item in _FakeMCPClient.call_log]
+        self.assertEqual(called_tools, ["long_scan", "stop_active_tool"])
+        self.assertEqual(finished, ["execution-1"])
+
+    def test_execution_is_serialized_across_concurrent_calls(self) -> None:
+        """Approvals may overlap, but only one approved MCP tool runs at a time."""
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("scan_a", "visible", {"type": "object"}),
+            _MCPToolSpec("scan_b", "visible", {"type": "object"}),
+        ]
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="hexstrike",
+                    label="HexStrike",
+                    url="http://hexstrike.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+        )
+        proxy.build_tools()
+
+        # Track how many tool executions overlap; the proxy must keep it at 1.
+        active = {"current": 0, "max": 0}
+        active_lock = threading.Lock()
+        original_call_tool = _FakeMCPClient.call_tool
+
+        def tracking_call_tool(self, tool_name, arguments, timeout=None):
+            with active_lock:
+                active["current"] += 1
+                active["max"] = max(active["max"], active["current"])
+            time.sleep(0.1)
+            with active_lock:
+                active["current"] -= 1
+            return f"{tool_name} result"
+
+        _FakeMCPClient.call_tool = tracking_call_tool
+        results: dict[str, str] = {}
+        try:
+            def run_call(name: str) -> None:
+                results[name] = proxy.call(f"hexstrike__{name}", {})
+
+            threads = [
+                threading.Thread(target=run_call, args=(name,))
+                for name in ("scan_a", "scan_b")
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(timeout=5)
+        finally:
+            _FakeMCPClient.call_tool = original_call_tool
+
+        self.assertEqual(active["max"], 1)
+        self.assertEqual(
+            results, {"scan_a": "scan_a result", "scan_b": "scan_b result"}
+        )
 
 
 class AnalysisTypesTest(unittest.TestCase):

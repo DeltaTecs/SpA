@@ -61,6 +61,35 @@ class ForwardProxyHandler(BaseHTTPRequestHandler):
     def _rate_limiter(self):
         return self.server.rate_limiter
 
+    def _client_label(self) -> str:
+        host, port = self.client_address[:2]
+        return f"{host}:{port}"
+
+    def _log_proxy_call(
+        self, status: int | str, target: str | None = None, detail: str | None = None
+    ) -> None:
+        """Emit one stdout log line for each proxied HTTP call."""
+        if getattr(self, "_proxy_call_logged", False):
+            return
+        self._proxy_call_logged = True
+
+        command = getattr(self, "command", "-") or "-"
+        request_target = target
+        if request_target is None:
+            request_target = getattr(self, "path", "") or "-"
+        message = "http_proxy_call client=%s method=%s target=%r status=%s"
+        args: tuple[object, ...] = (self._client_label(), command, request_target, status)
+        if detail:
+            message = f"{message} detail=%r"
+            args = (*args, detail)
+        logger.info(message, *args)
+
+    def send_error(
+        self, code: int, message: str | None = None, explain: str | None = None
+    ) -> None:
+        self._log_proxy_call(code, detail=message or explain)
+        super().send_error(code, message, explain)
+
     # --- HTTP method dispatch ----------------------------------------------
     # Every standard method that carries an absolute URI is forwarded the
     # same way; CONNECT is special-cased below.
@@ -120,14 +149,16 @@ class ForwardProxyHandler(BaseHTTPRequestHandler):
                 self.command, target_path, body=body, headers=self._upstream_headers()
             )
             response = connection.getresponse()
+            self._log_proxy_call(response.status)
             self._relay_response(response)
-            logger.info("%s %s -> %s", self.command, self.path, response.status)
         except (OSError, http.client.HTTPException) as exc:
             logger.warning("Upstream request %s %s failed: %s", self.command, self.path, exc)
             # Only a clean error page is possible while no response bytes have
             # been written yet; otherwise just drop the corrupted connection.
             if not getattr(self, "_response_started", False):
                 self._send_error_page(502, f"Upstream request failed: {exc}")
+            else:
+                self._log_proxy_call("aborted", detail=str(exc))
         finally:
             connection.close()
 
@@ -213,7 +244,7 @@ class ForwardProxyHandler(BaseHTTPRequestHandler):
             self._send_error_page(502, f"Cannot reach {host}:{port}: {exc}")
             return
 
-        logger.info("CONNECT %s:%s established", host, port)
+        self._log_proxy_call(200, target=f"{host}:{port}")
         self._response_started = True
         self.send_response_only(200, "Connection established")
         self.end_headers()
@@ -247,6 +278,7 @@ class ForwardProxyHandler(BaseHTTPRequestHandler):
     # --- helpers ------------------------------------------------------------
     def _send_error_page(self, status: int, message: str) -> None:
         """Send a small JSON error response, tolerating an already-closed client."""
+        self._log_proxy_call(status, detail=message)
         body = json.dumps({"error": message}).encode("utf-8")
         try:
             self._response_started = True

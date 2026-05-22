@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Collection, Dict, Iterable, Mapping, Optional
 from urllib.parse import urlencode
@@ -24,6 +25,8 @@ ApprovalCallback = Callable[[dict[str, Any]], tuple[bool, str]]
 ProgressCallback = Callable[[str], None]
 ToolStartCallback = Callable[[dict[str, Any]], str]
 ToolStopRequestedCallback = Callable[[str], bool]
+ToolServerStopCallback = Callable[[], None]
+ToolStopHandlerCallback = Callable[[str, ToolServerStopCallback], None]
 ToolFinishCallback = Callable[[str], None]
 
 
@@ -70,6 +73,7 @@ class PermissionedMCPToolProxy:
         progress_callback: Optional[ProgressCallback] = None,
         tool_start_callback: Optional[ToolStartCallback] = None,
         tool_stop_requested_callback: Optional[ToolStopRequestedCallback] = None,
+        tool_stop_handler_callback: Optional[ToolStopHandlerCallback] = None,
         tool_finish_callback: Optional[ToolFinishCallback] = None,
         allowed_tool_names_by_server_id: Optional[Mapping[str, Collection[str]]] = None,
     ):
@@ -78,6 +82,7 @@ class PermissionedMCPToolProxy:
         self.progress_callback = progress_callback
         self.tool_start_callback = tool_start_callback
         self.tool_stop_requested_callback = tool_stop_requested_callback
+        self.tool_stop_handler_callback = tool_stop_handler_callback
         self.tool_finish_callback = tool_finish_callback
         self.allowed_tool_names_by_server_id = {
             server_id: frozenset(tool_names)
@@ -86,6 +91,10 @@ class PermissionedMCPToolProxy:
         self.clients: dict[str, MCPClient] = {}
         self.exposed_tools: dict[str, ExposedMCPTool] = {}
         self.control_stop_tools: dict[str, str] = {}
+        # Tool calls within one LLM turn may be approved concurrently, but the
+        # MCP servers expose a single active tool/bash slot. This lock serializes
+        # execution so at most one approved tool runs at a time.
+        self._execution_lock = threading.Lock()
 
     def build_tools(self) -> list[StructuredTool]:
         used_names: set[str] = set()
@@ -170,19 +179,44 @@ class PermissionedMCPToolProxy:
             "arguments": arguments,
         }
         self._progress(f"Awaiting approval for tool {exposed.exposed_name}.")
+        # Approval runs without the execution lock so concurrent tool calls in
+        # one LLM turn can be reviewed in parallel.
         approved, denial_reason = self.approval_callback(tool_call)
         if not approved:
             self._progress(f"Tool {exposed.exposed_name} was not approved.")
             return _format_denial_message(exposed.exposed_name, denial_reason)
 
-        self._progress(f"Running approved tool {exposed.exposed_name}.")
-        client = self.clients[exposed.server.server_id]
-        return self._call_tool_with_user_stop(
-            client=client,
+        return self._run_approved_tool(
             exposed=exposed,
             arguments=arguments,
             tool_call=tool_call,
         )
+
+    def _run_approved_tool(
+        self,
+        *,
+        exposed: ExposedMCPTool,
+        arguments: dict[str, Any],
+        tool_call: dict[str, Any],
+    ) -> str:
+        """Execute an approved tool, serializing so only one runs at a time."""
+        if not self._execution_lock.acquire(blocking=False):
+            self._progress(
+                f"Tool {exposed.exposed_name} approved; waiting for the running "
+                "MCP tool to finish."
+            )
+            self._execution_lock.acquire()
+        try:
+            self._progress(f"Running approved tool {exposed.exposed_name}.")
+            client = self.clients[exposed.server.server_id]
+            return self._call_tool_with_user_stop(
+                client=client,
+                exposed=exposed,
+                arguments=arguments,
+                tool_call=tool_call,
+            )
+        finally:
+            self._execution_lock.release()
 
     def _call_tool_with_user_stop(
         self,
@@ -206,6 +240,17 @@ class PermissionedMCPToolProxy:
         execution_id = self.tool_start_callback(tool_call)
         done = threading.Event()
         result: dict[str, Any] = {}
+        stop_lock = threading.Lock()
+        last_stop_sent_at = 0.0
+
+        def _send_stop_to_server() -> None:
+            nonlocal last_stop_sent_at
+            with stop_lock:
+                now = time.monotonic()
+                if last_stop_sent_at and now - last_stop_sent_at < 1:
+                    return
+                last_stop_sent_at = now
+            self._request_server_tool_stop(exposed)
 
         def _stop_requested() -> bool:
             return bool(self.tool_stop_requested_callback(execution_id))
@@ -237,14 +282,36 @@ class PermissionedMCPToolProxy:
                 )
 
             threading.Thread(target=_worker, daemon=True).start()
-            stop_sent = False
+            if self.tool_stop_handler_callback is not None:
+                self.tool_stop_handler_callback(execution_id, _send_stop_to_server)
+
+            stop_requested_at: Optional[float] = None
+            next_stop_attempt_at = 0.0
+            stop_grace_seconds = _tool_stop_grace_seconds()
             while not done.wait(timeout=0.25):
                 if _stop_requested():
-                    if not stop_sent:
-                        stop_sent = True
-                        self._request_server_tool_stop(exposed)
-                        done.wait(timeout=2)
-                    return "Tool call stopped by user."
+                    now = time.monotonic()
+                    if stop_requested_at is None:
+                        stop_requested_at = now
+                    if now >= next_stop_attempt_at:
+                        _send_stop_to_server()
+                        next_stop_attempt_at = now + 1
+                    if now - stop_requested_at >= stop_grace_seconds:
+                        return (
+                            "Tool call stop requested; MCP worker did not finish "
+                            f"within {stop_grace_seconds:.0f} seconds."
+                        )
+
+            try:
+                stop_was_requested = stop_requested_at is not None or _stop_requested()
+            except Exception as exc:
+                self._progress(
+                    f"MCP tool stop check failed for {exposed.exposed_name}: {exc}"
+                )
+                stop_was_requested = stop_requested_at is not None
+
+            if stop_was_requested:
+                return "Tool call stopped by user."
 
             error = result.get("error")
             if isinstance(error, BaseException):
@@ -265,6 +332,7 @@ class PermissionedMCPToolProxy:
                 stop_client.call_tool(stop_tool_name, {}, timeout=5)
             else:
                 stop_client.request("tools/stop", {}, timeout=5)
+            self._progress(f"MCP server stop request sent to {exposed.server.label}.")
         except Exception as exc:
             self._progress(
                 f"MCP server stop request failed for {exposed.server.label}: {exc}"
@@ -292,6 +360,14 @@ class PermissionedMCPToolProxy:
         logger.info(message)
         if self.progress_callback:
             self.progress_callback(message)
+
+
+def _tool_stop_grace_seconds() -> float:
+    raw = os.environ.get("PHASE2_MCP_STOP_GRACE_SECONDS", "15")
+    try:
+        return max(1.0, float(raw))
+    except ValueError:
+        return 15.0
 
 
 def analysis_mcp_server_specs_from_env() -> list[MCPServerSpec]:

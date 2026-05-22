@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
@@ -216,6 +217,7 @@ class ScannerAnalyzer:
         has_user_actions: bool = False,
         max_rounds: Optional[int] = 24,
         reasoning_effort: str = "high",
+        max_concurrent_tool_calls: int = 1,
         custom_goal: str = "",
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
@@ -278,6 +280,7 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             reasoning_effort=reasoning_effort,
+            max_concurrent_tool_calls=max_concurrent_tool_calls,
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
@@ -393,6 +396,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: Optional[int],
         reasoning_effort: str = "high",
+        max_concurrent_tool_calls: int = 1,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -404,6 +408,7 @@ class ScannerAnalyzer:
                 event_id=event_id,
                 max_rounds=max_rounds,
                 reasoning_effort=reasoning_effort,
+                max_concurrent_tool_calls=max_concurrent_tool_calls,
                 on_progress=on_progress,
                 scan_logger=scan_logger,
             )
@@ -419,6 +424,7 @@ class ScannerAnalyzer:
             tools,
             event_id=event_id,
             max_rounds=max_rounds,
+            max_concurrent_tool_calls=max_concurrent_tool_calls,
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
@@ -472,6 +478,30 @@ class ScannerAnalyzer:
         message = response.choices[0].message
         return str(getattr(message, "content", "") or "")
 
+    def _map_tool_calls(
+        self,
+        tool_calls: Sequence[Any],
+        resolve: Callable[[Any], Any],
+        *,
+        max_workers: int,
+    ) -> list:
+        """Resolve a round's tool calls with ``resolve``, preserving call order.
+
+        Runs concurrently when ``max_workers > 1`` and the LLM turn has more
+        than one tool call, so per-call approval (a UI decision or an LLM smart
+        review) overlaps across the calls. Tool *execution* stays serialized by
+        the MCP proxy; only the approval wait is parallelized.
+        """
+        tool_calls = list(tool_calls)
+        if max_workers <= 1 or len(tool_calls) <= 1:
+            return [resolve(tool_call) for tool_call in tool_calls]
+        with ThreadPoolExecutor(
+            max_workers=min(len(tool_calls), max_workers),
+            thread_name_prefix="phase2-tool-call",
+        ) as executor:
+            # executor.map keeps results aligned with the input order.
+            return list(executor.map(resolve, tool_calls))
+
     def _run_tool_conversation(
         self,
         llm_with_tools,
@@ -480,9 +510,25 @@ class ScannerAnalyzer:
         *,
         event_id: int,
         max_rounds: Optional[int],
+        max_concurrent_tool_calls: int = 1,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
+        tool_by_name = {tool.name: tool for tool in tools}
+
+        def resolve_tool_call(tool_call: dict) -> ToolMessage:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+            logger.debug("Tool call: %s(%s)", tool_name, tool_args)
+            if on_progress:
+                on_progress(f"LLM requested tool {tool_name}.")
+            if scan_logger is not None:
+                scan_logger.log_tool_request(tool_name, tool_args, source="llm")
+            result = _invoke_tool(tool_by_name.get(tool_name), tool_args)
+            if scan_logger is not None:
+                scan_logger.log_tool_response(tool_name, result)
+            return ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+
         round_num = 0
         while max_rounds is None or round_num < max_rounds:
             try:
@@ -511,29 +557,13 @@ class ScannerAnalyzer:
             if not tool_calls:
                 return _content_to_text(response.content)
 
-            for tool_call in tool_calls:
-                tool_name = tool_call["name"]
-                tool_args = tool_call["args"]
-                logger.debug("Tool call: %s(%s)", tool_name, tool_args)
-                if on_progress:
-                    on_progress(f"LLM requested tool {tool_name}.")
-                if scan_logger is not None:
-                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
-
-                result = "(tool not found)"
-                for tool in tools:
-                    if tool.name == tool_name:
-                        try:
-                            result = tool.invoke(tool_args)
-                        except Exception as exc:
-                            result = f"Error: {exc}"
-                        break
-                if scan_logger is not None:
-                    scan_logger.log_tool_response(tool_name, result)
-
-                messages.append(
-                    ToolMessage(content=str(result), tool_call_id=tool_call["id"])
+            messages.extend(
+                self._map_tool_calls(
+                    tool_calls,
+                    resolve_tool_call,
+                    max_workers=max_concurrent_tool_calls,
                 )
+            )
             _emit_tool_results_received(on_progress, len(tool_calls))
             round_num += 1
 
@@ -553,6 +583,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: Optional[int],
         reasoning_effort: str = "high",
+        max_concurrent_tool_calls: int = 1,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -566,6 +597,27 @@ class ScannerAnalyzer:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": human_prompt},
         ]
+
+        def resolve_tool_call(tool_call: Any) -> Dict[str, Any]:
+            tool_name = tool_call.function.name
+            tool_args_text = tool_call.function.arguments or "{}"
+            try:
+                tool_args = json.loads(tool_args_text)
+            except json.JSONDecodeError:
+                tool_args = {}
+            logger.debug("Tool call: %s(%s)", tool_name, tool_args)
+            if on_progress:
+                on_progress(f"LLM requested tool {tool_name}.")
+            if scan_logger is not None:
+                scan_logger.log_tool_request(tool_name, tool_args, source="llm")
+            result = _invoke_tool(tool_by_name.get(tool_name), tool_args)
+            if scan_logger is not None:
+                scan_logger.log_tool_response(tool_name, result)
+            return {
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": str(result),
+            }
 
         round_num = 0
         while max_rounds is None or round_num < max_rounds:
@@ -611,38 +663,13 @@ class ScannerAnalyzer:
             if not tool_calls:
                 return str(getattr(message, "content", "") or "")
 
-            for tool_call in tool_calls:
-                tool_name = tool_call.function.name
-                tool_args_text = tool_call.function.arguments or "{}"
-                try:
-                    tool_args = json.loads(tool_args_text)
-                except json.JSONDecodeError:
-                    tool_args = {}
-                logger.debug("Tool call: %s(%s)", tool_name, tool_args)
-                if on_progress:
-                    on_progress(f"LLM requested tool {tool_name}.")
-                if scan_logger is not None:
-                    scan_logger.log_tool_request(tool_name, tool_args, source="llm")
-
-                tool = tool_by_name.get(tool_name)
-                if tool is None:
-                    result = "(tool not found)"
-                else:
-                    try:
-                        result = tool.invoke(tool_args)
-                    except Exception as exc:
-                        result = f"Error: {exc}"
-
-                if scan_logger is not None:
-                    scan_logger.log_tool_response(tool_name, result)
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": str(result),
-                    }
+            messages.extend(
+                self._map_tool_calls(
+                    tool_calls,
+                    resolve_tool_call,
+                    max_workers=max_concurrent_tool_calls,
                 )
+            )
             _emit_tool_results_received(on_progress, len(tool_calls))
             round_num += 1
 
@@ -783,6 +810,20 @@ def _content_to_text(content: Any) -> str:
                 parts.append(str(item))
         return "\n".join(parts)
     return str(content)
+
+
+def _invoke_tool(tool: Any, tool_args: Any) -> str:
+    """Invoke a bound LangChain tool, returning any failure as text for the LLM.
+
+    Errors (including a missing tool) are returned rather than raised so the
+    analysis LLM receives them as the tool result and can adjust or retry.
+    """
+    if tool is None:
+        return "(tool not found)"
+    try:
+        return tool.invoke(tool_args)
+    except Exception as exc:  # noqa: BLE001 - surfaced to the LLM as the result
+        return f"Error: {exc}"
 
 
 def _emit_tool_results_received(

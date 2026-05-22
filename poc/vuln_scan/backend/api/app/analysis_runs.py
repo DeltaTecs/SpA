@@ -39,6 +39,7 @@ APPROVAL_MODES = frozenset(
 # Callback used by the smart approval mode. Given a tool-call dict it returns a
 # decision dict ``{"approved": bool, "reasoning": str, "error": bool}``.
 SmartReviewCallback = Callable[[dict[str, Any]], dict[str, Any]]
+ToolStopCallback = Callable[[], None]
 
 _RUN_ABORTED_REASON = "The analysis run was aborted before the tool call could run."
 
@@ -137,12 +138,29 @@ class AnalysisRun:
         self.created_at = time.time()
         self.updated_at = self.created_at
         self._smart_review_callback: Optional[SmartReviewCallback] = None
+        self._active_tool_stop_callback: Optional[ToolStopCallback] = None
+        self._active_tool_stop_callback_execution_id: Optional[str] = None
+        self._active_tool_stop_callback_invoked = False
         self._condition = threading.Condition(threading.RLock())
 
     def attach_smart_reviewer(self, callback: Optional[SmartReviewCallback]) -> None:
         """Register the LLM smart approver used by the ``smart_non_db`` mode."""
         with self._condition:
             self._smart_review_callback = callback
+
+    @property
+    def automatic_approval_enabled(self) -> bool:
+        """True when the approval mode resolves some tool calls without a human.
+
+        With any automatic mode the phase-two runner resolves a round's tool
+        calls concurrently, so their per-call approvals (and the LLM smart
+        reviews) overlap. Pure manual review stays sequential.
+        """
+        return self.approval_mode in (
+            APPROVAL_MODE_AUTO_DB,
+            APPROVAL_MODE_AUTO_ALL,
+            APPROVAL_MODE_SMART_NON_DB,
+        )
 
     def add_progress(self, message: str) -> None:
         with self._condition:
@@ -178,6 +196,7 @@ class AnalysisRun:
             self._condition.notify_all()
 
     def abort(self) -> None:
+        callback_to_invoke: Optional[ToolStopCallback] = None
         with self._condition:
             self.abort_requested = True
             if self.status not in TERMINAL_STATUSES:
@@ -196,9 +215,18 @@ class AnalysisRun:
                         "message": f"MCP tool stop requested due to abort: {tool_name}",
                     }
                 )
+            if (
+                self.active_tool_execution
+                and self.active_tool_execution.status == "stop_requested"
+            ):
+                callback_to_invoke = self._take_active_tool_stop_callback_locked(
+                    self.active_tool_execution.execution_id
+                )
             self.progress.append({"timestamp": time.time(), "message": "Abort requested."})
             self.updated_at = time.time()
             self._condition.notify_all()
+        if callback_to_invoke is not None:
+            self._invoke_active_tool_stop_callback(callback_to_invoke)
 
     def request_tool_permission(self, tool_call: dict[str, Any]) -> tuple[bool, str]:
         """Approval callback for the MCP proxy.
@@ -360,6 +388,24 @@ class AnalysisRun:
                 self._condition.notify_all()
         return decision
 
+    def _resync_run_status(self) -> None:
+        """Reflect outstanding manual tool reviews in the run status.
+
+        Concurrent tool-approval waiters share one run, so the status cannot be
+        flipped back to ``running`` by whichever waiter finishes first: the run
+        stays ``waiting_for_tool_approval`` while any request is still pending
+        and becomes ``running`` only once the last one is decided. Must be
+        called while holding ``self._condition``; terminal/aborted runs keep
+        their status.
+        """
+        if self.status in TERMINAL_STATUSES or self.abort_requested:
+            return
+        has_pending = any(
+            request.status == "pending"
+            for request in self.tool_requests.values()
+        )
+        self.status = "waiting_for_tool_approval" if has_pending else "running"
+
     def _await_manual_decision(self, request: ToolApprovalRequest) -> tuple[bool, str]:
         """Block until the user approves/denies, the run aborts, or it times out."""
         with self._condition:
@@ -388,7 +434,7 @@ class AnalysisRun:
                 if remaining <= 0:
                     request.status = "timeout"
                     request.decided_at = time.time()
-                    self.status = "running"
+                    self._resync_run_status()
                     self.progress.append(
                         {
                             "timestamp": time.time(),
@@ -409,7 +455,7 @@ class AnalysisRun:
                 self._condition.notify_all()
                 return False, _RUN_ABORTED_REASON
 
-            self.status = "running"
+            self._resync_run_status()
             self.updated_at = time.time()
             self._condition.notify_all()
             if request.status == "approved":
@@ -419,6 +465,9 @@ class AnalysisRun:
     def start_tool_execution(self, tool_call: dict[str, Any]) -> str:
         with self._condition:
             execution_id = uuid.uuid4().hex
+            self._active_tool_stop_callback = None
+            self._active_tool_stop_callback_execution_id = execution_id
+            self._active_tool_stop_callback_invoked = False
             self.active_tool_execution = ActiveToolExecution(
                 execution_id=execution_id,
                 tool_call=tool_call,
@@ -447,7 +496,26 @@ class AnalysisRun:
             self._condition.notify_all()
             return execution_id
 
+    def register_active_tool_stop_handler(
+        self, execution_id: str, callback: ToolStopCallback
+    ) -> None:
+        callback_to_invoke: Optional[ToolStopCallback] = None
+        with self._condition:
+            execution = self.active_tool_execution
+            if execution is None or execution.execution_id != execution_id:
+                return
+
+            self._active_tool_stop_callback = callback
+            self._active_tool_stop_callback_execution_id = execution_id
+            if self.abort_requested or execution.status == "stop_requested":
+                callback_to_invoke = self._take_active_tool_stop_callback_locked(
+                    execution_id
+                )
+        if callback_to_invoke is not None:
+            self._invoke_active_tool_stop_callback(callback_to_invoke)
+
     def request_active_tool_stop(self) -> bool:
+        callback_to_invoke: Optional[ToolStopCallback] = None
         with self._condition:
             execution = self.active_tool_execution
             if execution is None or execution.status != "running":
@@ -459,9 +527,14 @@ class AnalysisRun:
             self.progress.append(
                 {"timestamp": time.time(), "message": f"MCP tool stop requested: {tool_name}"}
             )
+            callback_to_invoke = self._take_active_tool_stop_callback_locked(
+                execution.execution_id
+            )
             self.updated_at = time.time()
             self._condition.notify_all()
-            return True
+        if callback_to_invoke is not None:
+            self._invoke_active_tool_stop_callback(callback_to_invoke)
+        return True
 
     def is_tool_stop_requested(self, execution_id: str) -> bool:
         with self._condition:
@@ -486,8 +559,32 @@ class AnalysisRun:
                     {"timestamp": time.time(), "message": f"MCP tool stopped by user: {tool_name}"}
                 )
             self.active_tool_execution = None
+            if self._active_tool_stop_callback_execution_id == execution_id:
+                self._active_tool_stop_callback = None
+                self._active_tool_stop_callback_execution_id = None
+                self._active_tool_stop_callback_invoked = False
             self.updated_at = time.time()
             self._condition.notify_all()
+
+    def _take_active_tool_stop_callback_locked(
+        self, execution_id: str
+    ) -> Optional[ToolStopCallback]:
+        if self._active_tool_stop_callback_invoked:
+            return None
+        if self._active_tool_stop_callback_execution_id != execution_id:
+            return None
+        callback = self._active_tool_stop_callback
+        if callback is None:
+            return None
+        self._active_tool_stop_callback_invoked = True
+        return callback
+
+    def _invoke_active_tool_stop_callback(self, callback: ToolStopCallback) -> None:
+        try:
+            callback()
+        except Exception as exc:  # noqa: BLE001 - stop failures are reported to the run
+            logger.warning("Active MCP tool stop callback failed: %s", exc)
+            self.add_progress(f"MCP server stop request failed: {exc}")
 
     def tools_used(self) -> list[str]:
         with self._condition:

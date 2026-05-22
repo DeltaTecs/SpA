@@ -13,6 +13,7 @@ from mcp_proxy_tools import (
     PermissionedMCPToolProxy,
     ToolFinishCallback,
     ToolStartCallback,
+    ToolStopHandlerCallback,
     ToolStopRequestedCallback,
 )
 from scan_logger import ScanRunLogger
@@ -36,6 +37,7 @@ def run_phase_two_analysis(
     progress_callback: Callable[[str], None],
     tool_start_callback: ToolStartCallback | None = None,
     tool_stop_requested_callback: ToolStopRequestedCallback | None = None,
+    tool_stop_handler_callback: ToolStopHandlerCallback | None = None,
     tool_finish_callback: ToolFinishCallback | None = None,
     app_details: Optional[str] = None,
     user_actions: Optional[list[UserAction]] = None,
@@ -43,6 +45,7 @@ def run_phase_two_analysis(
     prior_reports_markdown: str = "",
     reasoning_effort: str = "high",
     max_rounds: Optional[int] = 24,
+    max_concurrent_tool_calls: int = 1,
     scan_logger: Optional[ScanRunLogger] = None,
 ) -> str:
     logger.info("Starting vulnerability scan phase 2 for event %d", event_id)
@@ -53,6 +56,7 @@ def run_phase_two_analysis(
         scan_logger.log_input("constraints", constraints)
         scan_logger.log_input("custom_goal", custom_goal or "(none)")
         scan_logger.log_input("custom_tool_set", custom_tool_set or "(none)")
+        scan_logger.log_input("max_concurrent_tool_calls", max_concurrent_tool_calls)
         scan_logger.log_input(
             "mcp_servers",
             [
@@ -197,6 +201,7 @@ def run_phase_two_analysis(
         progress_callback=_progress,
         tool_start_callback=wrapped_tool_start,
         tool_stop_requested_callback=wrapped_tool_stop_requested,
+        tool_stop_handler_callback=tool_stop_handler_callback,
         tool_finish_callback=wrapped_tool_finish,
         allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
     )
@@ -216,6 +221,12 @@ def run_phase_two_analysis(
     )
     if max_rounds is None:
         _progress("Phase-two LLM tool-call round limit disabled.")
+    if max_concurrent_tool_calls > 1:
+        _progress(
+            "Automatic approval enabled: up to "
+            f"{max_concurrent_tool_calls} tool calls per LLM turn are approved "
+            "concurrently (execution stays one at a time)."
+        )
     result = analyzer.analyze_vulnerabilities(
         event_id=event_id,
         recording_id=prepared.recording_id,
@@ -232,6 +243,7 @@ def run_phase_two_analysis(
         has_user_actions=bool(user_actions),
         max_rounds=max_rounds,
         reasoning_effort=reasoning_effort,
+        max_concurrent_tool_calls=max_concurrent_tool_calls,
         on_progress=_progress,
         scan_logger=scan_logger,
     )
