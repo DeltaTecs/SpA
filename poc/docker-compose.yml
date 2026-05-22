@@ -132,9 +132,7 @@ services:
     stdin_open: true
 
   # HTTP forward proxy: injects a configurable User-Agent and rate-limits
-  # forwarded traffic. It shares the VPN network namespace (exactly like
-  # mcp-hexstrike) so all upstream traffic egresses through Proton VPN, and is
-  # reachable from the hexstrike container on 127.0.0.1:8899.
+  # forwarded traffic.
   http-proxy:
     build: ./http_proxy/backend
     container_name: http-proxy
@@ -152,8 +150,7 @@ services:
     depends_on:
       - hexstrike-vpn
 
-  # Web UI to configure the http-proxy User-Agent and rate limit. It reaches
-  # the proxy's config API through the gluetun container on port 8890.
+  # Web UI to configure the http-proxy User-Agent and rate limit.
   http-proxy-frontend:
     build: ./http_proxy/frontend
     container_name: http-proxy-frontend
