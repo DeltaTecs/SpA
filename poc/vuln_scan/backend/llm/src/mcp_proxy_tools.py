@@ -176,6 +176,12 @@ class PermissionedMCPToolProxy:
         lines.append("=== End Available Permissioned MCP Tools ===")
         return "\n".join(lines)
 
+    def stop_all_active_tools(self) -> None:
+        """Best-effort stop broadcast for every configured MCP server."""
+
+        for server in self.servers:
+            self._request_server_stop(server)
+
     def call(self, exposed_name: str, arguments: dict[str, Any]) -> str:
         exposed = self.exposed_tools[exposed_name]
         tool_call = {
@@ -271,12 +277,16 @@ class PermissionedMCPToolProxy:
             self.tool_finish_callback(execution_id)
 
     def _request_server_tool_stop(self, exposed: ExposedMCPTool) -> None:
-        stop_tool_name = self.control_stop_tools.get(exposed.server.server_id)
+        self._request_server_stop(exposed.server)
+
+    def _request_server_stop(self, server: MCPServerSpec) -> None:
+        stop_tool_name = self.control_stop_tools.get(server.server_id)
         try:
             stop_client = MCPClient(
-                exposed.server.url,
-                connect_timeout=5,
+                server.url,
+                connect_timeout=2,
                 default_timeout=5,
+                connect_attempts=1,
             )
             if stop_tool_name:
                 stop_client.call_tool(stop_tool_name, {}, timeout=5)
@@ -284,7 +294,7 @@ class PermissionedMCPToolProxy:
                 stop_client.request("tools/stop", {}, timeout=5)
         except Exception as exc:
             self._progress(
-                f"MCP server stop request failed for {exposed.server.label}: {exc}"
+                f"MCP server stop request failed for {server.label}: {exc}"
             )
 
     def _langchain_tool(self, exposed: ExposedMCPTool) -> StructuredTool:

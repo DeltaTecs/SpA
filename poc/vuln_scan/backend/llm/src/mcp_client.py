@@ -52,6 +52,7 @@ class MCPClient:
         *,
         connect_timeout: float = 10,
         default_timeout: float = 30,
+        connect_attempts: int = 30,
     ):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
@@ -59,6 +60,7 @@ class MCPClient:
         self._endpoint = _mcp_endpoint(self.base_url)
         self._connect_timeout = connect_timeout
         self._default_timeout = default_timeout
+        self._connect_attempts = max(1, int(connect_attempts))
         self._connect()
 
     def _connect(self) -> None:
@@ -67,7 +69,7 @@ class MCPClient:
             "Accept": "application/json, text/event-stream",
         }
 
-        for attempt in range(30):
+        for attempt in range(self._connect_attempts):
             try:
                 init_payload = {
                     "jsonrpc": "2.0",

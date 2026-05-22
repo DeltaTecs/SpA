@@ -366,17 +366,21 @@ export function approvalPayload() {
 function renderToolApprovals() {
   const run = state.phase2Run;
   const pending = Array.isArray(run?.pending_tool_requests) ? run.pending_tool_requests : [];
-  const pendingIds = new Set(pending.map((request) => request.request_id));
+  const pendingIds = new Set(pending.map(toolApprovalRequestKey));
+  syncToolApprovalReasonDraftsFromDom(pendingIds);
+  const focusedReasonInput = captureFocusedToolApprovalReasonInput();
   // Keep existing pending cards alive across polling so focused inputs are not replaced.
   const existingCards = new Map(
-    [...toolApprovals.children].map((card) => [card.dataset.requestId, card]),
+    [...toolApprovals.querySelectorAll(".tool-approval[data-request-id]")]
+      .map((card) => [card.dataset.requestId, card]),
   );
 
   pruneToolApprovalReasonDrafts(pendingIds);
 
   for (const request of pending) {
+    const requestKey = toolApprovalRequestKey(request);
     const fingerprint = toolApprovalCardFingerprint(run, request);
-    let card = existingCards.get(request.request_id);
+    let card = existingCards.get(requestKey);
     if (!card || card.dataset.renderFingerprint !== fingerprint) {
       const replacement = buildToolApprovalCard(run, request, fingerprint);
       if (card) {
@@ -385,18 +389,19 @@ function renderToolApprovals() {
       card = replacement;
     }
     toolApprovals.append(card);
-    existingCards.delete(request.request_id);
+    existingCards.delete(requestKey);
   }
 
   for (const staleCard of existingCards.values()) {
     staleCard.remove();
   }
+  restoreFocusedToolApprovalReasonInput(focusedReasonInput);
 }
 
 function buildToolApprovalCard(run, request, fingerprint) {
   const card = document.createElement("div");
   card.className = "tool-approval";
-  card.dataset.requestId = request.request_id;
+  card.dataset.requestId = toolApprovalRequestKey(request);
   card.dataset.renderFingerprint = fingerprint;
 
   const title = document.createElement("div");
@@ -419,13 +424,15 @@ function buildToolApprovalCard(run, request, fingerprint) {
 }
 
 function buildManualApprovalControls(request) {
+  const requestKey = toolApprovalRequestKey(request);
   const reasonInput = document.createElement("input");
   reasonInput.type = "text";
   reasonInput.className = "tool-approval-reason";
+  reasonInput.dataset.requestId = requestKey;
   reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
-  reasonInput.value = state.toolApprovalReasonDrafts[request.request_id] || "";
+  reasonInput.value = state.toolApprovalReasonDrafts[requestKey] || "";
   reasonInput.addEventListener("input", () => {
-    state.toolApprovalReasonDrafts[request.request_id] = reasonInput.value;
+    state.toolApprovalReasonDrafts[requestKey] = reasonInput.value;
   });
 
   const actions = document.createElement("div");
@@ -435,7 +442,7 @@ function buildManualApprovalControls(request) {
   deny.type = "button";
   deny.textContent = "Deny";
   deny.addEventListener("click", () => decideToolRequest(
-    request.request_id,
+    requestKey,
     false,
     reasonInput.value,
   ));
@@ -448,7 +455,7 @@ function buildManualApprovalControls(request) {
     forwardDenial.textContent = "Forward Denial";
     forwardDenial.title = "Deny using the smart approver's stated reason";
     forwardDenial.addEventListener("click", () => decideToolRequest(
-      request.request_id,
+      requestKey,
       false,
       forwardDenialReason,
     ));
@@ -457,7 +464,7 @@ function buildManualApprovalControls(request) {
   const approve = document.createElement("button");
   approve.type = "button";
   approve.textContent = "Approve";
-  approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
+  approve.addEventListener("click", () => decideToolRequest(requestKey, true));
 
   actions.append(...[deny, forwardDenial, approve].filter(Boolean));
   return [reasonInput, actions];
@@ -466,11 +473,54 @@ function buildManualApprovalControls(request) {
 // A card is only rebuilt when its fingerprint changes; this keeps it stable
 // (and any focused input intact) across polls that do not affect the card.
 function toolApprovalCardFingerprint(run, request) {
-  return JSON.stringify({
+  return stableJsonStringify({
     manualControls: shouldRenderManualApprovalControls(run, request),
     smartReview: request.smart_review || null,
     toolCall: request.tool_call || null,
   });
+}
+
+function toolApprovalRequestKey(request) {
+  return String(request?.request_id ?? "");
+}
+
+function syncToolApprovalReasonDraftsFromDom(pendingIds) {
+  for (const input of toolApprovals.querySelectorAll(".tool-approval-reason[data-request-id]")) {
+    const requestId = input.dataset.requestId || "";
+    if (pendingIds.has(requestId)) {
+      state.toolApprovalReasonDrafts[requestId] = input.value;
+    }
+  }
+}
+
+function captureFocusedToolApprovalReasonInput() {
+  const input = document.activeElement;
+  if (!input?.matches?.(".tool-approval-reason[data-request-id]")) {
+    return null;
+  }
+  return {
+    requestId: input.dataset.requestId || "",
+    selectionStart: input.selectionStart,
+    selectionEnd: input.selectionEnd,
+  };
+}
+
+function restoreFocusedToolApprovalReasonInput(focusedInput) {
+  if (!focusedInput?.requestId) {
+    return;
+  }
+  const input = [...toolApprovals.querySelectorAll(".tool-approval-reason[data-request-id]")]
+    .find((candidate) => candidate.dataset.requestId === focusedInput.requestId);
+  if (!input || document.activeElement === input) {
+    return;
+  }
+  input.focus();
+  if (
+    Number.isInteger(focusedInput.selectionStart)
+    && Number.isInteger(focusedInput.selectionEnd)
+  ) {
+    input.setSelectionRange(focusedInput.selectionStart, focusedInput.selectionEnd);
+  }
 }
 
 function pruneToolApprovalReasonDrafts(pendingIds) {
@@ -479,6 +529,19 @@ function pruneToolApprovalReasonDrafts(pendingIds) {
       delete state.toolApprovalReasonDrafts[requestId];
     }
   }
+}
+
+function stableJsonStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJsonStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "undefined";
 }
 
 function smartReviewDenialReason(request) {

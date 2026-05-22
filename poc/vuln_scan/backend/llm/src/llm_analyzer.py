@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
+import threading
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
 try:
@@ -39,6 +41,11 @@ from scanner_models import ScanSummary
 
 
 logger = logging.getLogger(__name__)
+CancelCallback = Callable[[], bool]
+
+
+class AnalysisCancelled(RuntimeError):
+    """Raised when a running vulnerability analysis is aborted by the user."""
 
 
 class ScannerAnalyzer:
@@ -59,8 +66,10 @@ class ScannerAnalyzer:
         self.api_base_url = api_base_url
         self.llm = None
         self.deepseek_client = None
+        self._cancel_event = threading.Event()
 
     def initialize(self) -> None:
+        self._cancel_event.clear()
         if self.provider == "gemini":
             if ChatGoogleGenerativeAI is None:
                 raise ImportError(
@@ -118,6 +127,32 @@ class ScannerAnalyzer:
                 temperature=0.1,
             )
         logger.info("LLM initialized successfully")
+
+    def cancel_active_requests(self) -> None:
+        """Ask any in-flight provider request to stop as soon as possible."""
+
+        self._cancel_event.set()
+        for client in self._client_handles():
+            _close_client(client)
+
+    def _client_handles(self) -> list[Any]:
+        handles: list[Any] = []
+        if self.deepseek_client is not None:
+            handles.append(self.deepseek_client)
+        if self.llm is not None:
+            handles.append(self.llm)
+            for attr in (
+                "root_client",
+                "root_async_client",
+                "client",
+                "async_client",
+                "_client",
+                "_async_client",
+            ):
+                value = getattr(self.llm, attr, None)
+                if value is not None:
+                    handles.append(value)
+        return handles
 
     def summarize_event(
         self,
@@ -218,6 +253,7 @@ class ScannerAnalyzer:
         max_rounds: Optional[int] = 24,
         reasoning_effort: str = "high",
         custom_goal: str = "",
+        cancel_callback: Optional[CancelCallback] = None,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
@@ -280,6 +316,7 @@ class ScannerAnalyzer:
             event_id=event_id,
             max_rounds=max_rounds,
             reasoning_effort=reasoning_effort,
+            cancel_callback=cancel_callback,
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
@@ -297,6 +334,7 @@ class ScannerAnalyzer:
         report_label: str,
         prior_report_markdown: str,
         prescan_markdown: str = "",
+        cancel_callback: Optional[CancelCallback] = None,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
@@ -329,6 +367,7 @@ class ScannerAnalyzer:
         compacted = self._invoke_plain(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
+            cancel_callback=cancel_callback,
             scan_logger=scan_logger,
         ).strip()
 
@@ -348,6 +387,7 @@ class ScannerAnalyzer:
         constraints: str,
         analysis_types: Sequence[str],
         event_id: int,
+        cancel_callback: Optional[CancelCallback] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Dict[str, Any]:
         """Decide whether a single phase-two MCP tool call may run automatically.
@@ -376,6 +416,7 @@ class ScannerAnalyzer:
         response_text = self._invoke_plain(
             system_prompt=system_prompt,
             human_prompt=human_prompt,
+            cancel_callback=cancel_callback,
             scan_logger=scan_logger,
         )
         decision = _parse_smart_approval_decision(response_text)
@@ -395,6 +436,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: Optional[int],
         reasoning_effort: str = "high",
+        cancel_callback: Optional[CancelCallback] = None,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -406,6 +448,7 @@ class ScannerAnalyzer:
                 event_id=event_id,
                 max_rounds=max_rounds,
                 reasoning_effort=reasoning_effort,
+                cancel_callback=cancel_callback,
                 on_progress=on_progress,
                 scan_logger=scan_logger,
             )
@@ -421,6 +464,7 @@ class ScannerAnalyzer:
             tools,
             event_id=event_id,
             max_rounds=max_rounds,
+            cancel_callback=cancel_callback,
             on_progress=on_progress,
             scan_logger=scan_logger,
         )
@@ -430,23 +474,36 @@ class ScannerAnalyzer:
         *,
         system_prompt: str,
         human_prompt: str,
+        cancel_callback: Optional[CancelCallback] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> str:
         try:
             if self.provider == "deepseek":
-                return self._invoke_deepseek_plain(
-                    system_prompt=system_prompt,
-                    human_prompt=human_prompt,
+                return self._invoke_model_operation(
+                    lambda: self._invoke_deepseek_plain(
+                        system_prompt=system_prompt,
+                        human_prompt=human_prompt,
+                    ),
+                    cancel_callback=cancel_callback,
+                    operation_name="deepseek_plain",
+                    scan_logger=scan_logger,
                 )
 
-            response = self.llm.invoke(
-                [
-                    SystemMessage(content=system_prompt),
-                    HumanMessage(content=human_prompt),
-                ]
+            response = self._invoke_model_operation(
+                lambda: self.llm.invoke(
+                    [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=human_prompt),
+                    ]
+                ),
+                cancel_callback=cancel_callback,
+                operation_name="plain",
+                scan_logger=scan_logger,
             )
             content = getattr(response, "content", "")
             return _content_to_text(content) if content is not None else ""
+        except AnalysisCancelled:
+            raise
         except Exception as exc:
             logger.error("LLM prior-report compaction failed: %s", exc)
             if scan_logger is not None:
@@ -474,6 +531,73 @@ class ScannerAnalyzer:
         message = response.choices[0].message
         return str(getattr(message, "content", "") or "")
 
+    def _invoke_model_operation(
+        self,
+        operation: Callable[[], Any],
+        *,
+        cancel_callback: Optional[CancelCallback],
+        operation_name: str,
+        scan_logger: Optional[ScanRunLogger],
+    ) -> Any:
+        self._raise_if_cancelled(cancel_callback)
+        if cancel_callback is None:
+            return operation()
+
+        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+        def _worker() -> None:
+            try:
+                result_queue.put(("value", operation()))
+            except BaseException as exc:
+                result_queue.put(("error", exc))
+
+        worker = threading.Thread(
+            target=_worker,
+            name=f"scanner-llm-{operation_name}",
+            daemon=True,
+        )
+        worker.start()
+        while True:
+            try:
+                kind, value = result_queue.get(timeout=0.25)
+                break
+            except queue.Empty:
+                if self._cancel_requested(cancel_callback):
+                    self.cancel_active_requests()
+                    message = "LLM request cancelled because the analysis was aborted."
+                    logger.info(message)
+                    if scan_logger is not None:
+                        scan_logger.info(message)
+                    raise AnalysisCancelled(message)
+
+        if kind == "error":
+            raise value
+
+        self._raise_if_cancelled(cancel_callback)
+        return value
+
+    def _cancel_requested(
+        self,
+        cancel_callback: Optional[CancelCallback],
+    ) -> bool:
+        if self._cancel_event.is_set():
+            return True
+        if cancel_callback is None:
+            return False
+        try:
+            return bool(cancel_callback())
+        except Exception as exc:  # noqa: BLE001 - fail closed on cancellation checks
+            logger.warning("Cancellation callback failed: %s", exc)
+            return True
+
+    def _raise_if_cancelled(
+        self,
+        cancel_callback: Optional[CancelCallback],
+    ) -> None:
+        if self._cancel_requested(cancel_callback):
+            self.cancel_active_requests()
+            raise AnalysisCancelled("Analysis aborted by user.")
+
     def _run_tool_conversation(
         self,
         llm_with_tools,
@@ -482,13 +606,22 @@ class ScannerAnalyzer:
         *,
         event_id: int,
         max_rounds: Optional[int],
+        cancel_callback: Optional[CancelCallback] = None,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
         round_num = 0
         while max_rounds is None or round_num < max_rounds:
+            self._raise_if_cancelled(cancel_callback)
             try:
-                response = llm_with_tools.invoke(messages)
+                response = self._invoke_model_operation(
+                    lambda: llm_with_tools.invoke(messages),
+                    cancel_callback=cancel_callback,
+                    operation_name=f"tool_round_{round_num}",
+                    scan_logger=scan_logger,
+                )
+            except AnalysisCancelled:
+                raise
             except Exception as exc:
                 logger.error("LLM invocation failed (round %d): %s", round_num, exc)
                 if scan_logger is not None:
@@ -514,6 +647,7 @@ class ScannerAnalyzer:
                 return _content_to_text(response.content)
 
             for tool_call in tool_calls:
+                self._raise_if_cancelled(cancel_callback)
                 tool_name = tool_call["name"]
                 tool_args = tool_call["args"]
                 logger.debug("Tool call: %s(%s)", tool_name, tool_args)
@@ -527,12 +661,15 @@ class ScannerAnalyzer:
                     if tool.name == tool_name:
                         try:
                             result = tool.invoke(tool_args)
+                        except AnalysisCancelled:
+                            raise
                         except Exception as exc:
                             result = f"Error: {exc}"
                         break
                 if scan_logger is not None:
                     scan_logger.log_tool_response(tool_name, result)
 
+                self._raise_if_cancelled(cancel_callback)
                 messages.append(
                     ToolMessage(content=str(result), tool_call_id=tool_call["id"])
                 )
@@ -555,6 +692,7 @@ class ScannerAnalyzer:
         event_id: int,
         max_rounds: Optional[int],
         reasoning_effort: str = "high",
+        cancel_callback: Optional[CancelCallback] = None,
         on_progress: Optional[Callable[[str], None]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> Optional[str]:
@@ -571,14 +709,22 @@ class ScannerAnalyzer:
 
         round_num = 0
         while max_rounds is None or round_num < max_rounds:
+            self._raise_if_cancelled(cancel_callback)
             try:
-                response = self.deepseek_client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=tool_specs,
-                    reasoning_effort=reasoning_effort,
-                    extra_body={"thinking": {"type": "enabled"}},
+                response = self._invoke_model_operation(
+                    lambda: self.deepseek_client.chat.completions.create(
+                        model=self.model_name,
+                        messages=messages,
+                        tools=tool_specs,
+                        reasoning_effort=reasoning_effort,
+                        extra_body={"thinking": {"type": "enabled"}},
+                    ),
+                    cancel_callback=cancel_callback,
+                    operation_name=f"deepseek_tool_round_{round_num}",
+                    scan_logger=scan_logger,
                 )
+            except AnalysisCancelled:
+                raise
             except Exception as exc:
                 logger.error("DeepSeek invocation failed (round %d): %s", round_num, exc)
                 if scan_logger is not None:
@@ -614,6 +760,7 @@ class ScannerAnalyzer:
                 return str(getattr(message, "content", "") or "")
 
             for tool_call in tool_calls:
+                self._raise_if_cancelled(cancel_callback)
                 tool_name = tool_call.function.name
                 tool_args_text = tool_call.function.arguments or "{}"
                 try:
@@ -632,12 +779,15 @@ class ScannerAnalyzer:
                 else:
                     try:
                         result = tool.invoke(tool_args)
+                    except AnalysisCancelled:
+                        raise
                     except Exception as exc:
                         result = f"Error: {exc}"
 
                 if scan_logger is not None:
                     scan_logger.log_tool_response(tool_name, result)
 
+                self._raise_if_cancelled(cancel_callback)
                 messages.append(
                     {
                         "role": "tool",
@@ -797,6 +947,16 @@ def _emit_tool_results_received(
         on_progress("MCP tool result received; invoking LLM.")
         return
     on_progress(f"{tool_count} MCP tool results received; invoking LLM.")
+
+
+def _close_client(client: Any) -> None:
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+    try:
+        close()
+    except Exception as exc:  # noqa: BLE001 - cancellation is best effort
+        logger.debug("Could not close LLM client during cancellation: %s", exc)
 
 
 def _openai_tool_spec(tool: Any) -> Dict[str, Any]:

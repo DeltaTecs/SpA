@@ -197,12 +197,19 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
 
 def _stop_active_stdio_tools() -> dict[str, Any]:
-    pids = _active_hexstrike_mcp_pids()
+    pids = _active_hexstrike_tool_pids()
     if not pids:
-        return {"stopped": 0, "message": "No active HexStrike MCP subprocess."}
+        return {"stopped": 0, "message": "No active HexStrike MCP tool process."}
 
     _terminate_processes(pids)
-    return {"stopped": len(pids), "message": "Stop requested for active HexStrike MCP subprocesses."}
+    return {"stopped": len(pids), "message": "Stop requested for active HexStrike MCP tool processes."}
+
+
+def _active_hexstrike_tool_pids() -> list[int]:
+    active: set[int] = set(_active_hexstrike_mcp_pids())
+    for backend_pid in _active_hexstrike_backend_pids():
+        active.update(_descendant_pids(backend_pid))
+    return sorted(active)
 
 
 def _active_hexstrike_mcp_pids() -> list[int]:
@@ -214,6 +221,17 @@ def _active_hexstrike_mcp_pids() -> list[int]:
     for pid in descendants:
         cmdline = _cmdline(pid)
         if script_path in cmdline or script_name in cmdline:
+            active.append(pid)
+    return active
+
+
+def _active_hexstrike_backend_pids() -> list[int]:
+    current_pid = os.getpid()
+    descendants = _descendant_pids(current_pid)
+    active: list[int] = []
+    for pid in descendants:
+        cmdline = _cmdline(pid)
+        if "hexstrike_server.py" in cmdline:
             active.append(pid)
     return active
 
@@ -255,7 +273,8 @@ def _cmdline(pid: int) -> str:
 
 
 def _terminate_processes(pids: list[int]) -> None:
-    for pid in pids:
+    targets = _process_tree_pids(pids)
+    for pid in targets:
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:
@@ -263,8 +282,8 @@ def _terminate_processes(pids: list[int]) -> None:
         except OSError as exc:
             logger.warning("Could not signal HexStrike MCP subprocess %d: %s", pid, exc)
 
-    _wait_for_exit(pids, timeout_seconds=5)
-    remaining = [pid for pid in pids if (Path("/proc") / str(pid)).exists()]
+    _wait_for_exit(targets, timeout_seconds=5)
+    remaining = [pid for pid in targets if _pid_exists(pid)]
     for pid in remaining:
         try:
             os.kill(pid, signal.SIGKILL)
@@ -273,11 +292,25 @@ def _terminate_processes(pids: list[int]) -> None:
         except OSError as exc:
             logger.warning("Could not kill HexStrike MCP subprocess %d: %s", pid, exc)
 
+    _wait_for_exit(remaining, timeout_seconds=2)
+
+
+def _process_tree_pids(root_pids: list[int]) -> list[int]:
+    targets: set[int] = set()
+    for pid in root_pids:
+        targets.add(pid)
+        targets.update(_descendant_pids(pid))
+    return sorted(targets, reverse=True)
+
+
+def _pid_exists(pid: int) -> bool:
+    return (Path("/proc") / str(pid)).exists()
+
 
 def _wait_for_exit(pids: list[int], *, timeout_seconds: float) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
-        if all(not (Path("/proc") / str(pid)).exists() for pid in pids):
+        if all(not _pid_exists(pid) for pid in pids):
             return
         time.sleep(0.1)
 

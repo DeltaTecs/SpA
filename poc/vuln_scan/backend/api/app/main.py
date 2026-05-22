@@ -464,11 +464,13 @@ def _attach_smart_approver(
             api_key=api_key,
             api_base_url=api_base_url,
         )
+        run.register_abort_callback(approval_analyzer.cancel_active_requests)
         approver = SmartToolApprover(
             analyzer=approval_analyzer,
             constraints=request.constraints,
             analysis_types=run.analysis_types,
             event_id=run.event_id,
+            cancel_callback=run.is_abort_requested,
             scan_logger=scan_logger,
         )
         run.attach_smart_reviewer(approver.review)
@@ -568,6 +570,7 @@ def _run_phase2_background(
     api_base_url: Optional[str],
 ) -> None:
     run.start()
+    analyzer = None
     scan_started_at = time.monotonic()
     scan_logger = create_scan_run_logger(
         phase="phase2",
@@ -607,6 +610,7 @@ def _run_phase2_background(
             api_key=api_key,
             api_base_url=api_base_url,
         )
+        run.register_abort_callback(analyzer.cancel_active_requests)
         _attach_smart_approver(run, request, scan_logger)
         prescan_summary = get_prescan(request.event_id)
         prescan_markdown = prescan_summary.to_markdown() if prescan_summary else ""
@@ -629,6 +633,9 @@ def _run_phase2_background(
                     api_key=api_key,
                     api_base_url=api_base_url,
                     progress_callback=run.add_progress,
+                    abort_requested_callback=run.is_abort_requested,
+                    abort_callback_registrar=run.register_abort_callback,
+                    abort_callback_unregistrar=run.unregister_abort_callback,
                     scan_logger=scan_logger,
                 )
                 run.add_progress(
@@ -660,6 +667,9 @@ def _run_phase2_background(
             tool_start_callback=run.start_tool_execution,
             tool_stop_requested_callback=run.is_tool_stop_requested,
             tool_finish_callback=run.finish_tool_execution,
+            abort_requested_callback=run.is_abort_requested,
+            abort_callback_registrar=run.register_abort_callback,
+            abort_callback_unregistrar=run.unregister_abort_callback,
             app_details=_optional_app_details(request),
             user_actions=_optional_user_actions(request),
             prescan_markdown=prescan_markdown,
@@ -707,6 +717,8 @@ def _run_phase2_background(
             scan_logger.error("Phase 2 run failed: %s", exc)
         run.fail(str(exc))
     finally:
+        if analyzer is not None:
+            analyzer.cancel_active_requests()
         if scan_logger is not None:
             _phase2_loggers.pop(run.run_id, None)
             scan_logger.close()
@@ -759,6 +771,9 @@ def _compact_prior_report_sections(
     api_key: Optional[str],
     api_base_url: Optional[str],
     progress_callback: Callable[[str], None],
+    abort_requested_callback: Callable[[], bool],
+    abort_callback_registrar: Callable[[Callable[[], None]], None],
+    abort_callback_unregistrar: Callable[[Callable[[], None]], None],
     scan_logger: Optional[ScanRunLogger],
 ) -> str:
     if not sections:
@@ -799,6 +814,7 @@ def _compact_prior_report_sections(
                 analysis_types=analysis_types,
                 constraints=constraints,
                 prescan_markdown=prescan_markdown,
+                abort_requested_callback=abort_requested_callback,
                 progress_callback=progress_callback,
                 scan_logger=scan_logger,
             )
@@ -807,21 +823,28 @@ def _compact_prior_report_sections(
             indexed_section: tuple[int, PriorReportSection],
         ) -> tuple[int, PriorReportSection]:
             index, section = indexed_section
-            compacted = _compact_prior_report_section(
-                analyzer=create_analyzer(
-                    provider=provider,
-                    model=model,
-                    api_key=api_key,
-                    api_base_url=api_base_url,
-                ),
-                section=section,
-                event_id=event_id,
-                analysis_types=analysis_types,
-                constraints=constraints,
-                prescan_markdown=prescan_markdown,
-                progress_callback=progress_callback,
-                scan_logger=scan_logger,
+            worker_analyzer = create_analyzer(
+                provider=provider,
+                model=model,
+                api_key=api_key,
+                api_base_url=api_base_url,
             )
+            abort_callback_registrar(worker_analyzer.cancel_active_requests)
+            try:
+                compacted = _compact_prior_report_section(
+                    analyzer=worker_analyzer,
+                    section=section,
+                    event_id=event_id,
+                    analysis_types=analysis_types,
+                    constraints=constraints,
+                    prescan_markdown=prescan_markdown,
+                    abort_requested_callback=abort_requested_callback,
+                    progress_callback=progress_callback,
+                    scan_logger=scan_logger,
+                )
+            finally:
+                abort_callback_unregistrar(worker_analyzer.cancel_active_requests)
+                worker_analyzer.cancel_active_requests()
             return index, compacted
 
         with ThreadPoolExecutor(
@@ -845,9 +868,12 @@ def _compact_prior_report_section(
     analysis_types: Sequence[str],
     constraints: str,
     prescan_markdown: str,
+    abort_requested_callback: Callable[[], bool],
     progress_callback: Callable[[str], None],
     scan_logger: Optional[ScanRunLogger],
 ) -> PriorReportSection:
+    if abort_requested_callback():
+        raise RuntimeError("Analysis aborted by user.")
     compacted = analyzer.compact_prior_report(
         event_id=event_id,
         analysis_types=analysis_types,
@@ -855,9 +881,12 @@ def _compact_prior_report_section(
         prescan_markdown=prescan_markdown,
         report_label=section.label,
         prior_report_markdown=section.markdown,
+        cancel_callback=abort_requested_callback,
         on_progress=progress_callback,
         scan_logger=scan_logger,
     )
+    if abort_requested_callback():
+        raise RuntimeError("Analysis aborted by user.")
     _persist_condensed_summary(section, compacted, progress_callback)
     return _compacted_prior_report_section(section, compacted)
 

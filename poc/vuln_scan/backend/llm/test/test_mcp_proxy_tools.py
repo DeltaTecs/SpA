@@ -489,6 +489,48 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         self.assertEqual(called_tools, ["long_scan", "stop_active_tool"])
         self.assertEqual(finished, ["execution-1"])
 
+    def test_stop_all_active_tools_broadcasts_to_every_server(self) -> None:
+        _FakeMCPClient.tool_specs_by_url = {
+            "http://hexstrike.example": [
+                _MCPToolSpec("long_scan", "visible", {"type": "object"}),
+                _MCPToolSpec("stop_active_tool", "control", {"type": "object"}),
+            ],
+            "http://packet-db.example": [
+                _MCPToolSpec("conversation_packets", "visible", {"type": "object"}),
+            ],
+        }
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="hexstrike",
+                    label="HexStrike",
+                    url="http://hexstrike.example",
+                    tool_timeout_seconds=30,
+                ),
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="packet",
+                    label="Packet DB",
+                    url="http://packet-db.example",
+                    tool_timeout_seconds=30,
+                ),
+            ],
+            approval_callback=lambda _call: (True, ""),
+        )
+        proxy.build_tools()
+        _FakeMCPClient.call_log = []
+        _FakeMCPClient.request_log = []
+
+        proxy.stop_all_active_tools()
+
+        self.assertIn(
+            ("http://hexstrike.example", "stop_active_tool", {}, 5),
+            _FakeMCPClient.call_log,
+        )
+        self.assertIn(
+            ("http://packet-db.example", "tools/stop", {}, 5),
+            _FakeMCPClient.request_log,
+        )
+
 
 class AnalysisTypesTest(unittest.TestCase):
     def test_hexstrike_tools_for_analysis_types_returns_selected_union(self) -> None:

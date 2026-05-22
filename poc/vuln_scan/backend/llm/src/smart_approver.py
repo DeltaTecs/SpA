@@ -15,7 +15,7 @@ approval, so rejecting is always the safe default.
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from llm_analyzer import ScannerAnalyzer
 from scan_logger import ScanRunLogger
@@ -34,12 +34,14 @@ class SmartToolApprover:
         constraints: str,
         analysis_types: Sequence[str],
         event_id: int,
+        cancel_callback: Optional[Callable[[], bool]] = None,
         scan_logger: Optional[ScanRunLogger] = None,
     ) -> None:
         self._analyzer = analyzer
         self._constraints = constraints
         self._analysis_types = list(analysis_types)
         self._event_id = event_id
+        self._cancel_callback = cancel_callback
         self._scan_logger = scan_logger
 
     def review(self, tool_call: dict[str, Any]) -> dict[str, Any]:
@@ -54,6 +56,7 @@ class SmartToolApprover:
                 constraints=self._constraints,
                 analysis_types=self._analysis_types,
                 event_id=self._event_id,
+                cancel_callback=self._cancel_callback,
                 scan_logger=self._scan_logger,
             )
         except Exception as exc:  # noqa: BLE001 - reviewer must not crash the run

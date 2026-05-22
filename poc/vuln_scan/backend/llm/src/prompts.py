@@ -135,7 +135,7 @@ def build_phase_two_system_prompt(
 
     if bash_mode:
         tooling_text = """Available tool categories include packet database tools, search-engine tools,
-and a Bash MCP server with plenty of offensive security tools installed."""
+and a Bash MCP server with plenty of offensive security tools installed. At the start of the analysis use `list_cli_tools` to get a list of available tools."""
     else:
         tooling_text = """Available tool categories may include packet database tools, search-engine tools,
 HexStrike MCP tools, and a Bash MCP server."""
@@ -186,6 +186,8 @@ Approve the call ONLY IF ALL of the following hold:
    enumeration, and low-impact verification are acceptable. Reject actual
    exploitation, destructive payloads, data exfiltration, denial of service,
    account takeover, lateral movement, and persistence. Do not access data of other users.
+
+When in doubt, reject.
 
 Respond with exactly one JSON object and nothing else:
 {

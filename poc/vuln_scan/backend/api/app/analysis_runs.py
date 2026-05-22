@@ -39,6 +39,7 @@ APPROVAL_MODES = frozenset(
 # Callback used by the smart approval mode. Given a tool-call dict it returns a
 # decision dict ``{"approved": bool, "reasoning": str, "error": bool}``.
 SmartReviewCallback = Callable[[dict[str, Any]], dict[str, Any]]
+AbortCallback = Callable[[], None]
 
 _RUN_ABORTED_REASON = "The analysis run was aborted before the tool call could run."
 
@@ -141,12 +142,35 @@ class AnalysisRun:
         self.created_at = time.time()
         self.updated_at = self.created_at
         self._smart_review_callback: Optional[SmartReviewCallback] = None
+        self._abort_callbacks: list[AbortCallback] = []
         self._condition = threading.Condition(threading.RLock())
 
     def attach_smart_reviewer(self, callback: Optional[SmartReviewCallback]) -> None:
         """Register the LLM smart approver used by the ``smart_non_db`` mode."""
         with self._condition:
             self._smart_review_callback = callback
+
+    def register_abort_callback(self, callback: AbortCallback) -> None:
+        """Run ``callback`` when this run is aborted.
+
+        The callback is invoked outside the run lock because it may close HTTP
+        clients or call MCP control tools.
+        """
+        call_now = False
+        with self._condition:
+            if self.abort_requested:
+                call_now = True
+            elif callback not in self._abort_callbacks:
+                self._abort_callbacks.append(callback)
+
+        if call_now:
+            self._invoke_abort_callback(callback)
+
+    def unregister_abort_callback(self, callback: AbortCallback) -> None:
+        with self._condition:
+            self._abort_callbacks = [
+                item for item in self._abort_callbacks if item != callback
+            ]
 
     def add_progress(self, message: str) -> None:
         with self._condition:
@@ -170,6 +194,7 @@ class AnalysisRun:
                 self.status = "completed"
                 self.result_markdown = result_markdown
                 self.progress.append({"timestamp": time.time(), "message": "Analysis completed."})
+            self._abort_callbacks.clear()
             self.updated_at = time.time()
             self._condition.notify_all()
 
@@ -178,10 +203,12 @@ class AnalysisRun:
             self.status = "failed"
             self.error = error
             self.progress.append({"timestamp": time.time(), "message": f"Analysis failed: {error}"})
+            self._abort_callbacks.clear()
             self.updated_at = time.time()
             self._condition.notify_all()
 
     def abort(self) -> None:
+        callbacks: list[AbortCallback]
         with self._condition:
             self.abort_requested = True
             if self.status not in TERMINAL_STATUSES:
@@ -202,7 +229,15 @@ class AnalysisRun:
                 )
             self.progress.append({"timestamp": time.time(), "message": "Abort requested."})
             self.updated_at = time.time()
+            callbacks = list(self._abort_callbacks)
             self._condition.notify_all()
+
+        for callback in callbacks:
+            self._invoke_abort_callback(callback)
+
+    def is_abort_requested(self) -> bool:
+        with self._condition:
+            return self.abort_requested
 
     def request_tool_permission(self, tool_call: dict[str, Any]) -> tuple[bool, str]:
         """Approval callback for the MCP proxy.
@@ -568,6 +603,12 @@ class AnalysisRun:
                 "created_at": self.created_at,
                 "updated_at": self.updated_at,
             }
+
+    def _invoke_abort_callback(self, callback: AbortCallback) -> None:
+        try:
+            callback()
+        except Exception as exc:  # noqa: BLE001 - abort cleanup is best effort
+            logger.warning("Analysis abort callback failed: %s", exc)
 
 
 class AnalysisSessionStore:

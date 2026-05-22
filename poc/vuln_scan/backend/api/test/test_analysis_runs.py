@@ -288,6 +288,35 @@ class ManualApprovalModeTest(unittest.TestCase):
         )
         self.assertTrue(run.is_tool_stop_requested(execution_id))
 
+    def test_abort_invokes_registered_abort_callback(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        calls: list[str] = []
+
+        run.register_abort_callback(lambda: calls.append("cancelled"))
+        run.abort()
+
+        self.assertEqual(calls, ["cancelled"])
+
+    def test_unregistered_abort_callback_is_not_invoked(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        calls: list[str] = []
+
+        callback = lambda: calls.append("cancelled")
+        run.register_abort_callback(callback)
+        run.unregister_abort_callback(callback)
+        run.abort()
+
+        self.assertEqual(calls, [])
+
+    def test_register_abort_callback_after_abort_invokes_immediately(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        calls: list[str] = []
+
+        run.abort()
+        run.register_abort_callback(lambda: calls.append("cancelled"))
+
+        self.assertEqual(calls, ["cancelled"])
+
 
 if __name__ == "__main__":
     unittest.main()

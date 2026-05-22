@@ -38,6 +38,9 @@ def run_phase_two_analysis(
     tool_start_callback: ToolStartCallback | None = None,
     tool_stop_requested_callback: ToolStopRequestedCallback | None = None,
     tool_finish_callback: ToolFinishCallback | None = None,
+    abort_requested_callback: Callable[[], bool] | None = None,
+    abort_callback_registrar: Callable[[Callable[[], None]], None] | None = None,
+    abort_callback_unregistrar: Callable[[Callable[[], None]], None] | None = None,
     app_details: Optional[str] = None,
     user_actions: Optional[list[UserAction]] = None,
     prescan_markdown: str = "",
@@ -100,9 +103,15 @@ def run_phase_two_analysis(
             scan_logger.log_progress(message)
         progress_callback(message)
 
+    def _raise_if_aborted() -> None:
+        if abort_requested_callback is not None and abort_requested_callback():
+            raise RuntimeError("Analysis aborted by user.")
+
     _progress(f"Loading packet context for event {event_id}.")
 
+    _raise_if_aborted()
     prepared = load_prepared_event_context(packet_mcp_client, event_id)
+    _raise_if_aborted()
     external_context = prepared.external_context(app_details, user_actions)
 
     active_mcp_servers = list(mcp_servers)
@@ -219,8 +228,17 @@ def run_phase_two_analysis(
         allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
         bash_mode=bash_mode,
     )
-    tools = proxy.build_tools()
-    tool_catalog = proxy.tool_catalog()
+    if abort_callback_registrar is not None:
+        abort_callback_registrar(proxy.stop_all_active_tools)
+    try:
+        _raise_if_aborted()
+        tools = proxy.build_tools()
+        _raise_if_aborted()
+        tool_catalog = proxy.tool_catalog()
+    except Exception:
+        if abort_callback_unregistrar is not None:
+            abort_callback_unregistrar(proxy.stop_all_active_tools)
+        raise
 
     if scan_logger is not None:
         scan_logger.log_input(
@@ -230,31 +248,36 @@ def run_phase_two_analysis(
         if tool_catalog:
             scan_logger.log_input("phase2_tool_catalog", tool_catalog)
 
-    _progress(
-        f"Phase-two analysis has access to {len(tools)} permissioned MCP tools."
-    )
-    if max_rounds is None:
-        _progress("Phase-two LLM tool-call round limit disabled.")
-    result = analyzer.analyze_vulnerabilities(
-        event_id=event_id,
-        recording_id=prepared.recording_id,
-        analysis_types=analysis_types,
-        constraints=constraints,
-        custom_goal=custom_goal,
-        event_context=prepared.text,
-        tools=tools,
-        external_context=external_context,
-        prescan_markdown=prescan_markdown,
-        prior_reports_markdown=prior_reports_markdown,
-        tool_catalog=tool_catalog,
-        has_app_details=app_details is not None,
-        has_user_actions=bool(user_actions),
-        bash_mode=bash_mode,
-        max_rounds=max_rounds,
-        reasoning_effort=reasoning_effort,
-        on_progress=_progress,
-        scan_logger=scan_logger,
-    )
+    try:
+        _progress(
+            f"Phase-two analysis has access to {len(tools)} permissioned MCP tools."
+        )
+        if max_rounds is None:
+            _progress("Phase-two LLM tool-call round limit disabled.")
+        result = analyzer.analyze_vulnerabilities(
+            event_id=event_id,
+            recording_id=prepared.recording_id,
+            analysis_types=analysis_types,
+            constraints=constraints,
+            custom_goal=custom_goal,
+            event_context=prepared.text,
+            tools=tools,
+            external_context=external_context,
+            prescan_markdown=prescan_markdown,
+            prior_reports_markdown=prior_reports_markdown,
+            tool_catalog=tool_catalog,
+            has_app_details=app_details is not None,
+            has_user_actions=bool(user_actions),
+            bash_mode=bash_mode,
+            max_rounds=max_rounds,
+            reasoning_effort=reasoning_effort,
+            cancel_callback=abort_requested_callback,
+            on_progress=_progress,
+            scan_logger=scan_logger,
+        )
+    finally:
+        if abort_callback_unregistrar is not None:
+            abort_callback_unregistrar(proxy.stop_all_active_tools)
     _progress("LLM vulnerability analysis finished.")
     if scan_logger is not None:
         scan_logger.section("PHASE 2 OUTPUT")
