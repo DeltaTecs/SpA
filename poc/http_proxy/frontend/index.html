@@ -15,8 +15,8 @@
 
     <p class="intro">
       Requests forwarded by the proxy egress through the VPN. Set the User-Agent
-      header applied to forwarded HTTP requests and the rate at which they are
-      released below.
+      header applied to forwarded HTTP and HTTPS requests and the rate at which
+      they are released below.
     </p>
 
     <form id="config-form" class="form" autocomplete="off">
@@ -31,7 +31,7 @@
           placeholder="e.g. SpA-HTTP-Proxy/1.0"
         />
         <span class="field__hint">
-          Sent as the <code>User-Agent</code> header on every forwarded HTTP request.
+          Sent as the <code>User-Agent</code> header on every forwarded request.
         </span>
       </label>
 

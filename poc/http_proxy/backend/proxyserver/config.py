@@ -144,12 +144,20 @@ class ProxyConfig:
 
 
 class ConfigStore:
-    """Holds the active :class:`ProxyConfig` and persists it to a JSON file."""
+    """Holds the active :class:`ProxyConfig` and persists it to a JSON file.
 
-    def __init__(self, path: str) -> None:
+    When ``reload_on_read`` is enabled, :meth:`get` also watches the backing
+    file and reloads it after another process updates it. The mitmproxy addon
+    uses that mode so changes made through the API are picked up without a
+    restart.
+    """
+
+    def __init__(self, path: str, *, reload_on_read: bool = False) -> None:
         self._path = path
+        self._reload_on_read = reload_on_read
         self._lock = threading.RLock()
         self._config = self._load()
+        self._last_disk_signature = self._file_signature()
 
     @property
     def path(self) -> str:
@@ -158,6 +166,8 @@ class ConfigStore:
     def get(self) -> ProxyConfig:
         """Return the current configuration (a thread-safe immutable snapshot)."""
         with self._lock:
+            if self._reload_on_read:
+                self._reload_if_changed()
             return self._config
 
     def update_from(self, changes: dict) -> ProxyConfig:
@@ -177,8 +187,7 @@ class ConfigStore:
     def _load(self) -> ProxyConfig:
         if os.path.exists(self._path):
             try:
-                with open(self._path, "r", encoding="utf-8") as handle:
-                    config = ProxyConfig.from_dict(json.load(handle))
+                config = self._read_config_file()
                 logger.info("Loaded proxy configuration from %s", self._path)
                 return config
             except (OSError, ValueError) as exc:
@@ -194,6 +203,45 @@ class ConfigStore:
             logger.warning("Could not write default configuration to %s: %s", self._path, exc)
         return config
 
+    def _reload_if_changed(self) -> None:
+        signature = self._file_signature()
+        if signature == self._last_disk_signature:
+            return
+        if signature is None:
+            logger.warning(
+                "Configuration file %s disappeared; keeping active configuration",
+                self._path,
+            )
+            self._last_disk_signature = None
+            return
+        try:
+            config = self._read_config_file()
+        except (OSError, ValueError) as exc:
+            logger.warning(
+                "Could not reload configuration from %s (%s); keeping active configuration",
+                self._path,
+                exc,
+            )
+            return
+        self._config = config
+        self._last_disk_signature = signature
+        logger.info("Reloaded proxy configuration from %s", self._path)
+
+    def _read_config_file(self) -> ProxyConfig:
+        with open(self._path, "r", encoding="utf-8") as handle:
+            return ProxyConfig.from_dict(json.load(handle))
+
+    def _file_signature(self) -> tuple[int, int, int] | None:
+        try:
+            stat_result = os.stat(self._path)
+        except FileNotFoundError:
+            return None
+        return (
+            stat_result.st_mtime_ns,
+            stat_result.st_ctime_ns,
+            stat_result.st_size,
+        )
+
     def _persist(self, config: ProxyConfig) -> None:
         """Atomically write ``config`` to disk (write-temp-then-rename)."""
         directory = os.path.dirname(self._path)
@@ -204,3 +252,4 @@ class ConfigStore:
             json.dump(config.to_dict(), handle, indent=2, sort_keys=True)
             handle.write("\n")
         os.replace(tmp_path, self._path)
+        self._last_disk_signature = self._file_signature()
