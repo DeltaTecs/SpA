@@ -233,6 +233,54 @@ class ManualApprovalModeTest(unittest.TestCase):
         self.assertFalse(approved)
         self.assertIn("timed out", reason)
 
+    def test_abort_aborts_pending_tool_request_and_unblocks_waiter(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        result = _decide_in_background(run, NON_DB_CALL)
+        request_id = _wait_for_pending_request(run)
+
+        run.abort()
+        result["thread"].join(timeout=5)  # type: ignore[union-attr]
+
+        approved, reason = result["decision"]
+        self.assertFalse(approved)
+        self.assertIn("aborted", reason)
+
+        snapshot = run.snapshot()
+        self.assertEqual(snapshot["status"], "aborted")
+        self.assertEqual(snapshot["pending_tool_requests"], [])
+        requests = {
+            request["request_id"]: request
+            for request in snapshot["tool_requests"]
+        }
+        self.assertEqual(requests[request_id]["status"], "aborted")
+
+    def test_abort_requests_active_tool_stop(self) -> None:
+        run = _make_run(APPROVAL_MODE_MANUAL)
+        execution_id = run.start_tool_execution(NON_DB_CALL)
+
+        run.abort()
+
+        snapshot = run.snapshot()
+        self.assertEqual(snapshot["status"], "aborted")
+        self.assertEqual(
+            snapshot["active_tool_execution"]["status"],
+            "stop_requested",
+        )
+        self.assertTrue(run.is_tool_stop_requested(execution_id))
+
+    def test_tool_started_after_abort_is_immediately_stop_requested(self) -> None:
+        run = _make_run(APPROVAL_MODE_AUTO_ALL)
+        run.abort()
+
+        execution_id = run.start_tool_execution(NON_DB_CALL)
+
+        snapshot = run.snapshot()
+        self.assertEqual(
+            snapshot["active_tool_execution"]["status"],
+            "stop_requested",
+        )
+        self.assertTrue(run.is_tool_stop_requested(execution_id))
+
 
 if __name__ == "__main__":
     unittest.main()

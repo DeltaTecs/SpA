@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 import types
 import unittest
 from dataclasses import dataclass
@@ -97,6 +98,11 @@ def _restore_env(name: str, value: str | None) -> None:
 class _FakeMCPClient:
     tool_specs: list[_MCPToolSpec] = []
     tool_specs_by_url: dict[str, list[_MCPToolSpec]] = {}
+    call_log: list[tuple[str, str, dict[str, Any], float | None]] = []
+    request_log: list[tuple[str, str, dict[str, Any], float | None]] = []
+    blocking_tool_names: set[str] = set()
+    tool_started_event = threading.Event()
+    tool_release_event = threading.Event()
 
     def __init__(self, base_url: str, *args: Any, **kwargs: Any):
         self.base_url = base_url
@@ -106,6 +112,32 @@ class _FakeMCPClient:
             return self.tool_specs_by_url.get(self.base_url, [])
         return self.tool_specs
 
+    def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        timeout: float | None = None,
+    ) -> str:
+        self.call_log.append((self.base_url, tool_name, dict(arguments), timeout))
+        if tool_name in {"stop_active_tool", "stop_active_bash"}:
+            self.tool_release_event.set()
+            return "stop requested"
+        if tool_name in self.blocking_tool_names:
+            self.tool_started_event.set()
+            self.tool_release_event.wait(timeout=2)
+        return f"{tool_name} result"
+
+    def request(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> dict[str, Any]:
+        self.request_log.append((self.base_url, method, dict(params or {}), timeout))
+        if method == "tools/stop":
+            self.tool_release_event.set()
+        return {"result": "ok"}
+
 
 class PermissionedMCPToolProxyTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -113,6 +145,11 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         mcp_proxy_tools.MCPClient = _FakeMCPClient
         _FakeMCPClient.tool_specs = []
         _FakeMCPClient.tool_specs_by_url = {}
+        _FakeMCPClient.call_log = []
+        _FakeMCPClient.request_log = []
+        _FakeMCPClient.blocking_tool_names = set()
+        _FakeMCPClient.tool_started_event = threading.Event()
+        _FakeMCPClient.tool_release_event = threading.Event()
 
     def tearDown(self) -> None:
         mcp_proxy_tools.MCPClient = self.original_client
@@ -333,6 +370,65 @@ class PermissionedMCPToolProxyTest(unittest.TestCase):
         self.assertIn("Search Engine.tavily_search", catalog)
         self.assertIn("Search Engine.tavily_extract", catalog)
         self.assertNotIn("tavily_crawl", catalog)
+
+    def test_stop_requested_before_worker_start_does_not_call_tool(self) -> None:
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("long_scan", "visible", {"type": "object"}),
+        ]
+        finished: list[str] = []
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="hexstrike",
+                    label="HexStrike",
+                    url="http://hexstrike.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+            tool_start_callback=lambda _call: "execution-1",
+            tool_stop_requested_callback=lambda _execution_id: True,
+            tool_finish_callback=finished.append,
+        )
+        proxy.build_tools()
+
+        result = proxy.call("hexstrike__long_scan", {"target": "example.com"})
+
+        self.assertEqual(result, "Tool call stopped by user before it started.")
+        self.assertEqual(_FakeMCPClient.call_log, [])
+        self.assertEqual(finished, ["execution-1"])
+
+    def test_running_tool_stop_requests_server_control_tool(self) -> None:
+        _FakeMCPClient.tool_specs = [
+            _MCPToolSpec("long_scan", "visible", {"type": "object"}),
+            _MCPToolSpec("stop_active_tool", "control", {"type": "object"}),
+        ]
+        _FakeMCPClient.blocking_tool_names = {"long_scan"}
+        finished: list[str] = []
+        proxy = mcp_proxy_tools.PermissionedMCPToolProxy(
+            [
+                mcp_proxy_tools.MCPServerSpec(
+                    server_id="hexstrike",
+                    label="HexStrike",
+                    url="http://hexstrike.example",
+                    tool_timeout_seconds=30,
+                )
+            ],
+            approval_callback=lambda _call: (True, ""),
+            tool_start_callback=lambda _call: "execution-1",
+            tool_stop_requested_callback=(
+                lambda _execution_id: _FakeMCPClient.tool_started_event.is_set()
+            ),
+            tool_finish_callback=finished.append,
+        )
+        proxy.build_tools()
+
+        result = proxy.call("hexstrike__long_scan", {"target": "example.com"})
+
+        self.assertEqual(result, "Tool call stopped by user.")
+        called_tools = [item[1] for item in _FakeMCPClient.call_log]
+        self.assertEqual(called_tools, ["long_scan", "stop_active_tool"])
+        self.assertEqual(finished, ["execution-1"])
 
 
 class AnalysisTypesTest(unittest.TestCase):

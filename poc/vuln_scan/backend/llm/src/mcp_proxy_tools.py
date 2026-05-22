@@ -207,6 +207,9 @@ class PermissionedMCPToolProxy:
         done = threading.Event()
         result: dict[str, Any] = {}
 
+        def _stop_requested() -> bool:
+            return bool(self.tool_stop_requested_callback(execution_id))
+
         def _worker() -> None:
             try:
                 call_client = MCPClient(
@@ -224,11 +227,19 @@ class PermissionedMCPToolProxy:
             finally:
                 done.set()
 
-        threading.Thread(target=_worker, daemon=True).start()
         try:
+            try:
+                if _stop_requested():
+                    return "Tool call stopped by user before it started."
+            except Exception as exc:
+                self._progress(
+                    f"MCP tool stop check failed for {exposed.exposed_name}: {exc}"
+                )
+
+            threading.Thread(target=_worker, daemon=True).start()
             stop_sent = False
             while not done.wait(timeout=0.25):
-                if self.tool_stop_requested_callback(execution_id):
+                if _stop_requested():
                     if not stop_sent:
                         stop_sent = True
                         self._request_server_tool_stop(exposed)

@@ -84,6 +84,7 @@ const state = {
   phase2RunId: null,
   phase2Run: null,
   phase2PollTimer: null,
+  toolApprovalReasonDrafts: {},
   phase1RunsByEvent: {},
   phase1PollTimer: null,
   storedReportsByEvent: {},
@@ -507,6 +508,7 @@ async function startPhaseTwo() {
     if (!response.ok) {
       throw new Error(await errorText(response));
     }
+    state.toolApprovalReasonDrafts = {};
     state.phase2Run = await response.json();
     state.phase2RunId = state.phase2Run.run_id;
     renderPhaseTwo();
@@ -563,6 +565,7 @@ async function decideToolRequest(requestId, approved, reason = "") {
       throw new Error(await errorText(response));
     }
     state.phase2Run = await response.json();
+    delete state.toolApprovalReasonDrafts[requestId];
     renderPhaseTwo();
   } catch (error) {
     setAnalysisStatus(`Tool decision failed: ${error.message}`, true);
@@ -1299,50 +1302,127 @@ function approvalPayload() {
 }
 
 function renderToolApprovals() {
-  toolApprovals.innerHTML = "";
   const run = state.phase2Run;
-  const pending = state.phase2Run?.pending_tool_requests || [];
+  const pending = Array.isArray(run?.pending_tool_requests) ? run.pending_tool_requests : [];
+  const pendingIds = new Set(pending.map((request) => request.request_id));
+  // Keep existing pending cards alive across polling so focused inputs are not replaced.
+  const existingCards = new Map(
+    [...toolApprovals.children].map((card) => [card.dataset.requestId, card]),
+  );
+
+  pruneToolApprovalReasonDrafts(pendingIds);
+
   for (const request of pending) {
-    const card = document.createElement("div");
-    card.className = "tool-approval";
-
-    const title = document.createElement("div");
-    title.className = "tool-approval-title";
-    title.textContent = `Tool permission request ${request.request_id}`;
-
-    const pre = document.createElement("pre");
-    pre.textContent = JSON.stringify(request.tool_call, null, 2);
-
-    card.append(title, pre);
-    if (request.smart_review) {
-      card.append(renderSmartReview(request.smart_review));
-    }
-    if (shouldRenderManualApprovalControls(run, request)) {
-      const reasonInput = document.createElement("input");
-      reasonInput.type = "text";
-      reasonInput.className = "tool-approval-reason";
-      reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
-
-      const actions = document.createElement("div");
-      actions.className = "tool-approval-actions";
-
-      const deny = document.createElement("button");
-      deny.type = "button";
-      deny.textContent = "Deny";
-      deny.addEventListener("click", () => decideToolRequest(request.request_id, false, reasonInput.value));
-
-      const approve = document.createElement("button");
-      approve.type = "button";
-      approve.textContent = "Approve";
-      approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
-
-      actions.append(deny, approve);
-      card.append(reasonInput, actions);
-    } else {
-      card.append(renderAutomatedApprovalNotice(request));
+    const fingerprint = toolApprovalCardFingerprint(run, request);
+    let card = existingCards.get(request.request_id);
+    if (!card || card.dataset.renderFingerprint !== fingerprint) {
+      const replacement = buildToolApprovalCard(run, request, fingerprint);
+      if (card) {
+        card.replaceWith(replacement);
+      }
+      card = replacement;
     }
     toolApprovals.append(card);
+    existingCards.delete(request.request_id);
   }
+
+  for (const staleCard of existingCards.values()) {
+    staleCard.remove();
+  }
+}
+
+function buildToolApprovalCard(run, request, fingerprint) {
+  const card = document.createElement("div");
+  card.className = "tool-approval";
+  card.dataset.requestId = request.request_id;
+  card.dataset.renderFingerprint = fingerprint;
+
+  const title = document.createElement("div");
+  title.className = "tool-approval-title";
+  title.textContent = `Tool permission request ${request.request_id}`;
+
+  const pre = document.createElement("pre");
+  pre.textContent = JSON.stringify(request.tool_call, null, 2);
+
+  card.append(title, pre);
+  if (request.smart_review) {
+    card.append(renderSmartReview(request.smart_review));
+  }
+  if (shouldRenderManualApprovalControls(run, request)) {
+    card.append(...buildManualApprovalControls(request));
+  } else {
+    card.append(renderAutomatedApprovalNotice(request));
+  }
+  return card;
+}
+
+function buildManualApprovalControls(request) {
+  const reasonInput = document.createElement("input");
+  reasonInput.type = "text";
+  reasonInput.className = "tool-approval-reason";
+  reasonInput.placeholder = "Optional reason for denial (returned to the analysis LLM)";
+  reasonInput.value = state.toolApprovalReasonDrafts[request.request_id] || "";
+  reasonInput.addEventListener("input", () => {
+    state.toolApprovalReasonDrafts[request.request_id] = reasonInput.value;
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "tool-approval-actions";
+
+  const deny = document.createElement("button");
+  deny.type = "button";
+  deny.textContent = "Deny";
+  deny.addEventListener("click", () => decideToolRequest(
+    request.request_id,
+    false,
+    reasonInput.value,
+  ));
+
+  const forwardDenialReason = smartReviewDenialReason(request);
+  let forwardDenial = null;
+  if (forwardDenialReason) {
+    forwardDenial = document.createElement("button");
+    forwardDenial.type = "button";
+    forwardDenial.textContent = "Forward Denial";
+    forwardDenial.title = "Deny using the smart approver's stated reason";
+    forwardDenial.addEventListener("click", () => decideToolRequest(
+      request.request_id,
+      false,
+      forwardDenialReason,
+    ));
+  }
+
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.textContent = "Approve";
+  approve.addEventListener("click", () => decideToolRequest(request.request_id, true));
+
+  actions.append(...[deny, forwardDenial, approve].filter(Boolean));
+  return [reasonInput, actions];
+}
+
+function toolApprovalCardFingerprint(run, request) {
+  return JSON.stringify({
+    manualControls: shouldRenderManualApprovalControls(run, request),
+    smartReview: request.smart_review || null,
+    toolCall: request.tool_call || null,
+  });
+}
+
+function pruneToolApprovalReasonDrafts(pendingIds) {
+  for (const requestId of Object.keys(state.toolApprovalReasonDrafts)) {
+    if (!pendingIds.has(requestId)) {
+      delete state.toolApprovalReasonDrafts[requestId];
+    }
+  }
+}
+
+function smartReviewDenialReason(request) {
+  const review = request.smart_review;
+  if (!review || (review.approved && !review.error)) {
+    return "";
+  }
+  return String(review.reasoning || "").trim();
 }
 
 function shouldRenderManualApprovalControls(run, request) {

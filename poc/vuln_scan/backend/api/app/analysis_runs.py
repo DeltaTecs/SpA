@@ -189,6 +189,13 @@ class AnalysisRun:
             if self.active_tool_execution and self.active_tool_execution.status == "running":
                 self.active_tool_execution.status = "stop_requested"
                 self.active_tool_execution.stop_requested_at = time.time()
+                tool_name = _tool_display_name(self.active_tool_execution.tool_call)
+                self.progress.append(
+                    {
+                        "timestamp": time.time(),
+                        "message": f"MCP tool stop requested due to abort: {tool_name}",
+                    }
+                )
             self.progress.append({"timestamp": time.time(), "message": "Abort requested."})
             self.updated_at = time.time()
             self._condition.notify_all()
@@ -206,8 +213,9 @@ class AnalysisRun:
 
         static_reason = self._static_auto_approval_reason(tool_call)
         if static_reason is not None:
-            self._record_auto_approval(request, static_reason)
-            return True, ""
+            if self._record_auto_approval(request, static_reason):
+                return True, ""
+            return False, _RUN_ABORTED_REASON
 
         if (
             self.approval_mode == APPROVAL_MODE_SMART_NON_DB
@@ -217,16 +225,18 @@ class AnalysisRun:
             if self.abort_requested:
                 return False, _RUN_ABORTED_REASON
             if _is_approving_decision(decision):
-                self._record_auto_approval(
+                if self._record_auto_approval(
                     request, "Smart approver approved", smart_review=decision
-                )
-                return True, ""
+                ):
+                    return True, ""
+                return False, _RUN_ABORTED_REASON
 
             rejection_reason = _smart_rejection_reason(decision)
             if not self.escalate_smart_rejections:
                 # Manual fallback disabled: the rejection is final.
-                self._record_auto_denial(request, decision)
-                return False, rejection_reason
+                if self._record_auto_denial(request, decision):
+                    return False, rejection_reason
+                return False, _RUN_ABORTED_REASON
 
             self.add_progress(
                 "Escalating rejected tool call to manual approval: "
@@ -263,8 +273,16 @@ class AnalysisRun:
         request: ToolApprovalRequest,
         reason: str,
         smart_review: Optional[dict[str, Any]] = None,
-    ) -> None:
+    ) -> bool:
         with self._condition:
+            if self.abort_requested or request.status == "aborted":
+                request.status = "aborted"
+                request.decided_at = time.time()
+                if smart_review is not None:
+                    request.smart_review = smart_review
+                self.updated_at = time.time()
+                self._condition.notify_all()
+                return False
             request.status = "approved"
             request.decided_at = time.time()
             if smart_review is not None:
@@ -280,14 +298,22 @@ class AnalysisRun:
             )
             self.updated_at = time.time()
             self._condition.notify_all()
+            return True
 
     def _record_auto_denial(
         self,
         request: ToolApprovalRequest,
         smart_review: Optional[dict[str, Any]],
-    ) -> None:
+    ) -> bool:
         """Finalize a smart-approver rejection when manual fallback is off."""
         with self._condition:
+            if self.abort_requested or request.status == "aborted":
+                request.status = "aborted"
+                request.decided_at = time.time()
+                request.smart_review = smart_review
+                self.updated_at = time.time()
+                self._condition.notify_all()
+                return False
             request.status = "denied"
             request.decided_at = time.time()
             request.smart_review = smart_review
@@ -304,6 +330,7 @@ class AnalysisRun:
             )
             self.updated_at = time.time()
             self._condition.notify_all()
+            return True
 
     def _run_smart_review(
         self, request: ToolApprovalRequest, tool_call: dict[str, Any]
@@ -395,11 +422,27 @@ class AnalysisRun:
             self.active_tool_execution = ActiveToolExecution(
                 execution_id=execution_id,
                 tool_call=tool_call,
+                status="stop_requested" if self.abort_requested else "running",
+                stop_requested_at=time.time() if self.abort_requested else None,
             )
             tool_name = _tool_display_name(tool_call)
-            self.progress.append(
-                {"timestamp": time.time(), "message": f"MCP tool running: {tool_name}"}
-            )
+            if self.abort_requested:
+                self.progress.append(
+                    {
+                        "timestamp": time.time(),
+                        "message": (
+                            "MCP tool start skipped because the run was aborted: "
+                            f"{tool_name}"
+                        ),
+                    }
+                )
+            else:
+                self.progress.append(
+                    {
+                        "timestamp": time.time(),
+                        "message": f"MCP tool running: {tool_name}",
+                    }
+                )
             self.updated_at = time.time()
             self._condition.notify_all()
             return execution_id
