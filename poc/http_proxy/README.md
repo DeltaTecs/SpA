@@ -61,8 +61,9 @@ Open the web UI at <http://localhost:8092> (published by `docker compose`).
 | Setting                 | Meaning |
 |-------------------------|---------|
 | `user_agent`            | Header value forced onto every forwarded HTTP request |
-| `rate_limit_per_minute` | Max forwarded requests per minute; `0` disables limiting |
-| `rate_limit_burst`      | Requests allowed to burst before the per-minute rate applies |
+| `rate_limit`            | Max forwarded requests, in the unit below; `0` disables limiting |
+| `rate_limit_unit`       | Unit for `rate_limit`: `per_second` or `per_minute` |
+| `rate_limit_burst`      | Requests allowed to burst before the steady rate applies |
 
 Changes take effect immediately — no restart needed — and are persisted to the
 `http_proxy_data` volume (`/data/proxy_config.json`), so they survive restarts.
@@ -73,7 +74,7 @@ The same configuration can be scripted against the API directly:
 curl hexstrike-vpn:8890/config
 curl -X PUT hexstrike-vpn:8890/config \
   -H 'Content-Type: application/json' \
-  -d '{"user_agent":"my-scanner/2.0","rate_limit_per_minute":120}'
+  -d '{"user_agent":"my-scanner/2.0","rate_limit":5,"rate_limit_unit":"per_second"}'
 ```
 
 ## Backend layout

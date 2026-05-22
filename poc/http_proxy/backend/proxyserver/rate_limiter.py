@@ -8,8 +8,8 @@ from typing import Callable, Tuple
 
 logger = logging.getLogger(__name__)
 
-# settings_provider() -> (requests_per_minute, burst)
-SettingsProvider = Callable[[], Tuple[int, int]]
+# settings_provider() -> (requests_per_second, burst)
+SettingsProvider = Callable[[], Tuple[float, int]]
 
 
 class RateLimiter:
@@ -34,11 +34,10 @@ class RateLimiter:
         """Block until a request is permitted, then consume one token."""
         while True:
             with self._lock:
-                per_minute, burst = self._settings_provider()
-                if per_minute <= 0:
+                refill_per_second, burst = self._settings_provider()
+                if refill_per_second <= 0:
                     return  # rate limiting disabled
 
-                refill_per_second = per_minute / 60.0
                 capacity = float(max(1, burst))
 
                 now = time.monotonic()

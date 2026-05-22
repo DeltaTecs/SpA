@@ -36,18 +36,24 @@
       </label>
 
       <label class="field">
-        <span class="field__label">Rate limit (requests per minute)</span>
-        <input
-          type="number"
-          id="rate-limit"
-          name="rate_limit_per_minute"
-          required
-          min="0"
-          max="1000000"
-          step="1"
-        />
+        <span class="field__label">Rate limit</span>
+        <div class="field__row">
+          <input
+            type="number"
+            id="rate-limit"
+            name="rate_limit"
+            required
+            min="0"
+            max="1000000"
+            step="1"
+          />
+          <select id="rate-limit-unit" name="rate_limit_unit" class="field__unit">
+            <option value="per_second">requests / second</option>
+            <option value="per_minute">requests / minute</option>
+          </select>
+        </div>
         <span class="field__hint">
-          Maximum forwarded requests per minute. Use <code>0</code> to disable rate limiting.
+          Maximum forwarded requests at the selected rate. Use <code>0</code> to disable rate limiting.
         </span>
       </label>
 

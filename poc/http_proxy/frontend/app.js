@@ -7,6 +7,7 @@ const CONFIG_ENDPOINT = "api/config";
 const form = document.getElementById("config-form");
 const userAgentInput = document.getElementById("user-agent");
 const rateLimitInput = document.getElementById("rate-limit");
+const rateLimitUnitSelect = document.getElementById("rate-limit-unit");
 const burstInput = document.getElementById("burst");
 const saveButton = document.getElementById("save-button");
 const reloadButton = document.getElementById("reload-button");
@@ -25,7 +26,8 @@ function showMessage(text, modifier) {
 
 function applyConfig(config) {
   userAgentInput.value = config.user_agent ?? "";
-  rateLimitInput.value = config.rate_limit_per_minute ?? 0;
+  rateLimitInput.value = config.rate_limit ?? 0;
+  rateLimitUnitSelect.value = config.rate_limit_unit ?? "per_minute";
   burstInput.value = config.rate_limit_burst ?? 1;
 }
 
@@ -51,7 +53,8 @@ async function saveConfig(event) {
   event.preventDefault();
   const payload = {
     user_agent: userAgentInput.value.trim(),
-    rate_limit_per_minute: Number(rateLimitInput.value),
+    rate_limit: Number(rateLimitInput.value),
+    rate_limit_unit: rateLimitUnitSelect.value,
     rate_limit_burst: Number(burstInput.value),
   };
 

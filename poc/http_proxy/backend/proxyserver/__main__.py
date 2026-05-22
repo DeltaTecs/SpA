@@ -57,7 +57,7 @@ def main() -> None:
 
     def rate_settings():
         current = config_store.get()
-        return current.rate_limit_per_minute, current.rate_limit_burst
+        return current.requests_per_second(), current.rate_limit_burst
 
     rate_limiter = RateLimiter(rate_settings)
 

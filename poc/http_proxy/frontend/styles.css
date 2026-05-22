@@ -106,6 +106,20 @@ h1 {
   color: var(--text-muted);
 }
 
+/* A numeric input paired with its unit selector. */
+.field__row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.field__row input {
+  flex: 1;
+}
+
+.field__unit {
+  flex: 0 0 auto;
+}
+
 .field__hint code,
 .intro code {
   background: rgba(255, 255, 255, 0.06);
@@ -114,8 +128,8 @@ h1 {
   font-size: 0.85em;
 }
 
-input {
-  width: 100%;
+input,
+select {
   padding: 0.6rem 0.7rem;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -125,7 +139,12 @@ input {
   font-family: inherit;
 }
 
-input:focus {
+input {
+  width: 100%;
+}
+
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px rgba(76, 154, 255, 0.25);

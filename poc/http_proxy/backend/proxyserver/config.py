@@ -14,9 +14,18 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+# --- rate limit units -------------------------------------------------------
+UNIT_PER_SECOND = "per_second"
+UNIT_PER_MINUTE = "per_minute"
+RATE_LIMIT_UNITS = (UNIT_PER_SECOND, UNIT_PER_MINUTE)
+
+# How many requests one unit's worth of "rate_limit" represents per second.
+_UNIT_TO_PER_SECOND = {UNIT_PER_SECOND: 1.0, UNIT_PER_MINUTE: 1.0 / 60.0}
+
 # --- defaults ---------------------------------------------------------------
 DEFAULT_USER_AGENT = "SpA-HTTP-Proxy/1.0"
-DEFAULT_RATE_LIMIT_PER_MINUTE = 60
+DEFAULT_RATE_LIMIT = 60
+DEFAULT_RATE_LIMIT_UNIT = UNIT_PER_MINUTE
 DEFAULT_RATE_LIMIT_BURST = 10
 
 # --- validation bounds ------------------------------------------------------
@@ -25,7 +34,7 @@ MAX_COUNT = 1_000_000
 
 # Field names that callers are allowed to set. Anything else in an update
 # payload is ignored so the API stays forward-compatible.
-FIELD_NAMES = ("user_agent", "rate_limit_per_minute", "rate_limit_burst")
+FIELD_NAMES = ("user_agent", "rate_limit", "rate_limit_unit", "rate_limit_burst")
 
 
 def _coerce_str(name: str, value: object) -> str:
@@ -65,6 +74,11 @@ def _validate_count(name: str, value: int, minimum: int) -> None:
         raise ValueError(f"{name} must be <= {MAX_COUNT}")
 
 
+def _validate_unit(value: str) -> None:
+    if value not in RATE_LIMIT_UNITS:
+        raise ValueError(f"rate_limit_unit must be one of: {', '.join(RATE_LIMIT_UNITS)}")
+
+
 @dataclass(frozen=True)
 class ProxyConfig:
     """Immutable snapshot of the operator-tunable proxy settings.
@@ -72,25 +86,36 @@ class ProxyConfig:
     Attributes:
         user_agent: Value forced into the ``User-Agent`` header of every
             forwarded HTTP request.
-        rate_limit_per_minute: Maximum forwarded requests per minute;
-            ``0`` disables rate limiting entirely.
+        rate_limit: Maximum forwarded requests, expressed in the unit given by
+            ``rate_limit_unit``; ``0`` disables rate limiting entirely.
+        rate_limit_unit: Unit ``rate_limit`` is measured in - either
+            ``"per_second"`` or ``"per_minute"``.
         rate_limit_burst: Number of requests allowed to burst before the
-            steady per-minute rate is enforced.
+            steady rate is enforced.
     """
 
     user_agent: str = DEFAULT_USER_AGENT
-    rate_limit_per_minute: int = DEFAULT_RATE_LIMIT_PER_MINUTE
+    rate_limit: int = DEFAULT_RATE_LIMIT
+    rate_limit_unit: str = DEFAULT_RATE_LIMIT_UNIT
     rate_limit_burst: int = DEFAULT_RATE_LIMIT_BURST
 
     def __post_init__(self) -> None:
         _validate_user_agent(self.user_agent)
-        _validate_count("rate_limit_per_minute", self.rate_limit_per_minute, minimum=0)
+        _validate_count("rate_limit", self.rate_limit, minimum=0)
+        _validate_unit(self.rate_limit_unit)
         _validate_count("rate_limit_burst", self.rate_limit_burst, minimum=1)
+
+    def requests_per_second(self) -> float:
+        """Return the effective rate in requests/second (``0.0`` = unlimited)."""
+        if self.rate_limit <= 0:
+            return 0.0
+        return self.rate_limit * _UNIT_TO_PER_SECOND[self.rate_limit_unit]
 
     def to_dict(self) -> dict:
         return {
             "user_agent": self.user_agent,
-            "rate_limit_per_minute": self.rate_limit_per_minute,
+            "rate_limit": self.rate_limit,
+            "rate_limit_unit": self.rate_limit_unit,
             "rate_limit_burst": self.rate_limit_burst,
         }
 
@@ -107,9 +132,8 @@ class ProxyConfig:
                 values[name] = changes[name]
         return ProxyConfig(
             user_agent=_coerce_str("user_agent", values["user_agent"]),
-            rate_limit_per_minute=_coerce_int(
-                "rate_limit_per_minute", values["rate_limit_per_minute"]
-            ),
+            rate_limit=_coerce_int("rate_limit", values["rate_limit"]),
+            rate_limit_unit=_coerce_str("rate_limit_unit", values["rate_limit_unit"]).strip(),
             rate_limit_burst=_coerce_int("rate_limit_burst", values["rate_limit_burst"]),
         )
 
