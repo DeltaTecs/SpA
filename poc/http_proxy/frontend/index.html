@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTTP Proxy Configuration</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="card">
+    <header class="header">
+      <h1>HTTP Proxy</h1>
+      <span id="status" class="status status--loading">Connecting&hellip;</span>
+    </header>
+
+    <p class="intro">
+      Requests forwarded by the proxy egress through the VPN. Set the User-Agent
+      header applied to forwarded HTTP requests and the rate at which they are
+      released below.
+    </p>
+
+    <form id="config-form" class="form" autocomplete="off">
+      <label class="field">
+        <span class="field__label">Custom User-Agent</span>
+        <input
+          type="text"
+          id="user-agent"
+          name="user_agent"
+          required
+          maxlength="512"
+          placeholder="e.g. SpA-HTTP-Proxy/1.0"
+        />
+        <span class="field__hint">
+          Sent as the <code>User-Agent</code> header on every forwarded HTTP request.
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Rate limit (requests per minute)</span>
+        <input
+          type="number"
+          id="rate-limit"
+          name="rate_limit_per_minute"
+          required
+          min="0"
+          max="1000000"
+          step="1"
+        />
+        <span class="field__hint">
+          Maximum forwarded requests per minute. Use <code>0</code> to disable rate limiting.
+        </span>
+      </label>
+
+      <label class="field">
+        <span class="field__label">Burst allowance</span>
+        <input
+          type="number"
+          id="burst"
+          name="rate_limit_burst"
+          required
+          min="1"
+          max="10000"
+          step="1"
+        />
+        <span class="field__hint">
+          Requests allowed to burst before the steady per-minute rate is enforced.
+        </span>
+      </label>
+
+      <div class="actions">
+        <button type="submit" id="save-button" class="button">Save changes</button>
+        <button type="button" id="reload-button" class="button button--ghost">Reload</button>
+      </div>
+    </form>
+
+    <p id="message" class="message" role="status" aria-live="polite"></p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

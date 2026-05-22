@@ -97,7 +97,8 @@ services:
       - VPN_TYPE=wireguard
       - WIREGUARD_PRIVATE_KEY=${PROTONVPN_WIREGUARD_PRIVATE_KEY:?set PROTONVPN_WIREGUARD_PRIVATE_KEY in poc/.env}
       - SERVER_COUNTRIES=${PROTONVPN_SERVER_COUNTRIES:-Netherlands}
-      - FIREWALL_INPUT_PORTS=8766,8767
+      # 8766/8767 = hexstrike MCP servers, 8899/8890 = http-proxy + its config API.
+      - FIREWALL_INPUT_PORTS=8766,8767,8899,8890
       - TZ=${TZ:-Europe/Berlin}
     volumes:
       - gluetun_data:/gluetun
@@ -129,6 +130,40 @@ services:
       - hexstrike-vpn
     tty: true
     stdin_open: true
+
+  # HTTP forward proxy: injects a configurable User-Agent and rate-limits
+  # forwarded traffic. It shares the VPN network namespace (exactly like
+  # mcp-hexstrike) so all upstream traffic egresses through Proton VPN, and is
+  # reachable from the hexstrike container on 127.0.0.1:8899.
+  http-proxy:
+    build: ./http_proxy/backend
+    container_name: http-proxy
+    restart: unless-stopped
+    network_mode: "service:hexstrike-vpn"
+    environment:
+      - PROXY_HOST=0.0.0.0
+      - PROXY_PORT=8899
+      - CONFIG_API_HOST=0.0.0.0
+      - CONFIG_API_PORT=8890
+      - PROXY_CONFIG_FILE=/data/proxy_config.json
+      - LOG_LEVEL=VERBOSE
+    volumes:
+      - http_proxy_data:/data
+    depends_on:
+      - hexstrike-vpn
+
+  # Web UI to configure the http-proxy User-Agent and rate limit. It reaches
+  # the proxy's config API through the gluetun container on port 8890.
+  http-proxy-frontend:
+    build: ./http_proxy/frontend
+    container_name: http-proxy-frontend
+    restart: unless-stopped
+    ports:
+      - "8092:80"
+    networks:
+      - scanner-hexstrike-network
+    depends_on:
+      - http-proxy
 
   # LLM based network packet grouping/aggregation into events
   grouping:
@@ -295,6 +330,8 @@ volumes:
   gluetun_data:
     driver: local
   ollama_models:
+    driver: local
+  http_proxy_data:
     driver: local
 
 networks:
