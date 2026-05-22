@@ -552,7 +552,7 @@ class AnalysisTypesTest(unittest.TestCase):
         )
 
         self.assertIn("amass_scan", tools)
-        self.assertIn("autorecon_scan", tools)
+        self.assertIn("rustscan_fast_scan", tools)
         self.assertIn("nmap_scan", tools)
         self.assertNotIn("sqlmap_scan", tools)
 
@@ -576,7 +576,7 @@ class AnalysisTypesTest(unittest.TestCase):
                 self.assertIn("create_file", tools)
                 self.assertIn("execute_python_script", tools)
                 self.assertIn("metasploit_run", tools)
-                self.assertIn("bugbounty_file_upload_testing", tools)
+                self.assertIn("generate_exploit_from_cve", tools)
                 self.assertIn("burpsuite_alternative_scan", tools)
                 self.assertEqual(
                     tools, frozenset(analysis_types.POST_RECON_HEXSTRIKE_MCP_TOOLS)
