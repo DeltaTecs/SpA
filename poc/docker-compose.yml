@@ -256,7 +256,7 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://hexstrike-vpn:8767,bash=http://hexstrike-vpn:8766
-      - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
+      - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=1800
       - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
       - LOG_LEVEL=VERBOSE
       - SCAN_LOG_ROOT=/logs/vuln_scan

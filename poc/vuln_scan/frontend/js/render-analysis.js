@@ -373,6 +373,7 @@ function renderToolApprovals() {
   const pending = Array.isArray(run?.pending_tool_requests) ? run.pending_tool_requests : [];
   const pendingIds = new Set(pending.map(toolApprovalRequestKey));
   syncToolApprovalReasonDraftsFromDom(pendingIds);
+  const requestScrollPositions = captureToolApprovalRequestScrollPositions(pendingIds);
   const focusedReasonInput = captureFocusedToolApprovalReasonInput();
   // Keep existing pending cards alive across polling so focused inputs are not replaced.
   const existingCards = new Map(
@@ -382,6 +383,7 @@ function renderToolApprovals() {
 
   pruneToolApprovalReasonDrafts(pendingIds);
 
+  const orderedCards = [];
   for (const request of pending) {
     const requestKey = toolApprovalRequestKey(request);
     const fingerprint = toolApprovalCardFingerprint(run, request);
@@ -393,13 +395,20 @@ function renderToolApprovals() {
       }
       card = replacement;
     }
-    toolApprovals.append(card);
+    orderedCards.push(card);
     existingCards.delete(requestKey);
   }
 
   for (const staleCard of existingCards.values()) {
     staleCard.remove();
   }
+
+  for (const [index, card] of orderedCards.entries()) {
+    if (toolApprovals.children[index] !== card) {
+      toolApprovals.insertBefore(card, toolApprovals.children[index] || null);
+    }
+  }
+  restoreToolApprovalRequestScrollPositions(requestScrollPositions);
   restoreFocusedToolApprovalReasonInput(focusedReasonInput);
 }
 
@@ -494,6 +503,29 @@ function syncToolApprovalReasonDraftsFromDom(pendingIds) {
     const requestId = input.dataset.requestId || "";
     if (pendingIds.has(requestId)) {
       state.toolApprovalReasonDrafts[requestId] = input.value;
+    }
+  }
+}
+
+function captureToolApprovalRequestScrollPositions(pendingIds) {
+  const positions = {};
+  for (const card of toolApprovals.querySelectorAll(".tool-approval[data-request-id]")) {
+    const requestId = card.dataset.requestId || "";
+    const pre = card.querySelector("pre");
+    if (pendingIds.has(requestId) && pre) {
+      positions[requestId] = {left: pre.scrollLeft, top: pre.scrollTop};
+    }
+  }
+  return positions;
+}
+
+function restoreToolApprovalRequestScrollPositions(positions) {
+  for (const card of toolApprovals.querySelectorAll(".tool-approval[data-request-id]")) {
+    const position = positions[card.dataset.requestId || ""];
+    const pre = card.querySelector("pre");
+    if (position && pre) {
+      pre.scrollLeft = position.left;
+      pre.scrollTop = position.top;
     }
   }
 }

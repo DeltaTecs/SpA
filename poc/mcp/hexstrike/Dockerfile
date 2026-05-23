@@ -147,10 +147,22 @@ RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir \
       "fastmcp>=0.2.0,<1.0.0" \
       "mcp>=1.2.0" \
       "beautifulsoup4>=4.12.0,<5.0.0" \
+      "defusedxml>=0.7.1,<1.0.0" \
+      "dnspython>=2.6.0,<3.0.0" \
+      "html5lib>=1.1,<2.0.0" \
+      "jsbeautifier>=1.15.0,<2.0.0" \
+      "jsonschema>=4.20.0,<5.0.0" \
+      "lxml>=5.2.0,<6.0.0" \
+      "openapi-spec-validator>=0.7.0,<1.0.0" \
+      "PyJWT>=2.8.0,<3.0.0" \
+      "PyYAML>=6.0.0,<7.0.0" \
       "selenium>=4.15.0,<5.0.0" \
+      "tldextract>=5.1.0,<6.0.0" \
+      "urlextract>=1.9.0,<2.0.0" \
       "webdriver-manager>=4.0.0,<5.0.0" \
       "aiohttp>=3.8.0,<4.0.0" \
-      "mitmproxy>=9.0.0,<11.0.0"
+      "mitmproxy>=9.0.0,<11.0.0" \
+      "xmltodict>=0.13.0,<1.0.0"
 
 RUN set -eux; \
     mkdir -p "${HEXSTRIKE_HOME}"; \
@@ -274,6 +286,7 @@ COPY --from=builder /opt/dirsearch /opt/dirsearch
 COPY --from=builder /opt/pipx /opt/pipx
 COPY --from=builder /opt/secbin /opt/secbin
 COPY --from=go-tools /opt/secbin /opt/secbin
+RUN "${HEXSTRIKE_VENV}/bin/python" -c "import bs4, defusedxml, dns.resolver, html5lib, jsbeautifier, jsonschema, jwt, lxml, openapi_spec_validator, requests, tldextract, urlextract, xmltodict, yaml"
 COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
 COPY cli_tools_catalog.py /usr/local/bin/cli_tools_catalog.py
 COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp

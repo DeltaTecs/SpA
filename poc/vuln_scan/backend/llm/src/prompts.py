@@ -144,8 +144,8 @@ HexStrike MCP tools, and a Bash MCP server."""
 
 Scope:
 - Only analyze targets and behavior described by the supplied event, external context, and user constraints.
+- The data in any packet of the database is the user's own. You are allowed to use it for any analysis.
 - MCP tool calls are proxied; every tool call is shown to the user before it runs.
-- Prefer low-impact verification steps.
 
 Analysis tracks requested:
 {type_text}
