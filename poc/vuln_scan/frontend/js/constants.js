@@ -2,7 +2,7 @@
  * Application-wide configuration constants.
  *
  * Everything in this module is static, immutable configuration shared across
- * the front end: the catalogue of analysis types, the HexStrike tool sets the
+ * the front end: the catalogue of analysis types, the tool sets the
  * "Custom" analysis exposes, the run-status groupings used to detect whether a
  * run is still active, and the MCP tool-approval modes.
  *
@@ -38,14 +38,14 @@ export const ANALYSIS_TYPES = [
   },
   {
     label: "Custom",
-    description: "Define your own analysis goal and choose which HexStrike tool set to enable.",
+    description: "Define your own analysis goal and choose which MCP tool set to expose.",
   },
 ];
 export const DEFAULT_ANALYSIS_TYPE = ANALYSIS_TYPES[0].label;
 export const CUSTOM_ANALYSIS_TYPE = "Custom";
 
-// HexStrike tool sets the Custom analysis type can enable. Must match the keys
-// of CUSTOM_HEXSTRIKE_TOOL_SETS in the backend analysis_types module.
+// Tool sets the Custom analysis type can enable. Must match CUSTOM_TOOL_SETS in
+// the backend analysis_types module.
 export const CUSTOM_TOOL_SETS = [
   "Network",
   "Domain",
@@ -53,6 +53,9 @@ export const CUSTOM_TOOL_SETS = [
   "Authentication",
   "Configuration",
   "Post-Recon General",
+  "Database",
+  "Database+Search",
+  "Database+Search+Bash",
 ];
 export const DEFAULT_CUSTOM_TOOL_SET = CUSTOM_TOOL_SETS[0];
 

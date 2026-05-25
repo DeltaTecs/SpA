@@ -34,6 +34,11 @@ except the packet DB tools `packet_info`,
 exposed in phase two. Every phase-two tool call blocks on the API/UI approval
 callback before the underlying MCP call runs.
 
+The `Custom` analysis type can also choose narrow server-level tool sets:
+`Database` exposes only the packet database MCP server, `Database+Search`
+adds Tavily `tavily_search`/`tavily_extract`, and `Database+Search+Bash` adds
+the Bash MCP server while still excluding HexStrike tools.
+
 When a phase-two run enables **bash mode** (the `bash_mode` request flag), no
 HexStrike MCP scanning tools are exposed at all. Instead the analysis runs the
 underlying CLI tools itself through the Bash MCP server: `bash__bash` plus the

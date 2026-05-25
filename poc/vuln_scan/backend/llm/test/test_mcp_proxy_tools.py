@@ -597,6 +597,65 @@ class AnalysisTypesTest(unittest.TestCase):
 
         self.assertEqual(tools, frozenset())
 
+    def test_custom_database_tool_sets_are_selectable(self) -> None:
+        self.assertIn("Database", analysis_types.ALLOWED_CUSTOM_TOOL_SETS)
+        self.assertIn("Database+Search", analysis_types.ALLOWED_CUSTOM_TOOL_SETS)
+        self.assertIn(
+            "Database+Search+Bash", analysis_types.ALLOWED_CUSTOM_TOOL_SETS
+        )
+
+    def test_custom_database_tool_sets_have_no_hexstrike_tools(self) -> None:
+        for tool_set in ("Database", "Database+Search", "Database+Search+Bash"):
+            with self.subTest(tool_set=tool_set):
+                tools = analysis_types.hexstrike_mcp_tools_for_analysis_types(
+                    [analysis_types.CUSTOM_ANALYSIS_TYPE],
+                    custom_tool_set=tool_set,
+                )
+
+                self.assertEqual(tools, frozenset())
+
+    def test_custom_database_tool_sets_select_server_categories(self) -> None:
+        self.assertEqual(
+            analysis_types.custom_server_categories_for_analysis_types(
+                [analysis_types.CUSTOM_ANALYSIS_TYPE],
+                custom_tool_set="Database",
+            ),
+            frozenset({analysis_types.CUSTOM_TOOL_CATEGORY_DATABASE}),
+        )
+        self.assertEqual(
+            analysis_types.custom_server_categories_for_analysis_types(
+                [analysis_types.CUSTOM_ANALYSIS_TYPE],
+                custom_tool_set="Database+Search",
+            ),
+            frozenset(
+                {
+                    analysis_types.CUSTOM_TOOL_CATEGORY_DATABASE,
+                    analysis_types.CUSTOM_TOOL_CATEGORY_SEARCH,
+                }
+            ),
+        )
+        self.assertEqual(
+            analysis_types.custom_server_categories_for_analysis_types(
+                [analysis_types.CUSTOM_ANALYSIS_TYPE],
+                custom_tool_set="Database+Search+Bash",
+            ),
+            frozenset(
+                {
+                    analysis_types.CUSTOM_TOOL_CATEGORY_DATABASE,
+                    analysis_types.CUSTOM_TOOL_CATEGORY_SEARCH,
+                    analysis_types.CUSTOM_TOOL_CATEGORY_BASH,
+                }
+            ),
+        )
+
+    def test_non_custom_type_has_no_custom_server_category_filter(self) -> None:
+        self.assertIsNone(
+            analysis_types.custom_server_categories_for_analysis_types(
+                ["Recon: Ports"],
+                custom_tool_set="Database",
+            )
+        )
+
     def test_description_for_custom_type_is_the_user_goal(self) -> None:
         self.assertEqual(
             analysis_types.description_for_analysis_type(

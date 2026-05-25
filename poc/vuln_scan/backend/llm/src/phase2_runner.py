@@ -3,7 +3,13 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, Sequence
 
-from analysis_types import hexstrike_mcp_tools_for_analysis_types
+from analysis_types import (
+    CUSTOM_TOOL_CATEGORY_BASH,
+    CUSTOM_TOOL_CATEGORY_DATABASE,
+    CUSTOM_TOOL_CATEGORY_SEARCH,
+    custom_server_categories_for_analysis_types,
+    hexstrike_mcp_tools_for_analysis_types,
+)
 from event_context import load_prepared_event_context
 from llm_analyzer import ScannerAnalyzer
 from mcp_client import MCPClient
@@ -115,7 +121,30 @@ def run_phase_two_analysis(
     external_context = prepared.external_context(app_details, user_actions)
 
     active_mcp_servers = list(mcp_servers)
-    if bash_mode:
+    effective_bash_mode = bash_mode
+    custom_server_categories = custom_server_categories_for_analysis_types(
+        analysis_types, custom_tool_set=custom_tool_set
+    )
+    if custom_server_categories is not None:
+        active_mcp_servers = [
+            server
+            for server in active_mcp_servers
+            if _server_category(server) in custom_server_categories
+        ]
+        if CUSTOM_TOOL_CATEGORY_BASH not in custom_server_categories:
+            effective_bash_mode = False
+        allowed_hexstrike_tools = frozenset()
+        allowed_tool_names_by_server_id: dict[str, frozenset[str]] = {}
+        _progress(
+            f"Custom tool set {custom_tool_set}: exposing only "
+            f"{_format_server_categories(custom_server_categories)} MCP tools."
+        )
+        if bash_mode and not effective_bash_mode:
+            _progress(
+                "Bash mode ignored because the selected custom tool set does "
+                "not expose the Bash MCP server."
+            )
+    elif bash_mode:
         # Bash mode: drop the HexStrike MCP server entirely. The LLM runs the
         # underlying CLI tools itself through the Bash MCP server instead.
         active_mcp_servers = [
@@ -148,6 +177,10 @@ def run_phase_two_analysis(
         scan_logger.log_input("recording_id", prepared.recording_id)
         scan_logger.log_input("event_context_text", prepared.text)
         scan_logger.log_input("external_context", external_context)
+        scan_logger.log_input(
+            "custom_server_categories",
+            sorted(custom_server_categories) if custom_server_categories else "(none)",
+        )
         scan_logger.log_input(
             "allowed_hexstrike_tools", sorted(allowed_hexstrike_tools)
         )
@@ -226,7 +259,7 @@ def run_phase_two_analysis(
         tool_stop_requested_callback=wrapped_tool_stop_requested,
         tool_finish_callback=wrapped_tool_finish,
         allowed_tool_names_by_server_id=allowed_tool_names_by_server_id,
-        bash_mode=bash_mode,
+        bash_mode=effective_bash_mode,
     )
     if abort_callback_registrar is not None:
         abort_callback_registrar(proxy.stop_all_active_tools)
@@ -268,7 +301,7 @@ def run_phase_two_analysis(
             tool_catalog=tool_catalog,
             has_app_details=app_details is not None,
             has_user_actions=bool(user_actions),
-            bash_mode=bash_mode,
+            bash_mode=effective_bash_mode,
             max_rounds=max_rounds,
             reasoning_effort=reasoning_effort,
             cancel_callback=abort_requested_callback,
@@ -290,3 +323,38 @@ def _is_hexstrike_server(server: MCPServerSpec) -> bool:
         "hexstrike" in server.server_id.lower()
         or "hexstrike" in server.label.lower()
     )
+
+
+def _server_category(server: MCPServerSpec) -> str:
+    server_id = server.server_id.lower()
+    label = server.label.lower().replace(" ", "_")
+    if (
+        server_id == "packet"
+        or label == "packet_db"
+        or "packet_db" in server_id
+        or "packetdb" in server_id
+    ):
+        return CUSTOM_TOOL_CATEGORY_DATABASE
+    if server_id in {"search", "search_engine", "tavily"} or "search" in label:
+        return CUSTOM_TOOL_CATEGORY_SEARCH
+    if "bash" in server_id or "bash" in label:
+        return CUSTOM_TOOL_CATEGORY_BASH
+    if _is_hexstrike_server(server):
+        return "hexstrike"
+    return "other"
+
+
+def _format_server_categories(categories: frozenset[str]) -> str:
+    labels = {
+        CUSTOM_TOOL_CATEGORY_DATABASE: "database",
+        CUSTOM_TOOL_CATEGORY_SEARCH: "Tavily search/extract",
+        CUSTOM_TOOL_CATEGORY_BASH: "bash",
+    }
+    order = (
+        CUSTOM_TOOL_CATEGORY_DATABASE,
+        CUSTOM_TOOL_CATEGORY_SEARCH,
+        CUSTOM_TOOL_CATEGORY_BASH,
+    )
+    ordered = [category for category in order if category in categories]
+    ordered.extend(sorted(category for category in categories if category not in order))
+    return ", ".join(labels.get(category, category) for category in ordered)

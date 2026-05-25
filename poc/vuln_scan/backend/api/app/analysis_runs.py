@@ -113,7 +113,7 @@ class AnalysisRun:
         self.analysis_types = analysis_types
         self.constraints = constraints
         # Only meaningful for the "Custom" analysis type: the free-text goal and
-        # the selected HexStrike tool set. Empty for the fixed analysis types.
+        # the selected MCP tool set. Empty for the fixed analysis types.
         self.custom_goal = custom_goal
         self.custom_tool_set = custom_tool_set
         # Bash mode hides every HexStrike MCP scanning tool; the analysis runs

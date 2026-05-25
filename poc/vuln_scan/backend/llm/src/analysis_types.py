@@ -211,13 +211,19 @@ POST_RECON_HEXSTRIKE_MCP_TOOLS = (
 
 
 # Label of the user-defined analysis type. Unlike the fixed types above, its
-# goal description and HexStrike tool list are supplied per run: the goal comes
-# from a free-text field and the tools from one of CUSTOM_HEXSTRIKE_TOOL_SETS.
+# goal description and tool exposure are supplied per run: the goal comes from
+# a free-text field and the tools from one of the custom tool sets below.
 CUSTOM_ANALYSIS_TYPE = "Custom"
 
-# HexStrike MCP tool sets selectable for a "Custom" analysis. Keys are the
-# labels shown in the UI dropdown; each maps to one of the tool tuples above so
-# the custom type reuses the exact same tool lists as the fixed types.
+# MCP server categories used by custom tool sets that constrain whole servers
+# instead of just selecting a HexStrike allow-list.
+CUSTOM_TOOL_CATEGORY_DATABASE = "database"
+CUSTOM_TOOL_CATEGORY_SEARCH = "search"
+CUSTOM_TOOL_CATEGORY_BASH = "bash"
+
+# HexStrike MCP tool sets selectable for a "Custom" analysis. Keys are labels
+# shown in the UI dropdown; each maps to one of the tool tuples above so the
+# custom type reuses the exact same tool lists as the fixed types.
 CUSTOM_HEXSTRIKE_TOOL_SETS: dict[str, tuple[str, ...]] = {
     "Network": RECON_PORTS_HEXSTRIKE_MCP_TOOLS,
     "Domain": RECON_DOMAIN_HEXSTRIKE_MCP_TOOLS,
@@ -226,7 +232,26 @@ CUSTOM_HEXSTRIKE_TOOL_SETS: dict[str, tuple[str, ...]] = {
     "Configuration": CONFIGURATION_HEXSTRIKE_MCP_TOOLS,
     "Post-Recon General": POST_RECON_HEXSTRIKE_MCP_TOOLS,
 }
-ALLOWED_CUSTOM_TOOL_SETS = frozenset(CUSTOM_HEXSTRIKE_TOOL_SETS)
+
+# Custom MCP server exposure sets. These intentionally disable HexStrike tools
+# and restrict the phase-two run to the listed non-HexStrike server categories.
+CUSTOM_MCP_SERVER_TOOL_SETS: dict[str, tuple[str, ...]] = {
+    "Database": (CUSTOM_TOOL_CATEGORY_DATABASE,),
+    "Database+Search": (
+        CUSTOM_TOOL_CATEGORY_DATABASE,
+        CUSTOM_TOOL_CATEGORY_SEARCH,
+    ),
+    "Database+Search+Bash": (
+        CUSTOM_TOOL_CATEGORY_DATABASE,
+        CUSTOM_TOOL_CATEGORY_SEARCH,
+        CUSTOM_TOOL_CATEGORY_BASH,
+    ),
+}
+CUSTOM_TOOL_SETS = (
+    *CUSTOM_HEXSTRIKE_TOOL_SETS,
+    *CUSTOM_MCP_SERVER_TOOL_SETS,
+)
+ALLOWED_CUSTOM_TOOL_SETS = frozenset(CUSTOM_TOOL_SETS)
 
 
 ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
@@ -279,11 +304,11 @@ ANALYSIS_TYPES: tuple[AnalysisType, ...] = (
         label=CUSTOM_ANALYSIS_TYPE,
         description=(
             "Run a user-defined analysis. The goal is supplied by the user at "
-            "scan time and replaces this description; the enabled HexStrike "
-            "tools come from the user-selected tool set."
+            "scan time and replaces this description; the enabled MCP tools "
+            "come from the user-selected tool set."
         ),
-        # Tools are resolved per run from the selected CUSTOM_HEXSTRIKE_TOOL_SETS
-        # entry rather than from a fixed list.
+        # Tools are resolved per run from the selected custom tool-set entry
+        # rather than from a fixed list.
         hexstrike_mcp_tools=(),
     ),
 )
@@ -315,9 +340,10 @@ def hexstrike_mcp_tools_for_analysis_types(
 ) -> frozenset[str]:
     """Union of HexStrike MCP tools enabled by the selected analysis types.
 
-    The ``Custom`` type draws its tools from ``custom_tool_set`` (one of
-    :data:`CUSTOM_HEXSTRIKE_TOOL_SETS`) instead of a fixed per-type list; an
-    unknown or empty tool set contributes no tools.
+    The ``Custom`` type draws HexStrike tools from ``custom_tool_set`` when it
+    names one of :data:`CUSTOM_HEXSTRIKE_TOOL_SETS`. Server-category custom
+    tool sets (for example ``Database``) intentionally contribute no HexStrike
+    tools.
     """
     tools: set[str] = set()
     for analysis_type in analysis_types:
@@ -326,6 +352,31 @@ def hexstrike_mcp_tools_for_analysis_types(
         else:
             tools.update(ANALYSIS_TYPE_HEXSTRIKE_MCP_TOOLS.get(analysis_type, ()))
     return frozenset(tools)
+
+
+def custom_tool_set_server_categories(custom_tool_set: str) -> frozenset[str] | None:
+    """Return the MCP server categories selected by a custom tool set.
+
+    ``None`` means the tool set does not constrain whole MCP server categories;
+    this is the case for the HexStrike-oriented custom tool sets.
+    """
+    categories = CUSTOM_MCP_SERVER_TOOL_SETS.get(custom_tool_set)
+    if categories is None:
+        return None
+    return frozenset(categories)
+
+
+def custom_server_categories_for_analysis_types(
+    analysis_types: Sequence[str], *, custom_tool_set: str = ""
+) -> frozenset[str] | None:
+    """Return MCP server categories to expose for the selected analysis types.
+
+    Only the ``Custom`` analysis type can request a whole-server tool set. A
+    return value of ``None`` means normal phase-two server exposure applies.
+    """
+    if CUSTOM_ANALYSIS_TYPE not in analysis_types:
+        return None
+    return custom_tool_set_server_categories(custom_tool_set)
 
 
 def phase_two_scan_type_rows() -> tuple[tuple[str, str], ...]:

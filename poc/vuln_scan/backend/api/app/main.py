@@ -105,7 +105,7 @@ class PhaseTwoRequest(BaseModel):
     analysis_types: List[str] = Field(default_factory=lambda: [DEFAULT_ANALYSIS_TYPE])
     constraints: str = ""
     # Used only when "Custom" is selected: the free-text analysis goal and the
-    # name of the HexStrike tool set to enable. Ignored for the fixed types.
+    # name of the MCP tool set to expose. Ignored for the fixed types.
     custom_goal: str = ""
     custom_tool_set: str = ""
     approval_mode: str = APPROVAL_MODE_MANUAL
