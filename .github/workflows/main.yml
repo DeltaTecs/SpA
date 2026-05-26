@@ -1,0 +1,22 @@
+name: Test All CI
+
+on: push
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build test containers
+        working-directory: poc
+        run: docker compose build
+
+      - name: Run tests
+        working-directory: poc
+        run: sh run_tests.sh
+
+      - name: Shut down containers
+        if: always()
+        working-directory: poc
+        run: docker compose down -v
