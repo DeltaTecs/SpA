@@ -84,6 +84,8 @@ services:
 
   # VPN egress for active HexStrike scans. scanner-api still reaches the MCP
   # servers over the internal scanner-hexstrike-network on ports 8766/8767.
+  # If PROTONVPN_WIREGUARD_PRIVATE_KEY is unset, this container stays up as a
+  # plain network namespace and HexStrike uses normal Docker egress.
   hexstrike-vpn:
     image: qmcgaw/gluetun:v3
     container_name: hexstrike-vpn
@@ -92,10 +94,19 @@ services:
       - NET_ADMIN
     devices:
       - /dev/net/tun:/dev/net/tun
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if printenv WIREGUARD_PRIVATE_KEY | grep -q .; then
+          exec /gluetun-entrypoint
+        fi
+        echo "PROTONVPN_WIREGUARD_PRIVATE_KEY is not set; running HexStrike without VPN egress."
+        exec tail -f /dev/null
     environment:
       - VPN_SERVICE_PROVIDER=protonvpn
       - VPN_TYPE=wireguard
-      - WIREGUARD_PRIVATE_KEY=${PROTONVPN_WIREGUARD_PRIVATE_KEY:?set PROTONVPN_WIREGUARD_PRIVATE_KEY in poc/.env}
+      - WIREGUARD_PRIVATE_KEY=${PROTONVPN_WIREGUARD_PRIVATE_KEY:-}
       - SERVER_COUNTRIES=${PROTONVPN_SERVER_COUNTRIES:-Netherlands}
       - FIREWALL_INPUT_PORTS=8766,8767
       - TZ=${TZ:-Europe/Berlin}

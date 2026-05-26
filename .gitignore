@@ -64,7 +64,6 @@ poc/vuln_scan/data
 
 # Local env files (keep real config in samples)
 .env
-.env.*
 
 # Temporary files
 .tmp/
