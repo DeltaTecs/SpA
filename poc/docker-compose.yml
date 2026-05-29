@@ -131,6 +131,10 @@ services:
     restart: unless-stopped
     environment:
       - MCP_PACKET_DB_URL=http://mcp-packet-db:8765/mcp
+      # Active-testing MCP tools (bash + hexstrike), reached over the hexstrike
+      # network via the mcp-hexstrike alias on hexstrike-vpn.
+      - HEXSTRIKE_BASH_MCP_URL=http://mcp-hexstrike:8766/mcp
+      - HEXSTRIKE_TOOLS_MCP_URL=http://mcp-hexstrike:8767/mcp
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
@@ -142,11 +146,14 @@ services:
     ports:
       - "8094:8000"
     networks:
-      # app-network reaches mcp-packet-db; db-api-network is reachable by frontend.
+      # app-network reaches mcp-packet-db; db-api-network is reachable by frontend;
+      # scanner-hexstrike-network reaches the bash/hexstrike MCP tools.
       - app-network
       - db-api-network
+      - scanner-hexstrike-network
     depends_on:
       - mcp-packet-db
+      - mcp-hexstrike
     healthcheck:
       test:
         - CMD-SHELL

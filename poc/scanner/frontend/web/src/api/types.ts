@@ -254,3 +254,104 @@ export interface JobStatus {
 }
 
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
+
+// --- pentest (scanner-backend, via /api/plan/pentest/*) --------------------
+
+export type ToolCategory = "db" | "search" | "bash" | "hexstrike";
+
+export interface McpToolInfo {
+  name: string;
+  description: string;
+}
+
+export interface McpToolsetInfo {
+  name: string;
+  category: ToolCategory;
+  tools: McpToolInfo[];
+}
+
+export interface McpToolsResponse {
+  toolsets: McpToolsetInfo[];
+}
+
+export type ReviewMode = "manual" | "automatic";
+export type PentestVerdict = "confirmed" | "inconclusive" | "not_exploitable";
+
+export interface ReviewerConfig {
+  provider: string;
+  model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
+  max_iterations: number;
+}
+
+export interface ToolConfig {
+  exempt_db_search: boolean;
+  allowed_tools: string[];
+  tool_constraints: string;
+  review_mode: ReviewMode;
+  reviewer?: ReviewerConfig | null;
+  review_auto_denied_manually: boolean;
+}
+
+export interface PentestItemInput {
+  id: string;
+  exchange: Exchange;
+  check: VulnerabilityCheck;
+}
+
+export interface StartPentestJobRequest {
+  recording_id: number;
+  provider: string;
+  model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
+  max_iterations: number;
+  items: PentestItemInput[];
+  concurrent: boolean;
+  tool_config: ToolConfig;
+}
+
+export interface StartPentestJobResponse {
+  job_id: string;
+}
+
+export interface PendingReview {
+  review_id: string;
+  item_id: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  auto_reason: string | null;
+  created_at: number;
+}
+
+export interface PentestItemStatus {
+  item_id: string;
+  title: string;
+  status: TaskStatusValue;
+  result: TaskResult | null;
+  error: string | null;
+  iterations: number | null;
+  stopped_on_limit: boolean | null;
+  pending_reviews: PendingReview[];
+}
+
+export interface PentestJobStatus {
+  job_id: string;
+  status: JobStatusValue;
+  provider: string;
+  model: string | null;
+  reasoning_effort: ReasoningEffort | null;
+  items: PentestItemStatus[];
+}
+
+export interface ReviewDecisionRequest {
+  approved: boolean;
+  hint: string;
+}
+
+/** The `pentest` task payload shape. */
+export interface PentestReportPayload {
+  verdict: PentestVerdict;
+  summary: string;
+  evidence: string[];
+  parse_warning?: string;
+}

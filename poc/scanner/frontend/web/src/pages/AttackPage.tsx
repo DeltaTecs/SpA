@@ -1,10 +1,17 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { CreatePlanTab } from "../components/attack/CreatePlanTab";
+import { PentestTab } from "../components/attack/PentestTab";
+import type { PentestPlan } from "../components/attack/types";
 
-type AttackTab = "create-plan" | "overview";
+type AttackTab = "create-plan" | "pentest" | "overview";
 
 export function AttackPage() {
   const [tab, setTab] = useState<AttackTab>("create-plan");
+  const [plan, setPlan] = useState<PentestPlan | null>(null);
+  const pentestReady = plan !== null && plan.items.length > 0;
+
+  // Stable identity so CreatePlanTab's plan-ready effect does not refire each render.
+  const handlePlanReady = useCallback((next: PentestPlan | null) => setPlan(next), []);
 
   return (
     <div className="page">
@@ -22,6 +29,15 @@ export function AttackPage() {
         </button>
         <button
           type="button"
+          className={`tab${tab === "pentest" ? " tab--active" : ""}`}
+          onClick={() => setTab("pentest")}
+          disabled={!pentestReady}
+          title={pentestReady ? undefined : "Create a plan first (run an analysis)"}
+        >
+          Pentest
+        </button>
+        <button
+          type="button"
           className={`tab${tab === "overview" ? " tab--active" : ""}`}
           onClick={() => setTab("overview")}
         >
@@ -29,7 +45,21 @@ export function AttackPage() {
         </button>
       </div>
 
-      {tab === "create-plan" ? <CreatePlanTab /> : <Overview />}
+      {/* Tabs stay mounted so the analysis/pentest jobs and their polling survive
+          tab switches; visibility is toggled rather than unmounting. */}
+      <div hidden={tab !== "create-plan"}>
+        <CreatePlanTab
+          onPlanReady={handlePlanReady}
+          pentestReady={pentestReady}
+          onGoToPentest={() => setTab("pentest")}
+        />
+      </div>
+      {plan && (
+        <div hidden={tab !== "pentest"}>
+          <PentestTab plan={plan} />
+        </div>
+      )}
+      {tab === "overview" && <Overview />}
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { TaskResult } from "../../../api/types";
+import { PentestReport } from "./PentestReport";
 import { VulnerabilityChecksResult } from "./VulnerabilityChecksResult";
 
 type ResultRenderer = (result: TaskResult) => ReactNode;
@@ -9,6 +10,7 @@ type ResultRenderer = (result: TaskResult) => ReactNode;
 // stay unchanged. Unknown types fall back to a generic JSON view.
 const RENDERERS: Record<string, ResultRenderer> = {
   vulnerability_checks: (result) => <VulnerabilityChecksResult result={result} />,
+  pentest: (result) => <PentestReport result={result} />,
 };
 
 export function renderTaskResult(result: TaskResult): ReactNode {

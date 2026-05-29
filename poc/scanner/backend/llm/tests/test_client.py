@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from llm.client import McpLlmClient  # noqa: E402
+from llm.client import McpLlmClient, ToolDecision  # noqa: E402
 from llm.provider.base import BaseProvider, ChatResult, ToolCall, ToolSpec  # noqa: E402
 
 
@@ -139,6 +139,54 @@ class TestMcpLlmClient(unittest.TestCase):
         names = [t.name for t in tools]
         self.assertEqual(names.count("dup"), 1)
         self.assertIn("unique", names)
+
+    def test_allowed_tools_filters_specs(self):
+        provider = ScriptedProvider([ChatResult(content="ok")])
+        toolset = FakeToolset([_spec("keep"), _spec("hide")])
+        client = McpLlmClient(provider, [toolset], allowed_tools={"keep"})
+        client.run("q")
+
+        _, tools = provider.received[0]
+        self.assertEqual([t.name for t in tools], ["keep"])
+
+    def test_approver_denial_skips_execution_and_feeds_back(self):
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={"q": "x"})]),
+                ChatResult(content="adjusted"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "secret"})
+
+        class DenyApprover:
+            def review(self, call):
+                return ToolDecision(False, "out of scope")
+
+        client = McpLlmClient(provider, [toolset], approver=DenyApprover())
+        result = client.run("q")
+
+        self.assertEqual(result.output, "adjusted")
+        self.assertEqual(toolset.calls, [])  # never executed
+        second_messages, _ = provider.received[1]
+        denial = next(m for m in second_messages if m.role == "tool")
+        self.assertIn("DENIED by reviewer: out of scope", denial.content)
+
+    def test_approver_approval_executes(self):
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="done"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "value"})
+
+        class AllowApprover:
+            def review(self, call):
+                return ToolDecision(True)
+
+        client = McpLlmClient(provider, [toolset], approver=AllowApprover())
+        client.run("q")
+        self.assertEqual(toolset.calls, [("lookup", {})])
 
     def test_stops_on_max_iterations(self):
         # Provider always asks for another tool call -> never terminates on its own.

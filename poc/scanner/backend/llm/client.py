@@ -43,6 +43,30 @@ class Toolset(Protocol):
 
 
 @dataclass(frozen=True)
+class ToolDecision:
+    """A toolset-agnostic approve/deny verdict for one tool call.
+
+    ``feedback`` is surfaced to the model on a denial so it can adjust (e.g. a
+    reviewer's reason or a human operator's hint).
+    """
+
+    approved: bool
+    feedback: str | None = None
+
+
+class ToolApprover(Protocol):
+    """Optional gate consulted before each tool call is executed.
+
+    Implementations may block (e.g. awaiting a human decision) or call out to a
+    reviewer model. The orchestrator stays agnostic to the mechanism; it only
+    acts on the returned :class:`ToolDecision`.
+    """
+
+    def review(self, call: ToolCall) -> ToolDecision:
+        ...
+
+
+@dataclass(frozen=True)
 class RunResult:
     """The outcome of :meth:`McpLlmClient.run`."""
 
@@ -61,15 +85,25 @@ class McpLlmClient:
         toolsets: list[Toolset] | None = None,
         *,
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
+        allowed_tools: set[str] | None = None,
+        approver: ToolApprover | None = None,
     ) -> None:
         self.provider = provider
         self.toolsets = list(toolsets or [])
         self.max_iterations = max_iterations
+        # When set, only these tool names are advertised to the model; everything
+        # else the toolsets expose is hidden. ``None`` means "expose all".
+        self.allowed_tools = set(allowed_tools) if allowed_tools is not None else None
+        # Optional pre-execution gate (human approval / reviewer model).
+        self.approver = approver
         logger.info(
-            "McpLlmClient ready (provider=%s, toolsets=%d, max_iterations=%d)",
+            "McpLlmClient ready (provider=%s, toolsets=%d, max_iterations=%d, "
+            "allowed_tools=%s, approver=%s)",
             provider.name,
             len(self.toolsets),
             max_iterations,
+            "all" if self.allowed_tools is None else len(self.allowed_tools),
+            "yes" if approver is not None else "no",
         )
 
     def run(self, prompt: str, *, system: str | None = None) -> RunResult:
@@ -105,7 +139,7 @@ class McpLlmClient:
             )
             for call in result.tool_calls:
                 executed_calls.append(call)
-                output = self._dispatch(call, dispatch)
+                output = self._handle_call(call, dispatch)
                 messages.append(
                     ChatMessage(
                         role="tool",
@@ -143,6 +177,8 @@ class McpLlmClient:
         dispatch: dict[str, Toolset] = {}
         for toolset in self.toolsets:
             for spec in toolset.list_tool_specs():
+                if self.allowed_tools is not None and spec.name not in self.allowed_tools:
+                    continue
                 if spec.name in dispatch:
                     logger.warning(
                         "Duplicate tool name '%s' from toolset '%s' ignored (already provided by '%s')",
@@ -154,6 +190,25 @@ class McpLlmClient:
                 dispatch[spec.name] = toolset
                 specs.append(spec)
         return specs, dispatch
+
+    def _handle_call(self, call: ToolCall, dispatch: dict[str, Toolset]) -> str:
+        """Gate a tool call through the optional approver, then dispatch it.
+
+        On a denial the tool is not executed; the reviewer's/operator's feedback
+        is returned to the model as the tool result so it can adjust within its
+        remaining iteration budget.
+        """
+
+        if self.approver is not None:
+            decision = self.approver.review(call)
+            if not decision.approved:
+                feedback = decision.feedback or "no reason provided"
+                logger.info("Tool call '%s' denied by approver: %s", call.name, feedback)
+                return (
+                    f"DENIED by reviewer: {feedback}. "
+                    "Do not retry this exact call; adjust your approach."
+                )
+        return self._dispatch(call, dispatch)
 
     def _dispatch(self, call: ToolCall, dispatch: dict[str, Toolset]) -> str:
         """Execute a single tool call, returning text (errors are returned, not raised).

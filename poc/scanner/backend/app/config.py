@@ -28,6 +28,8 @@ class Settings:
 
     mcp_packet_db_url: str
     tavily_url: Optional[str]
+    hexstrike_bash_url: Optional[str]
+    hexstrike_tools_url: Optional[str]
     openai_api_key: Optional[str]
     deepseek_api_key: Optional[str]
     max_concurrency: int
@@ -46,6 +48,8 @@ class Settings:
                 "MCP_PACKET_DB_URL", "http://mcp-packet-db:8765/mcp"
             ),
             tavily_url=tavily_url,
+            hexstrike_bash_url=_optional("HEXSTRIKE_BASH_MCP_URL"),
+            hexstrike_tools_url=_optional("HEXSTRIKE_TOOLS_MCP_URL"),
             openai_api_key=_optional("OPENAI_API_KEY"),
             deepseek_api_key=_optional("DEEPSEEK_API_KEY"),
             max_concurrency=int(os.environ.get("PLAN_MAX_CONCURRENCY", "4")),

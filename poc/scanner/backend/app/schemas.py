@@ -165,3 +165,126 @@ class JobStatus(BaseModel):
     reasoning_effort: Optional[ReasoningEffort] = None
     task_type: str
     tasks: List[ExchangeTaskStatus] = Field(default_factory=list)
+
+
+# --- MCP tool catalogue ------------------------------------------------------
+
+
+ToolCategory = Literal["db", "search", "bash", "hexstrike"]
+
+
+class McpToolInfo(BaseModel):
+    name: str
+    description: str = ""
+
+
+class McpToolsetInfo(BaseModel):
+    name: str
+    category: ToolCategory
+    tools: List[McpToolInfo] = Field(default_factory=list)
+
+
+class McpToolsResponse(BaseModel):
+    toolsets: List[McpToolsetInfo] = Field(default_factory=list)
+
+
+# --- pentest -----------------------------------------------------------------
+
+
+ReviewMode = Literal["manual", "automatic"]
+PentestVerdict = Literal["confirmed", "inconclusive", "not_exploitable"]
+MAX_TOOL_CONSTRAINTS_CHARS = 4000
+MAX_PENTEST_ITEMS = 100
+
+
+class ReviewerConfig(BaseModel):
+    """LLM that judges tool calls in automatic review mode."""
+
+    provider: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
+    max_iterations: int = Field(2, ge=1, le=20)
+
+
+class ToolConfig(BaseModel):
+    """How the model's MCP tool use is governed during a pentest job."""
+
+    #: When true, db + web-search tools run without approval (read-only/low risk).
+    exempt_db_search: bool = True
+    #: Tool names the model is allowed to see/use. Empty means "expose none".
+    allowed_tools: List[str] = Field(default_factory=list)
+    #: Free-text constraints (e.g. rate limiting) honoured by the agent and
+    #: enforced by the automatic reviewer.
+    tool_constraints: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)
+    review_mode: ReviewMode = "manual"
+    reviewer: Optional[ReviewerConfig] = None
+    #: In automatic mode, route auto-denied calls to manual review as well.
+    review_auto_denied_manually: bool = False
+
+
+class PentestItem(BaseModel):
+    """One plan item to investigate: a single check plus its exchange context."""
+
+    id: str
+    exchange: Exchange
+    check: VulnerabilityCheck
+
+
+class StartPentestJobRequest(BaseModel):
+    recording_id: int
+    provider: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
+    max_iterations: int = Field(10, ge=1, le=50)
+    items: List[PentestItem] = Field(default_factory=list)
+    concurrent: bool = False
+    tool_config: ToolConfig = Field(default_factory=ToolConfig)
+
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, value: List[PentestItem]) -> List[PentestItem]:
+        if not value:
+            raise ValueError("At least one item is required to start a pentest job.")
+        if len(value) > MAX_PENTEST_ITEMS:
+            raise ValueError(f"At most {MAX_PENTEST_ITEMS} items are allowed.")
+        return value
+
+
+class StartPentestJobResponse(BaseModel):
+    job_id: str
+
+
+class PendingReview(BaseModel):
+    """A tool call awaiting a human decision (manual or escalated auto-deny)."""
+
+    review_id: str
+    item_id: str
+    tool_name: str
+    arguments: Dict[str, Any] = Field(default_factory=dict)
+    auto_reason: Optional[str] = None
+    created_at: float
+
+
+class PentestItemStatus(BaseModel):
+    item_id: str
+    title: str
+    status: Literal["pending", "running", "done", "error"]
+    result: Optional[TaskResult] = None
+    error: Optional[str] = None
+    iterations: Optional[int] = None
+    stopped_on_limit: Optional[bool] = None
+    pending_reviews: List[PendingReview] = Field(default_factory=list)
+
+
+class PentestJobStatus(BaseModel):
+    job_id: str
+    status: Literal["running", "done", "error"]
+    provider: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
+    items: List[PentestItemStatus] = Field(default_factory=list)
+
+
+class ReviewDecisionRequest(BaseModel):
+    approved: bool
+    hint: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)

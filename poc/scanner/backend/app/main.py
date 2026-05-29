@@ -19,13 +19,24 @@ from llm import configure_logging
 from .config import settings
 from .jobs.runner import store, submit_job
 from .jobs.store import derived_status
+from .mcp_catalog import build_catalog
+from .pentest import store as pentest_store
+from .pentest import submit_pentest_job
+from .pentest.store import derived_status as pentest_derived_status
 from .providers import list_providers
 from .schemas import (
     JobStatus,
+    McpToolInfo,
+    McpToolsetInfo,
+    McpToolsResponse,
+    PentestJobStatus,
     PromptPartInfo,
     ProviderList,
+    ReviewDecisionRequest,
     StartJobRequest,
     StartJobResponse,
+    StartPentestJobRequest,
+    StartPentestJobResponse,
     TaskTypeInfo,
     TaskTypeList,
 )
@@ -138,3 +149,92 @@ def get_job(job_id: str) -> JobStatus:
             for task in job.tasks
         ],
     )
+
+
+# --- pentest -----------------------------------------------------------------
+
+
+@app.get("/pentest/tools", response_model=McpToolsResponse, tags=["pentest"])
+def get_pentest_tools() -> McpToolsResponse:
+    """List the MCP tools available to expose to the pentest model, by toolset.
+
+    A toolset that cannot be reached is returned with an empty tool list (logged)
+    so the UI degrades gracefully instead of failing entirely.
+    """
+    toolsets = []
+    for entry in build_catalog(settings):
+        try:
+            specs = entry.toolset.list_tool_specs()
+            tools = [McpToolInfo(name=spec.name, description=spec.description) for spec in specs]
+        except Exception as exc:  # noqa: BLE001 - one unreachable server must not 500
+            logger.warning("Could not list tools for toolset '%s': %s", entry.name, exc)
+            tools = []
+        toolsets.append(McpToolsetInfo(name=entry.name, category=entry.category, tools=tools))
+    return McpToolsResponse(toolsets=toolsets)
+
+
+@app.post(
+    "/pentest/jobs",
+    response_model=StartPentestJobResponse,
+    status_code=202,
+    tags=["pentest"],
+)
+def start_pentest_job(request: StartPentestJobRequest) -> StartPentestJobResponse:
+    """Start one investigation session per plan item (the pentest job)."""
+    try:
+        job_id = submit_pentest_job(request, settings)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return StartPentestJobResponse(job_id=job_id)
+
+
+@app.get("/pentest/jobs/{job_id}", response_model=PentestJobStatus, tags=["pentest"])
+def get_pentest_job(job_id: str) -> PentestJobStatus:
+    """Return a pentest job's status, per-item reports, and pending tool reviews."""
+    job = pentest_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Unknown pentest job '{job_id}'.")
+    return PentestJobStatus(
+        job_id=job.job_id,
+        status=pentest_derived_status(job.items),
+        provider=job.provider,
+        model=job.model,
+        reasoning_effort=job.reasoning_effort,
+        items=[
+            {
+                "item_id": item.item_id,
+                "title": item.title,
+                "status": item.status,
+                "result": item.result,
+                "error": item.error,
+                "iterations": item.iterations,
+                "stopped_on_limit": item.stopped_on_limit,
+                "pending_reviews": [
+                    {
+                        "review_id": review.review_id,
+                        "item_id": review.item_id,
+                        "tool_name": review.tool_name,
+                        "arguments": review.arguments,
+                        "auto_reason": review.auto_reason,
+                        "created_at": review.created_at,
+                    }
+                    for review in job.pending_reviews
+                    if review.item_id == item.item_id
+                ],
+            }
+            for item in job.items
+        ],
+    )
+
+
+@app.post("/pentest/jobs/{job_id}/reviews/{review_id}", tags=["pentest"])
+def resolve_pentest_review(
+    job_id: str, review_id: str, decision: ReviewDecisionRequest
+) -> dict:
+    """Approve or deny a pending tool call, unblocking its session."""
+    resolved = pentest_store.resolve_review(
+        job_id, review_id, decision.approved, decision.hint
+    )
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Unknown or already-resolved review.")
+    return {"resolved": True}

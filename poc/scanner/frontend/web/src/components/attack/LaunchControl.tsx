@@ -6,9 +6,23 @@ interface LaunchControlProps {
   launching: boolean;
   error: string | null;
   onLaunch: () => void;
+  /** True once the completed analysis yields at least one check to pentest. */
+  planReady: boolean;
+  /** True when the Pentest tab is reachable (the lifted plan is non-empty). */
+  pentestReady: boolean;
+  onGoToPentest: () => void;
 }
 
-export function LaunchControl({ selectedCount, job, launching, error, onLaunch }: LaunchControlProps) {
+export function LaunchControl({
+  selectedCount,
+  job,
+  launching,
+  error,
+  onLaunch,
+  planReady,
+  pentestReady,
+  onGoToPentest,
+}: LaunchControlProps) {
   const running = job?.status === "running";
   const disabled = selectedCount === 0 || launching || running;
 
@@ -20,6 +34,15 @@ export function LaunchControl({ selectedCount, job, launching, error, onLaunch }
           : running
             ? "Analysis running…"
             : `Launch analysis (${selectedCount})`}
+      </button>
+      <button
+        type="button"
+        className="launch__button launch__button--secondary"
+        disabled={!planReady || !pentestReady}
+        onClick={onGoToPentest}
+        title={planReady ? "Continue to penetration testing" : "Run an analysis first"}
+      >
+        Go to Pentest →
       </button>
       {job && <JobSummary job={job} />}
       {error && <span className="launch__error">{error}</span>}

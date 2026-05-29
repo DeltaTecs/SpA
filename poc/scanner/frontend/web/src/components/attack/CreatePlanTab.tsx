@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
 import { getRecordings } from "../../api/stats";
-import type { Exchange, ExchangeTaskStatus, JobStatus, RecordingInfo } from "../../api/types";
+import type {
+  Exchange,
+  ExchangeTaskStatus,
+  JobStatus,
+  PentestItemInput,
+  RecordingInfo,
+  VulnerabilityCheck,
+} from "../../api/types";
 import { useFetch } from "../../lib/useFetch";
 import { usePolling } from "../../lib/usePolling";
 import { ErrorBanner } from "../common/ErrorBanner";
@@ -10,13 +17,42 @@ import { RecordingSelector } from "../common/RecordingSelector";
 import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
 import { ProviderForm } from "./ProviderForm";
-import type { EditableExchange, PlanConfig } from "./types";
+import type { EditableExchange, PentestPlan, PlanConfig } from "./types";
 import { taskPromptDefaults, toExchange } from "./types";
 
 const DEFAULT_RECORDING_ID = 1;
 const POLL_INTERVAL_MS = 1500;
 
-export function CreatePlanTab() {
+interface CreatePlanTabProps {
+  /** Called with the executable plan once an analysis completes (or null while none). */
+  onPlanReady: (plan: PentestPlan | null) => void;
+  /** Whether the Pentest tab is currently reachable (a plan exists). */
+  pentestReady: boolean;
+  /** Navigate to the Pentest tab. */
+  onGoToPentest: () => void;
+}
+
+/** Flatten a completed analysis job into one pentest item per suggested check. */
+function buildPentestItems(
+  job: JobStatus | null,
+  exchanges: EditableExchange[],
+): PentestItemInput[] {
+  if (!job || job.status !== "done") return [];
+  const exchangeById = new Map(exchanges.map((it) => [it.id, toExchange(it)]));
+  const items: PentestItemInput[] = [];
+  for (const task of job.tasks) {
+    if (task.status !== "done" || !task.result) continue;
+    const exchange = exchangeById.get(task.exchange_id);
+    if (!exchange) continue;
+    const checks = (task.result.payload.checks as VulnerabilityCheck[] | undefined) ?? [];
+    checks.forEach((check, idx) => {
+      items.push({ id: `${task.exchange_id}#${idx}`, exchange, check });
+    });
+  }
+  return items;
+}
+
+export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: CreatePlanTabProps) {
   const recordings = useFetch<RecordingInfo[]>(() => getRecordings(), []);
   const providers = useFetch(() => getProviders(), []);
   const taskTypes = useFetch(() => getTaskTypes(), []);
@@ -65,8 +101,16 @@ export function CreatePlanTab() {
     return map;
   }, [job.data]);
 
+  // Lift the executable plan (one item per suggested check) up to the Attack page
+  // so the Pentest tab can be enabled and seeded once the analysis completes.
+  const pentestItems = useMemo(() => buildPentestItems(job.data, items), [job.data, items]);
+  useEffect(() => {
+    onPlanReady(pentestItems.length > 0 ? { recordingId, items: pentestItems } : null);
+  }, [pentestItems, recordingId, onPlanReady]);
+
   const selectedCount = items.filter((item) => item.selected).length;
   const running = job.data?.status === "running";
+  const planReady = pentestItems.length > 0;
 
   function toggle(id: string) {
     setItems((prev) =>
@@ -131,6 +175,9 @@ export function CreatePlanTab() {
           launching={launching}
           error={launchError}
           onLaunch={launch}
+          planReady={planReady}
+          pentestReady={pentestReady}
+          onGoToPentest={onGoToPentest}
         />
       </section>
 

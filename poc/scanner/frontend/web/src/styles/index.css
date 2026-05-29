@@ -1371,3 +1371,288 @@ body {
   overflow: auto;
   font-size: 11px;
 }
+
+/* ---- Attack: Pentest ---------------------------------------------------- */
+.launch__button--secondary {
+  background: var(--surface);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.tool-config {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tool-config__check,
+.tool-config__radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.tool-config__check input,
+.tool-config__radio input {
+  margin-top: 2px;
+}
+
+.tool-config__constraints textarea,
+.review__hint {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+  resize: vertical;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.tool-config__review {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.tool-config__review legend {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  padding: 0 6px;
+}
+
+.tool-config__reviewer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-left: 24px;
+  border-left: 2px solid var(--border);
+}
+
+.tool-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.tool-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.tool-group__title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.tool-group__toggle {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.tool-group__empty {
+  margin: 2px 0 0;
+}
+
+.tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  padding: 3px 0;
+  cursor: pointer;
+}
+
+.tool-row__name {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  color: var(--text);
+}
+
+.tool-row__desc {
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Pentest: review panel ---------------------------------------------- */
+.review-panel {
+  border-color: var(--accent);
+}
+
+.review-panel__count {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 1px 8px;
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.review {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.review__tool {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  background: #eef1f4;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.review__item {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.review__args {
+  max-height: 200px;
+}
+
+.review__auto {
+  margin: 0;
+  font-size: 12px;
+  color: #8a6d00;
+  background: #fff6da;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.review__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.review__accept,
+.review__deny {
+  border: none;
+  border-radius: 8px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #fff;
+}
+
+.review__accept {
+  background: #1f9254;
+}
+
+.review__deny {
+  background: #b00020;
+}
+
+.review__accept:disabled,
+.review__deny:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- Pentest: reports --------------------------------------------------- */
+.reports {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.report-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.report-card__title {
+  margin: 0;
+  font-size: 13px;
+}
+
+.report {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.report__verdict {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.report__verdict--confirmed {
+  background: #b00020;
+}
+
+.report__verdict--inconclusive {
+  background: #6b7a8a;
+}
+
+.report__verdict--not_exploitable {
+  background: #1f9254;
+}
+
+.report__summary {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.report__evidence-title {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.report__evidence {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.45;
+}

@@ -17,6 +17,8 @@ def _settings(*, tavily_url=None):
     return Settings(
         mcp_packet_db_url="http://mcp-packet-db:8765/mcp",
         tavily_url=tavily_url,
+        hexstrike_bash_url=None,
+        hexstrike_tools_url=None,
         openai_api_key=None,
         deepseek_api_key=None,
         max_concurrency=2,
