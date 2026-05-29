@@ -22,6 +22,7 @@ from .jobs.store import derived_status
 from .providers import list_providers
 from .schemas import (
     JobStatus,
+    PromptPartInfo,
     ProviderList,
     StartJobRequest,
     StartJobResponse,
@@ -86,6 +87,16 @@ def get_tasks() -> TaskTypeList:
                 title=task.title,
                 description=task.description,
                 result_version=task.result_version,
+                prompt_parts=[
+                    PromptPartInfo(
+                        id=part.id,
+                        title=part.title,
+                        scope=part.scope,
+                        content=part.content,
+                        description=part.description,
+                    )
+                    for part in task.prompt_parts()
+                ],
             )
             for task in available_tasks()
         ]

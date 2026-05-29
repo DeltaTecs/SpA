@@ -11,12 +11,27 @@ implementing this contract and registering it (see :mod:`app.tasks.registry`).
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List
+from dataclasses import dataclass
+from typing import Dict, List, Literal, Mapping
 
 from llm import McpToolset
 
 from ..config import Settings
 from ..schemas import Exchange, TaskResult
+
+PromptPartScope = Literal["system", "user"]
+PromptOverrideMap = Mapping[str, str]
+
+
+@dataclass(frozen=True)
+class TaskPromptPart:
+    """One editable prompt block exposed by an analysis task."""
+
+    id: str
+    title: str
+    scope: PromptPartScope
+    content: str
+    description: str = ""
 
 
 def build_default_toolsets(settings: Settings) -> List[object]:
@@ -47,13 +62,47 @@ class AnalysisTask(ABC):
     #: Bumped when the result payload shape changes, so consumers can adapt.
     result_version: int = 1
 
+    def prompt_parts(self) -> List[TaskPromptPart]:
+        """Editable prompt blocks for this task, in UI/render order."""
+        return []
+
+    def normalize_prompt_overrides(
+        self, prompt_overrides: PromptOverrideMap | None
+    ) -> Dict[str, str]:
+        """Validate and copy prompt overrides before a job is submitted."""
+        overrides = dict(prompt_overrides or {})
+        if not overrides:
+            return overrides
+
+        known_ids = {part.id for part in self.prompt_parts()}
+        unknown_ids = sorted(set(overrides) - known_ids)
+        if unknown_ids:
+            known = ", ".join(sorted(known_ids)) or "<none>"
+            unknown = ", ".join(unknown_ids)
+            raise ValueError(f"Unknown prompt part(s): {unknown}. Available: {known}.")
+        return overrides
+
     @abstractmethod
     def build_system_prompt(self) -> str:
         """The system message framing the model's role and output contract."""
 
+    def build_system_prompt_for_run(
+        self, prompt_overrides: PromptOverrideMap | None = None
+    ) -> str:
+        """Build the system prompt for one run, applying optional overrides."""
+        self.normalize_prompt_overrides(prompt_overrides)
+        return self.build_system_prompt()
+
     @abstractmethod
     def build_user_prompt(self, exchange: Exchange) -> str:
         """Render the per-exchange instruction. The only exchange-coupled method."""
+
+    def build_user_prompt_for_run(
+        self, exchange: Exchange, prompt_overrides: PromptOverrideMap | None = None
+    ) -> str:
+        """Build the user prompt for one run, applying optional overrides."""
+        self.normalize_prompt_overrides(prompt_overrides)
+        return self.build_user_prompt(exchange)
 
     def select_toolsets(self, settings: Settings) -> List[object]:
         """Toolsets exposed to the model for this task (override to add/restrict)."""

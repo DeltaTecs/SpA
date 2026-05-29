@@ -11,7 +11,7 @@ import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
 import { ProviderForm } from "./ProviderForm";
 import type { EditableExchange, PlanConfig } from "./types";
-import { toExchange } from "./types";
+import { taskPromptDefaults, toExchange } from "./types";
 
 const DEFAULT_RECORDING_ID = 1;
 const POLL_INTERVAL_MS = 1500;
@@ -42,6 +42,7 @@ export function CreatePlanTab() {
       reasoningEffort: "",
       taskType: task.task_type,
       maxIterations: 10,
+      promptOverrides: taskPromptDefaults(task),
     });
   }, [config, providers.data, taskTypes.data]);
 
@@ -95,6 +96,7 @@ export function CreatePlanTab() {
         task_type: config.taskType,
         max_iterations: config.maxIterations,
         exchanges: selected,
+        prompt_overrides: config.promptOverrides,
       });
       setJobId(response.job_id);
     } catch (err) {
@@ -120,7 +122,7 @@ export function CreatePlanTab() {
             tasks={taskTypes.data.tasks}
             value={config}
             onChange={setConfig}
-            disabled={running}
+            disabled={running || launching}
           />
         )}
         <LaunchControl

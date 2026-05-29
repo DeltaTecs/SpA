@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getPacket, getPayload } from "../../api/packets";
 import type { HttpHeader, PacketDetail, PacketPayload } from "../../api/types";
-import { directionLabel, formatBytes, formatTimestamp } from "../../lib/format";
+import { directionLabel, formatBytes, formatEntropy, formatTimestamp } from "../../lib/format";
 import { useFetch } from "../../lib/useFetch";
 import { ErrorBanner } from "../common/ErrorBanner";
 import { Loading } from "../common/Loading";
@@ -36,7 +36,16 @@ function ExchangeEvidenceContent({
     }
   }, [packetIds, packetIdsKey, selectedPacketId]);
 
-  const detail = useFetch<PacketDetail>(() => getPacket(selectedPacketId), [selectedPacketId]);
+  const details = useFetch<PacketDetail[]>(
+    () => Promise.all(packetIds.map((packetId) => getPacket(packetId))),
+    [packetIdsKey],
+  );
+  const detailById = useMemo(() => {
+    const map = new Map<number, PacketDetail>();
+    details.data?.forEach((packet) => map.set(packet.packet_id, packet));
+    return packetIds.every((packetId) => map.has(packetId)) ? map : new Map<number, PacketDetail>();
+  }, [details.data, packetIdsKey]);
+  const selectedDetail = detailById.get(selectedPacketId);
   const payload = useFetch<PacketPayload>(() => getPayload(selectedPacketId), [selectedPacketId]);
 
   return (
@@ -53,18 +62,23 @@ function ExchangeEvidenceContent({
               role="tab"
               aria-selected={packetId === selectedPacketId}
             >
-              {packetTabLabel(item, packetId, index)}
+              <span className="exchange-evidence__tab-label">
+                <span>{packetTabLabel(item, packetId, index)}</span>
+                <span className="exchange-evidence__tab-entropy mono">
+                  entropy {packetEntropyLabel(detailById.get(packetId), details.loading)}
+                </span>
+              </span>
             </button>
           ))}
         </div>
       </div>
 
-      {detail.loading && <Loading label="Loading packet..." />}
-      {detail.error && <ErrorBanner message={detail.error} />}
-      {detail.data && (
+      {details.loading && !selectedDetail && <Loading label="Loading packet..." />}
+      {details.error && <ErrorBanner message={details.error} />}
+      {selectedDetail && (
         <>
-          <PacketMeta detail={detail.data} />
-          <HttpHeaderDetails headers={detail.data.headers.http} />
+          <PacketMeta detail={selectedDetail} />
+          <HttpHeaderDetails headers={selectedDetail.headers.http} />
         </>
       )}
 
@@ -84,6 +98,7 @@ function PacketMeta({ detail }: { detail: PacketDetail }) {
     ["Timestamp", formatTimestamp(detail.timestamp)],
     ["Protocols", detail.protocols.join(" > ") || "-"],
     ["Payload", formatBytes(detail.payload_length)],
+    ["Entropy", formatEntropy(detail.entropy)],
   ];
 
   return (
@@ -162,4 +177,9 @@ function packetTabLabel(item: EditableExchange, packetId: number, index: number)
     if (index === 1) return `Response #${packetId}`;
   }
   return `Packet #${packetId}`;
+}
+
+function packetEntropyLabel(detail: PacketDetail | undefined, loading: boolean): string {
+  if (!detail && loading) return "...";
+  return formatEntropy(detail?.entropy);
 }

@@ -174,11 +174,22 @@ export interface ProviderList {
   providers: ProviderOption[];
 }
 
+export type PromptPartScope = "system" | "user";
+
+export interface TaskPromptPart {
+  id: string;
+  title: string;
+  scope: PromptPartScope;
+  content: string;
+  description: string;
+}
+
 export interface TaskTypeInfo {
   task_type: string;
   title: string;
   description: string;
   result_version: number;
+  prompt_parts: TaskPromptPart[];
 }
 
 export interface TaskTypeList {
@@ -193,6 +204,7 @@ export interface StartJobRequest {
   task_type: string;
   max_iterations: number;
   exchanges: Exchange[];
+  prompt_overrides: Record<string, string>;
 }
 
 export interface StartJobResponse {

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # --- exchanges (mirrors the db-api exchanges schema) -------------------------
@@ -64,11 +64,26 @@ class ProviderList(BaseModel):
     providers: List[ProviderOption]
 
 
+PromptPartScope = Literal["system", "user"]
+MAX_PROMPT_PART_CHARS = 12000
+MAX_PROMPT_OVERRIDES = 20
+MAX_PROMPT_PART_ID_CHARS = 80
+
+
+class PromptPartInfo(BaseModel):
+    id: str = Field(..., min_length=1, max_length=MAX_PROMPT_PART_ID_CHARS)
+    title: str
+    scope: PromptPartScope
+    content: str = Field(..., max_length=MAX_PROMPT_PART_CHARS)
+    description: str = ""
+
+
 class TaskTypeInfo(BaseModel):
     task_type: str
     title: str
     description: str
     result_version: int
+    prompt_parts: List[PromptPartInfo] = Field(default_factory=list)
 
 
 class TaskTypeList(BaseModel):
@@ -86,6 +101,23 @@ class StartJobRequest(BaseModel):
     task_type: str = "vulnerability_checks"
     max_iterations: int = Field(10, ge=1, le=50)
     exchanges: List[Exchange] = Field(default_factory=list)
+    prompt_overrides: Dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("prompt_overrides")
+    @classmethod
+    def validate_prompt_overrides(cls, value: Dict[str, str]) -> Dict[str, str]:
+        if len(value) > MAX_PROMPT_OVERRIDES:
+            raise ValueError(f"At most {MAX_PROMPT_OVERRIDES} prompt overrides are allowed.")
+        for key, content in value.items():
+            if not key or len(key) > MAX_PROMPT_PART_ID_CHARS:
+                raise ValueError(
+                    "Prompt override ids must be non-empty and at most 80 characters."
+                )
+            if len(content) > MAX_PROMPT_PART_CHARS:
+                raise ValueError(
+                    f"Prompt override '{key}' exceeds {MAX_PROMPT_PART_CHARS} characters."
+                )
+        return value
 
 
 class StartJobResponse(BaseModel):

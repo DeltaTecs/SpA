@@ -22,7 +22,7 @@ from ..config import Settings, settings
 from ..providers import validate_reasoning_effort
 from ..schemas import Exchange, StartJobRequest
 from ..tasks import get as get_task
-from ..tasks.base import AnalysisTask
+from ..tasks.base import AnalysisTask, PromptOverrideMap
 from .store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,7 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
     provider / missing API key — both surfaced as HTTP 400 by the caller.
     """
     task = get_task(request.task_type)
+    prompt_overrides = task.normalize_prompt_overrides(request.prompt_overrides)
     provider = build_provider(request, cfg)
     # Warm the lazily-built SDK client once here so the worker threads share a
     # single client instead of racing to build their own on first use.
@@ -77,7 +78,14 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
     )
     for exchange in request.exchanges:
         _executor.submit(
-            run_exchange, job_id, exchange, task, provider, request.max_iterations, cfg
+            run_exchange,
+            job_id,
+            exchange,
+            task,
+            provider,
+            request.max_iterations,
+            cfg,
+            prompt_overrides,
         )
     return job_id
 
@@ -89,15 +97,16 @@ def run_exchange(
     provider: BaseProvider,
     max_iterations: int,
     cfg: Settings,
+    prompt_overrides: PromptOverrideMap | None = None,
 ) -> None:
     """Run one analysis task against one exchange and record the outcome."""
     store.update_task(job_id, exchange.id, status="running")
     try:
         toolsets = task.select_toolsets(cfg)
         client = McpLlmClient(provider, toolsets, max_iterations=max_iterations)
-        run_result = client.run(
-            task.build_user_prompt(exchange), system=task.build_system_prompt()
-        )
+        system_prompt = task.build_system_prompt_for_run(prompt_overrides)
+        user_prompt = task.build_user_prompt_for_run(exchange, prompt_overrides)
+        run_result = client.run(user_prompt, system=system_prompt)
         result = task.parse_output(run_result.output)
         store.update_task(
             job_id,

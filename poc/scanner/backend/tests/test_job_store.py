@@ -19,7 +19,7 @@ from app.config import settings  # noqa: E402
 from app.jobs.runner import run_exchange, store  # noqa: E402
 from app.jobs.store import JobStore, derived_status  # noqa: E402
 from app.schemas import Exchange, TaskResult  # noqa: E402
-from app.tasks.base import AnalysisTask  # noqa: E402
+from app.tasks.base import AnalysisTask, TaskPromptPart  # noqa: E402
 
 
 class _StubProvider(BaseProvider):
@@ -29,8 +29,10 @@ class _StubProvider(BaseProvider):
         super().__init__(api_key=None, model="stub-model")
         self._content = content
         self._raises = raises
+        self.messages = []
 
     def chat(self, messages, tools=None):
+        self.messages = list(messages)
         if self._raises:
             raise RuntimeError("provider boom")
         return ChatResult(content=self._content)
@@ -52,6 +54,30 @@ class _EchoTask(AnalysisTask):
 
     def parse_output(self, raw: str):
         return TaskResult(task_type=self.task_type, result_version=1, payload={"raw": raw})
+
+
+class _OverrideTask(_EchoTask):
+    def prompt_parts(self):
+        return [
+            TaskPromptPart(
+                id="system_prompt",
+                title="System prompt",
+                scope="system",
+                content="default system",
+            ),
+            TaskPromptPart(
+                id="user_prompt",
+                title="User prompt",
+                scope="user",
+                content="default user",
+            ),
+        ]
+
+    def build_system_prompt_for_run(self, prompt_overrides=None):
+        return (prompt_overrides or {}).get("system_prompt", "default system")
+
+    def build_user_prompt_for_run(self, exchange: Exchange, prompt_overrides=None):
+        return (prompt_overrides or {}).get("user_prompt", "default user")
 
 
 class JobStoreTests(unittest.TestCase):
@@ -125,6 +151,29 @@ class RunExchangeTests(unittest.TestCase):
         task = store.get(job_id).tasks[0]
         self.assertEqual(task.status, "error")
         self.assertIn("provider boom", task.error)
+
+    def test_prompt_overrides_are_sent_to_provider(self):
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["e1"],
+        )
+        provider = _StubProvider("hi")
+        run_exchange(
+            job_id,
+            Exchange(id="e1"),
+            _OverrideTask(),
+            provider,
+            5,
+            settings,
+            {"system_prompt": "custom system", "user_prompt": "custom user"},
+        )
+        self.assertEqual(provider.messages[0].role, "system")
+        self.assertEqual(provider.messages[0].content, "custom system")
+        self.assertEqual(provider.messages[1].role, "user")
+        self.assertEqual(provider.messages[1].content, "custom user")
 
     def test_concurrent_runs_all_complete(self):
         ids = [f"e{i}" for i in range(8)]
