@@ -61,6 +61,34 @@ services:
       - db
     tty: true
 
+  # HTTP API for reading packet data from the database
+  db-api:
+    build: ./db/api
+    container_name: db-api
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - LOG_LEVEL=VERBOSE
+    ports:
+      - "8092:8000"
+    networks:
+      # app-network for reaching the database; db-api-network for consumers.
+      - app-network
+      - db-api-network
+    depends_on:
+      - db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # service for exposing the packet database via MCP
   mcp-packet-db:
     build: ./mcp/packet_db_server
@@ -312,4 +340,7 @@ networks:
   app-network:
     driver: bridge
   scanner-hexstrike-network:
+    driver: bridge
+  # Dedicated network for consumers of the packet database read API.
+  db-api-network:
     driver: bridge
