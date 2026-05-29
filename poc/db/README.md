@@ -25,8 +25,10 @@ Notes:
 - The scripts read DB/container settings from `poc/.env` by default.
 
 Notes:
-- `init_db.sql` is mounted into `/docker-entrypoint-initdb.d/` so the base
-  schema is created on first container initialization.
+- `init_db.sql` is mounted into `/docker-entrypoint-initdb.d/init_sb.sql` so the
+  base schema is created on first container initialization. Mount only this SQL
+  file for Postgres initdb; mounting the whole `db` directory will also execute
+  helper scripts such as `dump_load_db.sh`.
 - Runtime role creation and grants are applied by `pcap_processing/reset_db.py`
   when the database is reset. Run `./reset_db.ps1` or `./reset_db.sh` after
   creating a fresh volume before relying on `dbuser`.

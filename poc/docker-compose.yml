@@ -14,7 +14,8 @@ services:
       - "${DB_PORT_HOST}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./db:/docker-entrypoint-initdb.d:ro
+      # Mount only the bootstrap SQL; mounting ./db here also runs helper scripts.
+      - ./db/init_db.sql:/docker-entrypoint-initdb.d/init_sb.sql:ro
     networks:
       - app-network
     healthcheck:
@@ -73,6 +74,10 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - LOG_LEVEL=VERBOSE
+      - LOG_DIR=/app/logs
+    volumes:
+      # Centralise file logs under poc/logs alongside the other services.
+      - ./logs:/app/logs
     ports:
       - "8092:8000"
     networks:
@@ -81,6 +86,32 @@ services:
       - db-api-network
     depends_on:
       - db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Web frontend: serves the React SPA and proxies /api/* to db-api.
+  frontend:
+    build: ./scanner/frontend
+    container_name: scanner-frontend
+    restart: unless-stopped
+    environment:
+      - DB_API_URL=http://db-api:8000
+      - LOG_LEVEL=VERBOSE
+      - FRONTEND_LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8093:8000"
+    networks:
+      # Dedicated consumer network used to reach the db-api by service name.
+      - db-api-network
+    depends_on:
+      - db-api
     healthcheck:
       test:
         - CMD-SHELL

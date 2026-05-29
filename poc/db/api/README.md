@@ -17,17 +17,20 @@ app/
     schemas.py         # Pydantic request/response models
 ```
 
-Each domain (currently `packets`) keeps its repository, router, and schemas
+Each domain (`packets`, `stats`) keeps its repository, router, and schemas
 together, so new areas of the database get their own sibling package.
+`http_parsing.py` and `logging_config.py` are shared helpers.
 
 ## Endpoints
 
 | Method | Path                          | Description                                   |
 | ------ | ----------------------------- | --------------------------------------------- |
 | GET    | `/health`                     | Liveness probe.                               |
-| GET    | `/packets`                    | List packets (filterable + paginated).        |
+| GET    | `/packets`                    | List packets (filterable + paginated, enriched with `remote_ip`, ports, an `http` summary and an `association_key`). |
 | GET    | `/packets/{packet_id}`        | One packet with parsed protocol headers.      |
 | GET    | `/packets/{packet_id}/payload`| Raw packet bytes, base64-encoded.             |
+| GET    | `/recordings`                 | All recordings with their packet counts.      |
+| GET    | `/stats/{recording_id}`       | Aggregated stats: protocol/direction/entropy distributions, top remote IPs, and an IP→host→path endpoint tree. |
 
 ### `GET /packets` query parameters
 

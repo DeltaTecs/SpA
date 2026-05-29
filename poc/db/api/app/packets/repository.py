@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..db import dict_cursor
+from ..http_parsing import parse_http_header
 
 
 # Core packet columns shared by the summary/detail selects. Kept in one place so
@@ -144,6 +145,47 @@ def _count_packets(cursor, where: str, params: List[Any]) -> int:
     return int(cursor.fetchone()["total"])
 
 
+# Lateral joins that pull the single most relevant header row per protocol so the
+# list can be enriched (peer ip/ports, http summary, grouping key) in one query
+# without an N+1 round trip per packet.
+_PACKET_ENRICH_JOINS = """
+    LEFT JOIN LATERAL (
+        SELECT ih.src_addr, ih.dst_addr
+        FROM ip_header_information ih
+        JOIN packet_header_information phi
+          ON ih.header_information_id = phi.header_information_id
+        WHERE phi.packet_id = p.packet_id
+        LIMIT 1
+    ) ip ON true
+    LEFT JOIN LATERAL (
+        SELECT src_port, dst_port FROM (
+            SELECT th.src_port, th.dst_port
+            FROM tcp_header_information th
+            JOIN packet_header_information phi
+              ON th.header_information_id = phi.header_information_id
+            WHERE phi.packet_id = p.packet_id
+            UNION ALL
+            SELECT uh.src_port, uh.dst_port
+            FROM udp_header_information uh
+            JOIN packet_header_information phi
+              ON uh.header_information_id = phi.header_information_id
+            WHERE phi.packet_id = p.packet_id
+        ) ports_any
+        LIMIT 1
+    ) ports ON true
+    LEFT JOIN LATERAL (
+        SELECT
+            (array_agg(hh.text_header ORDER BY hh.header_information_id))[1] AS text_header,
+            min(hh.stream_id) AS stream_id,
+            count(*) AS http_count
+        FROM http_header_information hh
+        JOIN packet_header_information phi
+          ON hh.header_information_id = phi.header_information_id
+        WHERE phi.packet_id = p.packet_id
+    ) http ON true
+"""
+
+
 def _select_packets(
     cursor,
     where: str,
@@ -153,15 +195,78 @@ def _select_packets(
 ) -> List[Dict[str, Any]]:
     cursor.execute(
         f"""
-        SELECT {_PACKET_SELECT_COLUMNS}
+        SELECT
+            {_PACKET_SELECT_COLUMNS},
+            ip.src_addr AS ip_src,
+            ip.dst_addr AS ip_dst,
+            ports.src_port AS port_src,
+            ports.dst_port AS port_dst,
+            http.text_header AS http_text,
+            http.stream_id AS http_stream_id,
+            http.http_count AS http_count
         FROM packet p
+        {_PACKET_ENRICH_JOINS}
         {where}
         ORDER BY p.timestamp ASC NULLS LAST, p.number ASC, p.packet_id ASC
         LIMIT %s OFFSET %s
         """,
         [*params, limit, offset],
     )
-    return [dict(row) for row in cursor.fetchall() or []]
+    return [_enrich_row(dict(row)) for row in cursor.fetchall() or []]
+
+
+def _enrich_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Fold the raw header columns into peer ip/ports, an http summary and a key."""
+    from_local = row.get("from_local")
+    ip_src, ip_dst = row.pop("ip_src", None), row.pop("ip_dst", None)
+    port_src, port_dst = row.pop("port_src", None), row.pop("port_dst", None)
+
+    # Outbound: peer is the destination. Inbound (or unknown): peer is the source.
+    if from_local is True:
+        row["remote_ip"], row["remote_port"], row["local_port"] = ip_dst, port_dst, port_src
+    else:
+        row["remote_ip"], row["remote_port"], row["local_port"] = ip_src, port_src, port_dst
+        if from_local is None:
+            # Direction unknown; fall back to whichever ip is present.
+            row["remote_ip"] = ip_dst or ip_src
+
+    http_text = row.pop("http_text", None)
+    stream_id = row.pop("http_stream_id", None)
+    http_count = row.pop("http_count", 0) or 0
+
+    if http_count:
+        parsed = parse_http_header(http_text)
+        row["http"] = {
+            "method": parsed.method,
+            "host": parsed.host,
+            "path": parsed.path,
+            "stream_id": stream_id,
+        }
+    else:
+        row["http"] = None
+
+    row["association_key"] = _association_key(
+        row.get("conversation_id"), row["packet_id"], http_count, stream_id
+    )
+    return row
+
+
+def _association_key(
+    conversation_id: Optional[int],
+    packet_id: int,
+    http_count: int,
+    stream_id: Optional[int],
+) -> str:
+    """Stable grouping key for the explorer color toggle.
+
+    Packets in the same conversation share a key; when an HTTP stream is present
+    the key is split further so distinct HTTP streams within a conversation get
+    their own color. Packets without a conversation fall back to their own id.
+    """
+    base = f"conv:{conversation_id}" if conversation_id is not None else f"pkt:{packet_id}"
+    if http_count:
+        base += f"|stream:{stream_id}" if stream_id is not None else "|http"
+    return base
 
 
 def _select_headers(cursor, packet_id: int) -> Dict[str, Any]:

@@ -32,8 +32,24 @@ class PacketHeaders(BaseModel):
     http: List[HttpHeader] = Field(default_factory=list)
 
 
+class HttpSummary(BaseModel):
+    """Condensed HTTP request info derived from the first HTTP header of a packet."""
+
+    method: Optional[str] = None
+    host: Optional[str] = None
+    path: Optional[str] = None
+    stream_id: Optional[int] = None
+
+
 class PacketSummary(BaseModel):
-    """Lightweight packet view returned by list queries."""
+    """Lightweight packet view returned by list queries.
+
+    Beyond the raw packet columns, list queries also populate the
+    ``remote_ip``/``remote_port``/``local_port``, ``http`` summary and
+    ``association_key`` fields by joining the related header rows. These stay
+    optional so the single-packet detail view (which carries full ``headers``)
+    can reuse the same model without recomputing them.
+    """
 
     packet_id: int
     recording_id: Optional[int] = None
@@ -48,6 +64,19 @@ class PacketSummary(BaseModel):
     entropy: Optional[float] = None
     payload_length: int = Field(
         0, description="Byte length of the decrypted application payload."
+    )
+    remote_ip: Optional[str] = Field(
+        None, description="Peer IP (dst when outbound, src when inbound)."
+    )
+    remote_port: Optional[int] = None
+    local_port: Optional[int] = None
+    http: Optional[HttpSummary] = None
+    association_key: Optional[str] = Field(
+        None,
+        description=(
+            "Stable grouping key for the explorer color toggle: the "
+            "conversation id, further split per HTTP stream when present."
+        ),
     )
 
 

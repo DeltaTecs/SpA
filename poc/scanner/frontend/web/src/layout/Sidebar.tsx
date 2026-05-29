@@ -1,0 +1,33 @@
+import { NavLink } from "react-router-dom";
+
+const NAV_ITEMS = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/explorer", label: "Packet Explorer", end: false },
+  { to: "/attack", label: "Attack", end: false },
+];
+
+export function Sidebar() {
+  return (
+    <aside className="sidebar">
+      <div className="sidebar__brand">
+        <span className="sidebar__brand-mark">◉</span>
+        <span className="sidebar__brand-text">Traffic Scanner</span>
+      </div>
+      <nav className="sidebar__nav">
+        {NAV_ITEMS.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            end={item.end}
+            className={({ isActive }) =>
+              `sidebar__link${isActive ? " sidebar__link--active" : ""}`
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="sidebar__footer">AI-powered traffic analysis</div>
+    </aside>
+  );
+}
