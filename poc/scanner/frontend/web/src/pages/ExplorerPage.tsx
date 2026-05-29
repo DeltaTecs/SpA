@@ -1,8 +1,13 @@
 import { useState } from "react";
-import { listPackets } from "../api/packets";
+import { listPackets, type PacketQuery } from "../api/packets";
 import type { PacketPage } from "../api/types";
 import { ColorToggle } from "../components/explorer/ColorToggle";
 import { PacketDetailPanel } from "../components/explorer/PacketDetailPanel";
+import {
+  DEFAULT_PACKET_FILTERS,
+  PacketFilters,
+  type PacketExplorerFilters,
+} from "../components/explorer/PacketFilters";
 import { PacketList } from "../components/explorer/PacketList";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
@@ -15,17 +20,25 @@ export function ExplorerPage() {
   const [offset, setOffset] = useState(0);
   const [colorOn, setColorOn] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [filters, setFilters] = useState<PacketExplorerFilters>(DEFAULT_PACKET_FILTERS);
 
   const page = useFetch<PacketPage>(
-    () => listPackets({ recording_id: DEFAULT_RECORDING_ID, limit: PAGE_SIZE, offset }),
-    [offset],
+    () => listPackets(buildPacketQuery(filters, offset)),
+    [offset, filters.hasClearPayload, filters.hasHttpHeaderText, filters.appProtocol],
   );
 
+  const activeFilterCount = countActiveFilters(filters);
   const total = page.data?.total ?? 0;
   const shownFrom = total === 0 ? 0 : offset + 1;
   const shownTo = Math.min(offset + PAGE_SIZE, total);
   const canPrev = offset > 0;
   const canNext = offset + PAGE_SIZE < total;
+
+  const changeFilters = (nextFilters: PacketExplorerFilters) => {
+    setFilters(nextFilters);
+    setOffset(0);
+    setSelectedId(null);
+  };
 
   return (
     <div className="page">
@@ -46,6 +59,13 @@ export function ExplorerPage() {
           </div>
         </div>
       </header>
+
+      <PacketFilters
+        filters={filters}
+        activeCount={activeFilterCount}
+        onChange={changeFilters}
+        onReset={() => changeFilters(DEFAULT_PACKET_FILTERS)}
+      />
 
       <div className={`explorer${selectedId !== null ? " explorer--split" : ""}`}>
         <div className="explorer__list">
@@ -68,4 +88,23 @@ export function ExplorerPage() {
       </div>
     </div>
   );
+}
+
+function buildPacketQuery(filters: PacketExplorerFilters, offset: number): PacketQuery {
+  return {
+    recording_id: DEFAULT_RECORDING_ID,
+    limit: PAGE_SIZE,
+    offset,
+    has_clear_payload: filters.hasClearPayload ? true : undefined,
+    has_http_header_text: filters.hasHttpHeaderText ? true : undefined,
+    app_protocol: filters.appProtocol === "all" ? undefined : filters.appProtocol,
+  };
+}
+
+function countActiveFilters(filters: PacketExplorerFilters): number {
+  return [
+    filters.hasClearPayload,
+    filters.hasHttpHeaderText,
+    filters.appProtocol !== "all",
+  ].filter(Boolean).length;
 }

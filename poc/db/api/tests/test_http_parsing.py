@@ -25,11 +25,21 @@ class ParseHttpHeaderTests(unittest.TestCase):
         self.assertEqual(info.host, "cdn.example.com")
         self.assertEqual(info.path, "/static/app.js")
 
-    def test_response_is_not_a_request(self):
+    def test_http1_response_status(self):
         info = parse_http_header("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n")
         self.assertFalse(info.is_request)
+        self.assertTrue(info.is_response)
+        self.assertEqual(info.status_code, 200)
+        self.assertEqual(info.status_text, "OK")
         self.assertIsNone(info.path)
         self.assertFalse(info.is_usable)
+
+    def test_http2_response_status(self):
+        info = parse_http_header(":status: 404\ncontent-type: application/json\n")
+        self.assertFalse(info.is_request)
+        self.assertTrue(info.is_response)
+        self.assertEqual(info.status_code, 404)
+        self.assertIsNone(info.status_text)
 
     def test_empty_and_none(self):
         self.assertFalse(parse_http_header(None).is_request)

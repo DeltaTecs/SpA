@@ -467,6 +467,62 @@ body {
   color: var(--text-soft);
 }
 
+.packet-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -6px 0 14px;
+}
+
+.packet-filter-check,
+.packet-filter-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.packet-filter-check input {
+  margin: 0;
+}
+
+.packet-filter-select span {
+  color: var(--text-soft);
+}
+
+.packet-filter-select select {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  padding: 0;
+}
+
+.packet-filter-reset {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.packet-filter-reset:hover:not(:disabled) {
+  background: #f7f9fb;
+}
+
+.packet-filter-reset:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* ---- Explorer ----------------------------------------------------------- */
 .explorer {
   display: block;
@@ -492,6 +548,39 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  table-layout: fixed;
+}
+
+.packet-table__col-number {
+  width: 4rem;
+}
+
+.packet-table__col-time {
+  width: 11.5rem;
+}
+
+.packet-table__col-direction {
+  width: 3rem;
+}
+
+.packet-table__col-protocols {
+  width: 10rem;
+}
+
+.packet-table__col-remote {
+  width: 12rem;
+}
+
+.packet-table__col-http {
+  width: auto;
+}
+
+.packet-table__col-payload {
+  width: 4.75rem;
+}
+
+.packet-table__col-entropy {
+  width: 4.25rem;
 }
 
 .packet-table thead th {
@@ -516,6 +605,12 @@ body {
 .packet-row td {
   padding: 7px 10px;
   border-bottom: 1px solid #f0f3f5;
+}
+
+.packet-table__cell {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .packet-row:hover {
@@ -652,6 +747,10 @@ body {
   font-size: 11px;
   max-height: 220px;
   overflow: auto;
+}
+
+.detail__muted {
+  color: var(--text-soft);
 }
 
 /* ---- Payload ------------------------------------------------------------ */

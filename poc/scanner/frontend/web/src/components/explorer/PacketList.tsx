@@ -14,6 +14,16 @@ export function PacketList({ packets, selectedId, colorOn, onSelect }: PacketLis
   }
   return (
     <table className="packet-table">
+      <colgroup>
+        <col className="packet-table__col-number" />
+        <col className="packet-table__col-time" />
+        <col className="packet-table__col-direction" />
+        <col className="packet-table__col-protocols" />
+        <col className="packet-table__col-remote" />
+        <col className="packet-table__col-http" />
+        <col className="packet-table__col-payload" />
+        <col className="packet-table__col-entropy" />
+      </colgroup>
       <thead>
         <tr>
           <th>#</th>

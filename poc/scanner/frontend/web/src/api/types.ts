@@ -4,6 +4,8 @@ export interface HttpSummary {
   method: string | null;
   host: string | null;
   path: string | null;
+  status_code: number | null;
+  status_text: string | null;
   stream_id: number | null;
 }
 

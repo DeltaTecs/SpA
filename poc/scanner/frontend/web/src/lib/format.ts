@@ -29,8 +29,8 @@ export function directionLabel(fromLocal: boolean | null | undefined): string {
   return "unknown";
 }
 
-export function directionArrow(fromLocal: boolean | null | undefined): string {
-  if (fromLocal === true) return "↑"; // up: local -> remote
-  if (fromLocal === false) return "↓"; // down: remote -> local
-  return "•";
+export function directionShortLabel(fromLocal: boolean | null | undefined): string {
+  if (fromLocal === true) return "out";
+  if (fromLocal === false) return "in";
+  return "-";
 }

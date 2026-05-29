@@ -33,11 +33,13 @@ class PacketHeaders(BaseModel):
 
 
 class HttpSummary(BaseModel):
-    """Condensed HTTP request info derived from the first HTTP header of a packet."""
+    """Condensed HTTP info derived from the first HTTP header of a packet."""
 
     method: Optional[str] = None
     host: Optional[str] = None
     path: Optional[str] = None
+    status_code: Optional[int] = None
+    status_text: Optional[str] = None
     stream_id: Optional[int] = None
 
 
@@ -74,8 +76,8 @@ class PacketSummary(BaseModel):
     association_key: Optional[str] = Field(
         None,
         description=(
-            "Stable grouping key for the explorer color toggle: the "
-            "conversation id, further split per HTTP stream when present."
+            "Stable grouping key for the explorer color toggle: the normalized "
+            "TCP/UDP 5-tuple, further split per HTTP stream when present."
         ),
     )
 

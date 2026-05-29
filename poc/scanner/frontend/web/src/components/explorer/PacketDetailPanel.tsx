@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { getPacket, getPayload } from "../../api/packets";
-import type { PacketDetail, PacketPayload } from "../../api/types";
+import type { HttpHeader, PacketDetail, PacketPayload } from "../../api/types";
 import { base64ToBytes, decodeText, hexdump } from "../../lib/hexdump";
 import {
   directionLabel,
@@ -91,13 +91,27 @@ function HeaderSection({ detail }: { detail: PacketDetail }) {
           <span>len {udp.length ?? "-"}</span>
         </HeaderBlock>
       )}
-      {http.map((h) => (
-        <HeaderBlock key={h.header_information_id} title={`HTTP${h.version ? "/" + h.version : ""}`}>
-          {h.stream_id !== null && <span>stream {h.stream_id}</span>}
-          {h.text_header && <pre className="detail__http-text">{h.text_header}</pre>}
-        </HeaderBlock>
+      {http.map((header) => (
+        <HttpHeaderBlock key={header.header_information_id} header={header} />
       ))}
     </div>
+  );
+}
+
+function HttpHeaderBlock({ header }: { header: HttpHeader }) {
+  const version = header.version == null ? "" : `/${header.version}`;
+  const textHeader = header.text_header?.trim() ? header.text_header : null;
+
+  return (
+    <HeaderBlock title={`HTTP${version}`}>
+      <span>header {header.header_information_id}</span>
+      <span>stream {header.stream_id ?? "-"}</span>
+      {textHeader ? (
+        <pre className="detail__http-text">{textHeader}</pre>
+      ) : (
+        <span className="detail__muted">no stored header text</span>
+      )}
+    </HeaderBlock>
   );
 }
 

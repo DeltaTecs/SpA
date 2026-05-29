@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -10,6 +10,7 @@ from .schemas import PacketDetail, PacketPage, PacketPayload
 
 router = APIRouter(prefix="/packets", tags=["packets"])
 repository = PacketRepository()
+ApplicationProtocolFilter = Literal["http", "websocket", "other"]
 
 
 @router.get("", response_model=PacketPage)
@@ -23,6 +24,18 @@ def list_packets(
     ),
     protocol: Optional[str] = Query(
         None, description="Only packets whose stack contains this protocol name."
+    ),
+    has_clear_payload: Optional[bool] = Query(
+        None,
+        description="Filter by decrypted application payload presence.",
+    ),
+    has_http_header_text: Optional[bool] = Query(
+        None,
+        description="Filter by non-empty stored HTTP header text presence.",
+    ),
+    app_protocol: Optional[ApplicationProtocolFilter] = Query(
+        None,
+        description="Application protocol bucket: http, websocket, or other.",
     ),
     start_ms: Optional[int] = Query(
         None, description="Only packets at/after this epoch-millisecond timestamp."
@@ -39,6 +52,9 @@ def list_packets(
         conversation_id=conversation_id,
         from_local=from_local,
         protocol=protocol,
+        has_clear_payload=has_clear_payload,
+        has_http_header_text=has_http_header_text,
+        app_protocol=app_protocol,
         start_ms=start_ms,
         end_ms=end_ms,
         limit=limit,

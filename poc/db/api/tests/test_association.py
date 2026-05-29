@@ -4,29 +4,91 @@ from app.packets.repository import _association_key
 
 
 class AssociationKeyTests(unittest.TestCase):
-    def test_conversation_only(self):
-        # No HTTP -> grouped purely by conversation.
-        self.assertEqual(_association_key(7, 100, http_count=0, stream_id=None), "conv:7")
-
-    def test_conversation_with_http_stream(self):
-        # HTTP stream present -> split per stream within the conversation.
+    def test_flow_tuple_only(self):
         self.assertEqual(
-            _association_key(7, 100, http_count=1, stream_id=3), "conv:7|stream:3"
+            _association_key(
+                packet_id=100,
+                transport_protocol="TCP",
+                src_ip="10.0.0.2",
+                src_port=49152,
+                dst_ip="203.0.113.10",
+                dst_port=443,
+                stream_id=None,
+            ),
+            "flow:TCP|[10.0.0.2]:49152|[203.0.113.10]:443",
         )
 
-    def test_two_streams_same_conversation_differ(self):
-        a = _association_key(7, 100, http_count=1, stream_id=3)
-        b = _association_key(7, 101, http_count=1, stream_id=5)
-        self.assertNotEqual(a, b)
-
-    def test_http1_without_stream_id(self):
-        # HTTP/1.1 has no stream id but should still mark HTTP presence.
-        self.assertEqual(
-            _association_key(7, 100, http_count=2, stream_id=None), "conv:7|http"
+    def test_reverse_flow_has_same_key(self):
+        outbound = _association_key(
+            packet_id=100,
+            transport_protocol="TCP",
+            src_ip="10.0.0.2",
+            src_port=49152,
+            dst_ip="203.0.113.10",
+            dst_port=443,
+            stream_id=None,
+        )
+        inbound = _association_key(
+            packet_id=101,
+            transport_protocol="TCP",
+            src_ip="203.0.113.10",
+            src_port=443,
+            dst_ip="10.0.0.2",
+            dst_port=49152,
+            stream_id=None,
         )
 
-    def test_no_conversation_falls_back_to_packet(self):
-        self.assertEqual(_association_key(None, 100, http_count=0, stream_id=None), "pkt:100")
+        self.assertEqual(outbound, inbound)
+
+    def test_http_stream_splits_same_flow(self):
+        stream_three = _association_key(
+            packet_id=100,
+            transport_protocol="TCP",
+            src_ip="10.0.0.2",
+            src_port=49152,
+            dst_ip="203.0.113.10",
+            dst_port=443,
+            stream_id=3,
+        )
+        stream_five = _association_key(
+            packet_id=101,
+            transport_protocol="TCP",
+            src_ip="10.0.0.2",
+            src_port=49152,
+            dst_ip="203.0.113.10",
+            dst_port=443,
+            stream_id=5,
+        )
+
+        self.assertNotEqual(stream_three, stream_five)
+
+    def test_http_without_stream_id_uses_flow_key(self):
+        self.assertEqual(
+            _association_key(
+                packet_id=100,
+                transport_protocol="TCP",
+                src_ip="10.0.0.2",
+                src_port=49152,
+                dst_ip="203.0.113.10",
+                dst_port=80,
+                stream_id=None,
+            ),
+            "flow:TCP|[10.0.0.2]:49152|[203.0.113.10]:80",
+        )
+
+    def test_incomplete_flow_falls_back_to_packet(self):
+        self.assertEqual(
+            _association_key(
+                packet_id=100,
+                transport_protocol=None,
+                src_ip="10.0.0.2",
+                src_port=49152,
+                dst_ip="203.0.113.10",
+                dst_port=443,
+                stream_id=None,
+            ),
+            "pkt:100",
+        )
 
 
 if __name__ == "__main__":

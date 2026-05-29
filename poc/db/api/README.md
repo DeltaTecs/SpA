@@ -26,7 +26,7 @@ together, so new areas of the database get their own sibling package.
 | Method | Path                          | Description                                   |
 | ------ | ----------------------------- | --------------------------------------------- |
 | GET    | `/health`                     | Liveness probe.                               |
-| GET    | `/packets`                    | List packets (filterable + paginated, enriched with `remote_ip`, ports, an `http` summary and an `association_key`). |
+| GET    | `/packets`                    | List packets (filterable + paginated, enriched with `remote_ip`, ports, an `http` summary and a normalized flow `association_key`). |
 | GET    | `/packets/{packet_id}`        | One packet with parsed protocol headers.      |
 | GET    | `/packets/{packet_id}/payload`| Raw packet bytes, base64-encoded.             |
 | GET    | `/recordings`                 | All recordings with their packet counts.      |
@@ -38,6 +38,9 @@ together, so new areas of the database get their own sibling package.
 - `conversation_id` — limit to one conversation
 - `from_local` — `true`/`false` traffic direction
 - `protocol` — protocol name that must appear in the stack (e.g. `TCP`, `HTTP`)
+- `has_clear_payload` — `true` for packets with decrypted application payload
+- `has_http_header_text` — `true` for packets with non-empty stored HTTP header text
+- `app_protocol` — application protocol bucket: `http`, `websocket`, or `other`
 - `start_ms` / `end_ms` — epoch-millisecond timestamp bounds
 - `limit` (default 100, max 1000) and `offset`
 

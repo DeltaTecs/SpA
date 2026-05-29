@@ -8,7 +8,9 @@ recording and presents AI-powered analysis surfaces. Three areas:
   remote IPs, and a remote-IP → host → path endpoint tree.
 - **Packet Explorer** — a paginated list of packets with click-through detail
   (headers + payload hexdump/text). A toggle tints rows by association
-  (conversation, split per HTTP stream) so related packets share a color.
+  (normalized 5-tuple, split per HTTP stream) so related packets share a color.
+  Filters narrow by decrypted payload, HTTP header text, and application
+  protocol bucket.
 - **Attack** — placeholder for upcoming AI-powered scans.
 
 ## Architecture
