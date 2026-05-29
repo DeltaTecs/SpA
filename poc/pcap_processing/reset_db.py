@@ -47,15 +47,10 @@ def reset_db(
         # We drop in an order that respects dependencies, or just use CASCADE.
         # Since we are resetting to init_db.sql, we want to wipe everything clean.
         tables_to_drop = [
-            "pre_scan",
-            "scans",
-            "scan_type",
             "packet_processing_tag",
             "recording_processing_tag",
-            "packet_event",
             "packet_header_information",
             "packet",
-            "event",
             "ip_header_information",
             "http_header_information",
             "tcp_header_information",

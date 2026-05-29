@@ -94,7 +94,6 @@ dump_db() {
         --no-owner \
         --no-privileges \
         --exclude-table-data=protocol \
-        --exclude-table-data=scan_type \
         --file="$CONTAINER_DUMP"
 
     docker cp "$DB_CONTAINER:$CONTAINER_DUMP" "$DUMP_FILE"
@@ -102,13 +101,13 @@ dump_db() {
 }
 
 create_restore_list() {
-    # init_db.sql seeds these lookup tables; skip legacy dump rows to avoid duplicates.
+    # init_db.sql seeds the protocol lookup table; skip legacy dump rows to avoid duplicates.
     docker exec "$DB_CONTAINER" sh -c '
         set -eu
         pg_restore -l "$1" > "$2.raw"
         sed -E \
-            -e "/ TABLE DATA public (protocol|scan_type) / s/^/;/" \
-            -e "/ SEQUENCE SET public (protocol_protocol_id_seq|scan_type_scan_type_id_seq) / s/^/;/" \
+            -e "/ TABLE DATA public protocol / s/^/;/" \
+            -e "/ SEQUENCE SET public protocol_protocol_id_seq / s/^/;/" \
             "$2.raw" > "$2"
         rm -f "$2.raw"
     ' sh "$CONTAINER_DUMP" "$CONTAINER_LIST"

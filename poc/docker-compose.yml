@@ -110,10 +110,9 @@ services:
     depends_on:
       - db
 
-  # VPN egress for active HexStrike scans. scanner-api still reaches the MCP
-  # servers over the internal scanner-hexstrike-network on ports 8766/8767.
-  # If PROTONVPN_WIREGUARD_PRIVATE_KEY is unset, this container stays up as a
-  # plain network namespace and HexStrike uses normal Docker egress.
+  # VPN egress for active HexStrike tooling. If PROTONVPN_WIREGUARD_PRIVATE_KEY
+  # is unset, this container stays up as a plain network namespace and
+  # HexStrike uses normal Docker egress.
   hexstrike-vpn:
     image: qmcgaw/gluetun:v3
     container_name: hexstrike-vpn
@@ -145,7 +144,7 @@ services:
         aliases:
           - mcp-hexstrike
 
-  # penetration testing MCP tools
+  # Penetration testing MCP tools.
   mcp-hexstrike:
     build: ./mcp/hexstrike
     container_name: mcp-hexstrike
@@ -169,171 +168,10 @@ services:
     tty: true
     stdin_open: true
 
-  # LLM based network packet grouping/aggregation into events
-  grouping:
-    build: ./grouping
-    container_name: grouping
-    command: ["bash", "-lc", "sleep infinity"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - MCP_URL=http://mcp-packet-db:8765
-      - PYTHONPATH=/app/src:/app/mcp_packet_db_server/src
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
-      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
-      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
-      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
-      - PROVIDER=${PROVIDER:-ollama}
-      - MODEL=${MODEL:-}
-      - API_KEY=${API_KEY:-}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-    volumes:
-      - ./grouping:/app
-      - ./mcp/packet_db_server/src:/app/mcp_packet_db_server/src:ro
-      - ollama_models:/root/.ollama
-    networks:
-      - app-network
-    depends_on:
-      - mcp-packet-db
-    tty: true
-    stdin_open: true
-
-  # container that solely hosts local LLM, if ollama is requested
-  scanner-llm:
-    build: ./vuln_scan/backend/llm
-    container_name: scanner-llm
-    command: ["bash", "-lc", "exec ollama serve"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-    volumes:
-      - ./vuln_scan/backend/llm:/app
-      - ./vuln_scan/data:/app/data
-      - ollama_models:/root/.ollama
-    networks:
-      - app-network
-    depends_on:
-      - mcp-packet-db
-    tty: true
-    stdin_open: true
-
-  # HTTP API for the vulnerability scanner frontend
-  scanner-api:
-    build:
-      context: ./vuln_scan
-      dockerfile: backend/api/Dockerfile
-    container_name: scanner-api
-    restart: unless-stopped
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - MCP_URL=http://mcp-packet-db:8765
-      - OLLAMA_HOST=http://scanner-llm:11434
-      - APP_DETAILS=/data/app_details.txt
-      - USER_INTEND=/data/user_intend.txt
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
-      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
-      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
-      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
-      - SCANNER_PROVIDER=${SCANNER_PROVIDER:-}
-      - SCANNER_MODEL=${SCANNER_MODEL:-}
-      - SCANNER_OLLAMA_MODEL=${SCANNER_OLLAMA_MODEL:-}
-      - SCANNER_DEEPSEEK_MODEL=${SCANNER_DEEPSEEK_MODEL:-}
-      - SCANNER_OPENAI_MODEL=${SCANNER_OPENAI_MODEL:-}
-      - SCANNER_GEMINI_MODEL=${SCANNER_GEMINI_MODEL:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
-      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-}
-      - SCANNER_OLLAMA_MODELS=${SCANNER_OLLAMA_MODELS:-}
-      - SCANNER_DEEPSEEK_MODELS=${SCANNER_DEEPSEEK_MODELS:-}
-      - SCANNER_OPENAI_MODELS=${SCANNER_OPENAI_MODELS:-}
-      - SCANNER_GEMINI_MODELS=${SCANNER_GEMINI_MODELS:-}
-      - OLLAMA_MODELS=${OLLAMA_MODELS:-}
-      - DEEPSEEK_MODELS=${DEEPSEEK_MODELS:-}
-      - OPENAI_MODELS=${OPENAI_MODELS:-}
-      - GEMINI_MODELS=${GEMINI_MODELS:-}
-      - PROVIDER=${PROVIDER:-}
-      - MODEL=${MODEL:-}
-      - API_KEY=${API_KEY:-}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://hexstrike-vpn:8767,bash=http://hexstrike-vpn:8766
-      - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
-      - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
-      - LOG_LEVEL=VERBOSE
-      - SCAN_LOG_ROOT=/logs/vuln_scan
-      - PYTHONDONTWRITEBYTECODE=1
-    volumes:
-      - ./vuln_scan/backend/api:/app:ro
-      - ./vuln_scan/backend/llm:/llm:ro
-      - ./vuln_scan/data:/data:ro
-      - ./logs:/logs
-    ports:
-      - "8090:8000"
-    networks:
-      - app-network
-      - scanner-hexstrike-network
-    depends_on:
-      - mcp-packet-db
-      - hexstrike-vpn
-      - mcp-hexstrike
-      - scanner-llm
-
-  # Web UI for selecting events and running phase-one summaries
-  scanner-frontend:
-    build: ./vuln_scan/frontend
-    container_name: scanner-frontend
-    restart: unless-stopped
-    ports:
-      - "8091:80"
-    networks:
-      - app-network
-    depends_on:
-      - scanner-api
-
 volumes:
   db_data:
     driver: local
   gluetun_data:
-    driver: local
-  ollama_models:
     driver: local
 
 networks:

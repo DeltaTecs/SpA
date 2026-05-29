@@ -117,7 +117,6 @@ function Invoke-DumpDatabase {
         '--no-owner',
         '--no-privileges',
         '--exclude-table-data=protocol',
-        '--exclude-table-data=scan_type',
         "--file=$ContainerDump"
     ) 'pg_dump'
 
@@ -136,11 +135,11 @@ function New-RestoreList {
         throw "pg_restore list failed with exit code $LASTEXITCODE."
     }
 
-    # init_db.sql seeds these lookup tables; skip legacy dump rows to avoid duplicates.
+    # init_db.sql seeds the protocol lookup table; skip legacy dump rows to avoid duplicates.
     $filteredToc = foreach ($line in $toc) {
         if (
-            $line -match ' TABLE DATA public (protocol|scan_type) ' -or
-            $line -match ' SEQUENCE SET public (protocol_protocol_id_seq|scan_type_scan_type_id_seq) '
+            $line -match ' TABLE DATA public protocol ' -or
+            $line -match ' SEQUENCE SET public protocol_protocol_id_seq '
         ) {
             ";$line"
         }
