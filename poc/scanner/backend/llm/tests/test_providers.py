@@ -14,6 +14,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from llm.provider.base import ChatMessage, ToolCall, ToolSpec  # noqa: E402
+from llm.provider.deepseek_provider import DeepSeekProvider  # noqa: E402
 from llm.provider.local_provider import LocalProvider  # noqa: E402
 from llm.provider.openai_compatible import OpenAICompatibleProvider  # noqa: E402
 
@@ -58,6 +59,27 @@ class TestOpenAICompatibleProvider(unittest.TestCase):
         self.assertEqual(kwargs["tool_choice"], "auto")
         self.assertEqual(kwargs["tools"][0]["function"]["name"], "lookup")
 
+    def test_request_encodes_reasoning_effort(self):
+        provider = OpenAICompatibleProvider(
+            api_key="sk-test", model="test-model", reasoning_effort="high"
+        )
+        provider._client = _FakeClient(_fake_response(content="ok"))
+        provider.chat([ChatMessage(role="user", content="hi")], None)
+
+        kwargs = provider.client.chat.completions.last_kwargs
+        self.assertEqual(kwargs["reasoning_effort"], "high")
+
+    def test_deepseek_reasoning_effort_enables_thinking_mode(self):
+        provider = DeepSeekProvider(
+            api_key="sk-test", model="deepseek-v4-pro", reasoning_effort="max"
+        )
+        provider._client = _FakeClient(_fake_response(content="ok"))
+        provider.chat([ChatMessage(role="user", content="hi")], None)
+
+        kwargs = provider.client.chat.completions.last_kwargs
+        self.assertEqual(kwargs["reasoning_effort"], "max")
+        self.assertEqual(kwargs["extra_body"], {"thinking": {"type": "enabled"}})
+
     def test_no_tools_omits_tool_kwargs(self):
         provider = _provider_with(_fake_response(content="ok"))
         provider.chat([ChatMessage(role="user", content="hi")], None)
@@ -72,6 +94,7 @@ class TestOpenAICompatibleProvider(unittest.TestCase):
             ChatMessage(
                 role="assistant",
                 content=None,
+                reasoning_content="need a lookup",
                 tool_calls=[ToolCall(id="call_1", name="lookup", arguments={"q": "x"})],
             ),
             ChatMessage(role="tool", content="result", tool_call_id="call_1", name="lookup"),
@@ -80,6 +103,7 @@ class TestOpenAICompatibleProvider(unittest.TestCase):
         encoded = provider.client.chat.completions.last_kwargs["messages"]
 
         assistant = encoded[1]
+        self.assertEqual(assistant["reasoning_content"], "need a lookup")
         self.assertEqual(assistant["tool_calls"][0]["id"], "call_1")
         self.assertEqual(assistant["tool_calls"][0]["function"]["name"], "lookup")
         self.assertEqual(json.loads(assistant["tool_calls"][0]["function"]["arguments"]), {"q": "x"})
@@ -92,7 +116,15 @@ class TestOpenAICompatibleProvider(unittest.TestCase):
         provider = _provider_with(_fake_response(content="hello"))
         result = provider.chat([ChatMessage(role="user", content="hi")], None)
         self.assertEqual(result.content, "hello")
+        self.assertIsNone(result.reasoning_content)
         self.assertEqual(result.tool_calls, [])
+
+    def test_decodes_reasoning_content_response(self):
+        message = SimpleNamespace(content="answer", reasoning_content="thinking", tool_calls=None)
+        provider = _provider_with(SimpleNamespace(choices=[SimpleNamespace(message=message)]))
+        result = provider.chat([ChatMessage(role="user", content="hi")], None)
+        self.assertEqual(result.content, "answer")
+        self.assertEqual(result.reasoning_content, "thinking")
 
     def test_decodes_tool_call_response(self):
         raw_call = SimpleNamespace(

@@ -1,4 +1,4 @@
-import type { ProviderOption, TaskTypeInfo } from "../../api/types";
+import type { ProviderOption, ReasoningEffort, TaskTypeInfo } from "../../api/types";
 import type { PlanConfig } from "./types";
 
 interface ProviderFormProps {
@@ -14,10 +14,21 @@ export function ProviderForm({ providers, tasks, value, onChange, disabled }: Pr
   // Keyed providers (openai/deepseek) pick from a fixed model list; keyless
   // local providers accept a free-text model name.
   const freeTextModel = current ? !current.requires_key : true;
+  const reasoningEffortOptions = current?.reasoning_effort_options ?? [];
 
   function setProvider(type: string) {
     const provider = providers.find((p) => p.type === type);
-    onChange({ ...value, provider: type, model: provider?.default_model ?? "" });
+    const options = provider?.reasoning_effort_options ?? [];
+    const reasoningEffort =
+      value.reasoningEffort && options.includes(value.reasoningEffort)
+        ? value.reasoningEffort
+        : "";
+    onChange({
+      ...value,
+      provider: type,
+      model: provider?.default_model ?? "",
+      reasoningEffort,
+    });
   }
 
   const selectedTask = tasks.find((t) => t.task_type === value.taskType);
@@ -59,6 +70,29 @@ export function ProviderForm({ providers, tasks, value, onChange, disabled }: Pr
           </select>
         )}
       </label>
+
+      {reasoningEffortOptions.length > 0 && (
+        <label className="field">
+          <span>Reasoning effort</span>
+          <select
+            disabled={disabled}
+            value={value.reasoningEffort}
+            onChange={(e) =>
+              onChange({
+                ...value,
+                reasoningEffort: e.target.value as ReasoningEffort | "",
+              })
+            }
+          >
+            <option value="">Provider default</option>
+            {reasoningEffortOptions.map((effort) => (
+              <option key={effort} value={effort}>
+                {effort}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       <label className="field">
         <span>Analysis</span>

@@ -57,7 +57,13 @@ class _EchoTask(AnalysisTask):
 class JobStoreTests(unittest.TestCase):
     def test_create_and_get_returns_pending_tasks(self):
         s = JobStore()
-        job_id = s.create(provider="local", model="m", task_type="echo", exchange_ids=["a", "b"])
+        job_id = s.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["a", "b"],
+        )
         job = s.get(job_id)
         self.assertEqual([t.exchange_id for t in job.tasks], ["a", "b"])
         self.assertTrue(all(t.status == "pending" for t in job.tasks))
@@ -65,14 +71,26 @@ class JobStoreTests(unittest.TestCase):
 
     def test_get_returns_isolated_copy(self):
         s = JobStore()
-        job_id = s.create(provider="local", model="m", task_type="echo", exchange_ids=["a"])
+        job_id = s.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["a"],
+        )
         snapshot = s.get(job_id)
         snapshot.tasks[0].status = "done"  # mutate the copy
         self.assertEqual(s.get(job_id).tasks[0].status, "pending")  # store unaffected
 
     def test_update_task(self):
         s = JobStore()
-        job_id = s.create(provider="local", model="m", task_type="echo", exchange_ids=["a"])
+        job_id = s.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["a"],
+        )
         s.update_task(job_id, "a", status="done", result={"x": 1})
         job = s.get(job_id)
         self.assertEqual(job.tasks[0].status, "done")
@@ -82,7 +100,13 @@ class JobStoreTests(unittest.TestCase):
 
 class RunExchangeTests(unittest.TestCase):
     def test_success_records_done_result(self):
-        job_id = store.create(provider="local", model="m", task_type="echo", exchange_ids=["e1"])
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["e1"],
+        )
         run_exchange(job_id, Exchange(id="e1"), _EchoTask(), _StubProvider("hi"), 5, settings)
         task = store.get(job_id).tasks[0]
         self.assertEqual(task.status, "done")
@@ -90,7 +114,13 @@ class RunExchangeTests(unittest.TestCase):
         self.assertEqual(task.iterations, 1)
 
     def test_failure_records_error(self):
-        job_id = store.create(provider="local", model="m", task_type="echo", exchange_ids=["e1"])
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["e1"],
+        )
         run_exchange(job_id, Exchange(id="e1"), _EchoTask(), _StubProvider(raises=True), 5, settings)
         task = store.get(job_id).tasks[0]
         self.assertEqual(task.status, "error")
@@ -98,7 +128,13 @@ class RunExchangeTests(unittest.TestCase):
 
     def test_concurrent_runs_all_complete(self):
         ids = [f"e{i}" for i in range(8)]
-        job_id = store.create(provider="local", model="m", task_type="echo", exchange_ids=ids)
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=ids,
+        )
         task = _EchoTask()
         provider = _StubProvider("ok")
         threads = [

@@ -19,6 +19,7 @@ class OpenAIProvider(OpenAICompatibleProvider):
         api_key: str | None,
         model: str | None = None,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
         timeout: float = 60.0,
     ) -> None:
         # base_url=None lets the openai SDK use its built-in default endpoint.
@@ -26,5 +27,6 @@ class OpenAIProvider(OpenAICompatibleProvider):
             api_key=api_key,
             model=model or DEFAULT_MODEL,
             base_url=base_url,
+            reasoning_effort=reasoning_effort,
             timeout=timeout,
         )

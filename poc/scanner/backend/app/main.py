@@ -113,6 +113,7 @@ def get_job(job_id: str) -> JobStatus:
         status=derived_status(job.tasks),
         provider=job.provider,
         model=job.model,
+        reasoning_effort=job.reasoning_effort,
         task_type=job.task_type,
         tasks=[
             {

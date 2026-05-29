@@ -1,7 +1,5 @@
-import { useMemo, useState } from "react";
 import { getPacket, getPayload } from "../../api/packets";
 import type { HttpHeader, PacketDetail, PacketPayload } from "../../api/types";
-import { base64ToBytes, decodeText, hexdump } from "../../lib/hexdump";
 import {
   directionLabel,
   formatBytes,
@@ -11,6 +9,7 @@ import {
 import { useFetch } from "../../lib/useFetch";
 import { ErrorBanner } from "../common/ErrorBanner";
 import { Loading } from "../common/Loading";
+import { PayloadViewer } from "../common/PayloadViewer";
 
 interface PacketDetailPanelProps {
   packetId: number;
@@ -38,7 +37,7 @@ export function PacketDetailPanel({ packetId, onClose }: PacketDetailPanelProps)
       <h3 className="detail__section-title">Payload</h3>
       {payload.loading && <Loading />}
       {payload.error && <ErrorBanner message={payload.error} />}
-      {payload.data && <PayloadView payload={payload.data} />}
+      {payload.data && <PayloadViewer payload={payload.data} />}
     </section>
   );
 }
@@ -120,41 +119,6 @@ function HeaderBlock({ title, children }: { title: string; children: React.React
     <div className="header-block">
       <div className="header-block__title">{title}</div>
       <div className="header-block__body">{children}</div>
-    </div>
-  );
-}
-
-function PayloadView({ payload }: { payload: PacketPayload }) {
-  const [view, setView] = useState<"hex" | "text">("hex");
-  const bytes = useMemo(
-    () => base64ToBytes(payload.clear_application_payload),
-    [payload.clear_application_payload],
-  );
-
-  if (payload.clear_application_payload_length === 0) {
-    return <div className="state">No decrypted application payload.</div>;
-  }
-
-  return (
-    <div className="payload">
-      <div className="payload__tabs">
-        <button
-          className={`tab${view === "hex" ? " tab--active" : ""}`}
-          onClick={() => setView("hex")}
-        >
-          Hex
-        </button>
-        <button
-          className={`tab${view === "text" ? " tab--active" : ""}`}
-          onClick={() => setView("text")}
-        >
-          Text
-        </button>
-        <span className="payload__size">{formatBytes(payload.clear_application_payload_length)}</span>
-      </div>
-      <pre className="payload__body mono">
-        {view === "hex" ? hexdump(bytes) : decodeText(bytes)}
-      </pre>
     </div>
   );
 }

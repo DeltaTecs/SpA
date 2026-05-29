@@ -167,6 +167,7 @@ export interface ProviderOption {
   requires_key: boolean;
   default_model: string | null;
   model_options: string[];
+  reasoning_effort_options: ReasoningEffort[];
 }
 
 export interface ProviderList {
@@ -188,6 +189,7 @@ export interface StartJobRequest {
   recording_id: number;
   provider: string;
   model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
   task_type: string;
   max_iterations: number;
   exchanges: Exchange[];
@@ -234,6 +236,9 @@ export interface JobStatus {
   status: JobStatusValue;
   provider: string;
   model: string | null;
+  reasoning_effort: ReasoningEffort | null;
   task_type: string;
   tasks: ExchangeTaskStatus[];
 }
+
+export type ReasoningEffort = "low" | "medium" | "high" | "max";

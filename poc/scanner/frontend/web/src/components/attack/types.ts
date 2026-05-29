@@ -1,4 +1,4 @@
-import type { Exchange } from "../../api/types";
+import type { Exchange, ReasoningEffort } from "../../api/types";
 
 /** An exchange plus its include/exclude selection in the Create Plan list. */
 export interface EditableExchange extends Exchange {
@@ -9,6 +9,7 @@ export interface EditableExchange extends Exchange {
 export interface PlanConfig {
   provider: string;
   model: string;
+  reasoningEffort: ReasoningEffort | "";
   taskType: string;
   maxIterations: number;
 }

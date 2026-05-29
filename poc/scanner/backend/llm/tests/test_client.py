@@ -65,7 +65,11 @@ class TestMcpLlmClient(unittest.TestCase):
     def test_executes_tool_call_then_answers(self):
         provider = ScriptedProvider(
             [
-                ChatResult(content=None, tool_calls=[ToolCall(id="c1", name="lookup", arguments={"q": "x"})]),
+                ChatResult(
+                    content=None,
+                    reasoning_content="need lookup",
+                    tool_calls=[ToolCall(id="c1", name="lookup", arguments={"q": "x"})],
+                ),
                 ChatResult(content="final answer"),
             ]
         )
@@ -85,6 +89,12 @@ class TestMcpLlmClient(unittest.TestCase):
         # On the second turn the tool result was fed back to the model.
         second_messages, _ = provider.received[1]
         self.assertTrue(any(m.role == "tool" and m.content == "looked-up" for m in second_messages))
+        self.assertTrue(
+            any(
+                m.role == "assistant" and m.reasoning_content == "need lookup"
+                for m in second_messages
+            )
+        )
 
     def test_unknown_tool_reported_back(self):
         provider = ScriptedProvider(

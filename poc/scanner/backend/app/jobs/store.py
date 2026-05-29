@@ -31,6 +31,7 @@ class Job:
     job_id: str
     provider: str
     model: Optional[str]
+    reasoning_effort: Optional[str]
     task_type: str
     tasks: List[ExchangeTaskState] = field(default_factory=list)
 
@@ -54,6 +55,7 @@ class JobStore:
         *,
         provider: str,
         model: Optional[str],
+        reasoning_effort: Optional[str],
         task_type: str,
         exchange_ids: List[str],
     ) -> str:
@@ -62,6 +64,7 @@ class JobStore:
             job_id=job_id,
             provider=provider,
             model=model,
+            reasoning_effort=reasoning_effort,
             task_type=task_type,
             tasks=[ExchangeTaskState(exchange_id=eid) for eid in exchange_ids],
         )

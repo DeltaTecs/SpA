@@ -1051,6 +1051,74 @@ body {
   font-size: 12px;
 }
 
+.exchange-evidence {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.exchange-evidence__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.exchange-evidence__head h3 {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.exchange-evidence__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.exchange-evidence__meta {
+  margin: 8px 0;
+}
+
+.exchange-evidence__details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.exchange-evidence__details > summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+  padding: 3px 0;
+}
+
+.exchange-evidence__header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 6px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.exchange-evidence__pre {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: #1e2a36;
+  color: #d7e3ee;
+  padding: 8px;
+  border-radius: 6px;
+  font-size: 11px;
+}
+
 .exchange__annotation {
   margin-top: 12px;
   border-top: 1px dashed var(--border);

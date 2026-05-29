@@ -33,6 +33,15 @@ class VulnerabilityChecksTaskTests(unittest.TestCase):
     def test_system_prompt_demands_json(self):
         self.assertIn("JSON", self.task.build_system_prompt())
 
+    def test_system_prompt_prioritizes_attack_angles(self):
+        prompt = self.task.build_system_prompt()
+        self.assertIn("Name the exploit technique", prompt)
+        self.assertIn("attack angle", prompt)
+        self.assertIn("Authentication or authorization bypass", prompt)
+        self.assertIn("Code execution", prompt)
+        self.assertIn("Injection paths", prompt)
+        self.assertIn("do not reduce the plan to CVE enumeration", prompt)
+
     def test_user_prompt_includes_exchange_detail(self):
         exchange = Exchange(
             id="x",
@@ -45,6 +54,8 @@ class VulnerabilityChecksTaskTests(unittest.TestCase):
         self.assertIn("/login", prompt)
         self.assertIn("user", prompt)
         self.assertIn("1, 2", prompt)
+        self.assertIn("name the exploit technique or attack angle", prompt)
+        self.assertIn("CVE verification", prompt)
 
     def test_toolsets_without_tavily(self):
         toolsets = self.task.select_toolsets(_settings())

@@ -99,6 +99,7 @@ class McpLlmClient:
                 ChatMessage(
                     role="assistant",
                     content=result.content,
+                    reasoning_content=result.reasoning_content,
                     tool_calls=result.tool_calls,
                 )
             )

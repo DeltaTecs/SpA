@@ -39,6 +39,7 @@ export function CreatePlanTab() {
     setConfig({
       provider: provider.type,
       model: provider.default_model ?? "",
+      reasoningEffort: "",
       taskType: task.task_type,
       maxIterations: 10,
     });
@@ -90,6 +91,7 @@ export function CreatePlanTab() {
         recording_id: recordingId,
         provider: config.provider,
         model: config.model || null,
+        reasoning_effort: config.reasoningEffort || null,
         task_type: config.taskType,
         max_iterations: config.maxIterations,
         exchanges: selected,
@@ -144,7 +146,7 @@ export function CreatePlanTab() {
             </span>
           )}
         </div>
-        {exchanges.loading && <Loading label="Compiling exchanges…" />}
+        {exchanges.loading && <Loading label="Compiling exchanges..." />}
         {exchanges.error && <ErrorBanner message={exchanges.error} />}
         {exchanges.data && (
           <ExchangeList items={items} tasks={taskByExchange} onToggle={toggle} onEdit={edit} />

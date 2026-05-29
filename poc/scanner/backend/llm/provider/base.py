@@ -47,6 +47,7 @@ class ChatMessage:
 
     role: str
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
     name: str | None = None
@@ -61,6 +62,7 @@ class ChatResult:
     """
 
     content: str | None = None
+    reasoning_content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
 
 
@@ -82,17 +84,20 @@ class BaseProvider(ABC):
         api_key: str | None,
         model: str,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
         timeout: float = 60.0,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url
+        self.reasoning_effort = reasoning_effort
         self.timeout = timeout
         logger.info(
-            "Initialised %s provider (model=%s, base_url=%s, api_key=%s)",
+            "Initialised %s provider (model=%s, base_url=%s, reasoning_effort=%s, api_key=%s)",
             self.name,
             self.model,
             self.base_url or "<default>",
+            self.reasoning_effort or "<default>",
             "set" if api_key else "none",
         )
 

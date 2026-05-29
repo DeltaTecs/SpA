@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Exchange, ExchangeTaskStatus, HttpExchangeInfo, TaskStatusValue } from "../../api/types";
 import { formatBytes } from "../../lib/format";
+import { ExchangeEvidence } from "./ExchangeEvidence";
 import { renderTaskResult } from "./results/resultRenderers";
 import type { EditableExchange } from "./types";
 
@@ -36,15 +37,18 @@ export function ExchangeItem({ item, task, onToggle, onEdit }: ExchangeItemProps
           {exchangeTitle(item)}
         </button>
         <span className="exchange__meta">
-          {formatBytes(item.payload_bytes)} · {item.packet_count} pkt
+          {formatBytes(item.payload_bytes)} - {item.packet_count} pkt
         </span>
         {task && <StatusBadge status={task.status} />}
-        <span className="exchange__chevron">{open ? "▾" : "▸"}</span>
+        <span className="exchange__chevron" aria-hidden="true">
+          {open ? "v" : ">"}
+        </span>
       </div>
 
       {open && (
         <div className="exchange__body">
           <Inspect item={item} onEdit={onEdit} />
+          <ExchangeEvidence item={item} />
           {task && <Annotation task={task} />}
         </div>
       )}
@@ -64,7 +68,7 @@ function Inspect({
       {item.transport && <Row label="Transport" value={item.transport} />}
       {item.remote && <Row label="Remote" value={endpoint(item.remote)} />}
       {item.local && <Row label="Local" value={endpoint(item.local)} />}
-      {item.protocols.length > 0 && <Row label="Protocols" value={item.protocols.join(" › ")} />}
+      {item.protocols.length > 0 && <Row label="Protocols" value={item.protocols.join(" > ")} />}
       {item.representative_packet_ids.length > 0 && (
         <Row label="Packets" value={item.representative_packet_ids.join(", ")} />
       )}
@@ -117,8 +121,8 @@ function Annotation({ task }: { task: ExchangeTaskStatus }) {
         Suggested checks
         {task.stopped_on_limit ? " (stopped on iteration limit)" : ""}
       </div>
-      {task.status === "pending" && <div className="muted">Queued…</div>}
-      {task.status === "running" && <div className="muted">Analysing…</div>}
+      {task.status === "pending" && <div className="muted">Queued...</div>}
+      {task.status === "running" && <div className="muted">Analysing...</div>}
       {task.status === "error" && (
         <div className="state state--error">{task.error ?? "Analysis failed."}</div>
       )}
@@ -134,7 +138,7 @@ function StatusBadge({ status }: { status: TaskStatusValue }) {
       : status === "error"
         ? "error"
         : status === "running"
-          ? "running…"
+          ? "running..."
           : "queued";
   return <span className={`task-status task-status--${status}`}>{label}</span>;
 }

@@ -49,11 +49,15 @@ class Exchange(BaseModel):
 # --- providers & tasks -------------------------------------------------------
 
 
+ReasoningEffort = Literal["low", "medium", "high", "max"]
+
+
 class ProviderOption(BaseModel):
     type: str
     requires_key: bool
     default_model: Optional[str] = None
     model_options: List[str] = Field(default_factory=list)
+    reasoning_effort_options: List[ReasoningEffort] = Field(default_factory=list)
 
 
 class ProviderList(BaseModel):
@@ -78,6 +82,7 @@ class StartJobRequest(BaseModel):
     recording_id: int
     provider: str
     model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
     task_type: str = "vulnerability_checks"
     max_iterations: int = Field(10, ge=1, le=50)
     exchanges: List[Exchange] = Field(default_factory=list)
@@ -125,5 +130,6 @@ class JobStatus(BaseModel):
     status: Literal["running", "done", "error"]
     provider: str
     model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
     task_type: str
     tasks: List[ExchangeTaskStatus] = Field(default_factory=list)

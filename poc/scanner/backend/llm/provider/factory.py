@@ -45,6 +45,7 @@ class ProviderFactory:
         *,
         model: str | None = None,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
         timeout: float = 60.0,
     ) -> BaseProvider:
         """Create a provider.
@@ -55,6 +56,7 @@ class ProviderFactory:
                 ignored/optional for local providers.
             model: Optional model override (otherwise the provider's default).
             base_url: Optional endpoint override.
+            reasoning_effort: Optional provider-specific reasoning effort.
             timeout: Request timeout in seconds.
 
         Raises:
@@ -62,7 +64,13 @@ class ProviderFactory:
         """
 
         key = (provider_type or "").strip().lower()
-        logger.debug("Creating provider type=%s (model=%s, base_url=%s)", key, model, base_url)
+        logger.debug(
+            "Creating provider type=%s (model=%s, base_url=%s, reasoning_effort=%s)",
+            key,
+            model,
+            base_url,
+            reasoning_effort,
+        )
 
         if key in _KEYED_PROVIDERS:
             if not api_key or not api_key.strip():
@@ -76,6 +84,12 @@ class ProviderFactory:
                 f"Supported: {', '.join(ProviderFactory.supported_types())}."
             )
 
-        provider = provider_cls(api_key=api_key, model=model, base_url=base_url, timeout=timeout)
+        provider = provider_cls(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            reasoning_effort=reasoning_effort,
+            timeout=timeout,
+        )
         logger.info("Created provider %s (model=%s)", provider.name, provider.model)
         return provider

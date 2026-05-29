@@ -27,7 +27,7 @@ class TestProviderFactory(unittest.TestCase):
     def test_creates_deepseek_provider_with_defaults(self):
         provider = ProviderFactory.create("deepseek", api_key="sk-test")
         self.assertIsInstance(provider, DeepSeekProvider)
-        self.assertEqual(provider.model, "deepseek-chat")
+        self.assertEqual(provider.model, "deepseek-v4-flash")
         self.assertEqual(provider.base_url, DEEPSEEK_BASE_URL)
 
     def test_case_insensitive_type(self):
@@ -37,6 +37,15 @@ class TestProviderFactory(unittest.TestCase):
     def test_model_override(self):
         provider = ProviderFactory.create("openai", api_key="sk-test", model="gpt-4o")
         self.assertEqual(provider.model, "gpt-4o")
+
+    def test_reasoning_effort_override(self):
+        provider = ProviderFactory.create(
+            "deepseek",
+            api_key="sk-test",
+            model="deepseek-v4-pro",
+            reasoning_effort="max",
+        )
+        self.assertEqual(provider.reasoning_effort, "max")
 
     def test_keyed_provider_requires_key(self):
         with self.assertRaises(ValueError):

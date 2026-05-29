@@ -29,6 +29,7 @@ class LocalProvider(OpenAICompatibleProvider):
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
         timeout: float = 60.0,
     ) -> None:
         super().__init__(
@@ -36,5 +37,6 @@ class LocalProvider(OpenAICompatibleProvider):
             api_key=api_key,
             model=model or os.environ.get("LOCAL_LLM_MODEL", DEFAULT_MODEL),
             base_url=base_url or os.environ.get("LOCAL_LLM_BASE_URL", DEFAULT_BASE_URL),
+            reasoning_effort=reasoning_effort,
             timeout=timeout,
         )

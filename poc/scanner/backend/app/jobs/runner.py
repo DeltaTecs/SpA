@@ -19,6 +19,7 @@ from llm import McpLlmClient, ProviderFactory
 from llm.provider.base import BaseProvider
 
 from ..config import Settings, settings
+from ..providers import validate_reasoning_effort
 from ..schemas import Exchange, StartJobRequest
 from ..tasks import get as get_task
 from ..tasks.base import AnalysisTask
@@ -36,8 +37,13 @@ _executor = ThreadPoolExecutor(
 def build_provider(request: StartJobRequest, cfg: Settings) -> BaseProvider:
     """Create the LLM provider for a job (raises ValueError if a key is missing)."""
     api_key = cfg.api_key_for(request.provider)
+    validate_reasoning_effort(request.provider, request.reasoning_effort)
     return ProviderFactory.create(
-        request.provider, api_key=api_key, model=request.model, timeout=cfg.llm_timeout
+        request.provider,
+        api_key=api_key,
+        model=request.model,
+        reasoning_effort=request.reasoning_effort,
+        timeout=cfg.llm_timeout,
     )
 
 
@@ -56,16 +62,18 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
     job_id = store.create(
         provider=request.provider,
         model=provider.model,
+        reasoning_effort=provider.reasoning_effort,
         task_type=request.task_type,
         exchange_ids=[exchange.id for exchange in request.exchanges],
     )
     logger.info(
-        "Job %s: %d exchange(s), task=%s, provider=%s, model=%s",
+        "Job %s: %d exchange(s), task=%s, provider=%s, model=%s, reasoning_effort=%s",
         job_id,
         len(request.exchanges),
         request.task_type,
         provider.name,
         provider.model,
+        provider.reasoning_effort or "<default>",
     )
     for exchange in request.exchanges:
         _executor.submit(

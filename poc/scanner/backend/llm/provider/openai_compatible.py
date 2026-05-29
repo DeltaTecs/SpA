@@ -29,9 +29,16 @@ class OpenAICompatibleProvider(BaseProvider):
         api_key: str | None,
         model: str,
         base_url: str | None = None,
+        reasoning_effort: str | None = None,
         timeout: float = 60.0,
     ) -> None:
-        super().__init__(api_key=api_key, model=model, base_url=base_url, timeout=timeout)
+        super().__init__(
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            reasoning_effort=reasoning_effort,
+            timeout=timeout,
+        )
         # The SDK client is built lazily so constructing a provider (e.g. in the
         # factory or in tests) never requires network access or a real key.
         self._client: Any | None = None
@@ -77,7 +84,11 @@ class OpenAICompatibleProvider(BaseProvider):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("LLM request payload=%s", log_payload(payload_messages))
 
-        kwargs: dict[str, Any] = {"model": self.model, "messages": payload_messages}
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": payload_messages,
+            **self._chat_extra_kwargs(),
+        }
         if payload_tools:
             kwargs["tools"] = payload_tools
             kwargs["tool_choice"] = "auto"
@@ -97,11 +108,18 @@ class OpenAICompatibleProvider(BaseProvider):
 
     # -- encoding (our dataclasses -> OpenAI payloads) ----------------------
 
+    def _chat_extra_kwargs(self) -> dict[str, Any]:
+        if self.reasoning_effort is None:
+            return {}
+        return {"reasoning_effort": self.reasoning_effort}
+
     @staticmethod
     def _encode_message(message: ChatMessage) -> dict[str, Any]:
         encoded: dict[str, Any] = {"role": message.role}
         # Assistant tool-call messages may legitimately have null content.
         encoded["content"] = message.content
+        if message.reasoning_content is not None:
+            encoded["reasoning_content"] = message.reasoning_content
         if message.tool_calls:
             encoded["tool_calls"] = [
                 {
@@ -138,6 +156,7 @@ class OpenAICompatibleProvider(BaseProvider):
         choice = response.choices[0]
         message = choice.message
         content = getattr(message, "content", None)
+        reasoning_content = getattr(message, "reasoning_content", None)
 
         tool_calls: list[ToolCall] = []
         for raw_call in getattr(message, "tool_calls", None) or []:
@@ -149,7 +168,11 @@ class OpenAICompatibleProvider(BaseProvider):
                     arguments=cls._parse_arguments(function.arguments),
                 )
             )
-        return ChatResult(content=content, tool_calls=tool_calls)
+        return ChatResult(
+            content=content,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls,
+        )
 
     @staticmethod
     def _parse_arguments(raw: str | None) -> dict:

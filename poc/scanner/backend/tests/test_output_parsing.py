@@ -52,6 +52,11 @@ class ParseVulnerabilityChecksTests(unittest.TestCase):
         checks = parse_vulnerability_checks(raw).payload["checks"]
         self.assertEqual(checks[0]["references"], ["CVE-9"])
 
+    def test_technique_list_is_joined(self):
+        raw = '[{"title": "x", "technique": ["Authentication bypass", "IDOR"]}]'
+        checks = parse_vulnerability_checks(raw).payload["checks"]
+        self.assertEqual(checks[0]["technique"], "Authentication bypass, IDOR")
+
     def test_garbage_falls_back_to_raw(self):
         result = parse_vulnerability_checks("not json at all")
         self.assertIn("parse_warning", result.payload)
