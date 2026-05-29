@@ -168,3 +168,23 @@ def split_path_segments(path: Optional[str]) -> List[str]:
     # Drop query string and fragment.
     clean = path.split("?", 1)[0].split("#", 1)[0]
     return [seg for seg in clean.split("/") if seg]
+
+
+def query_param_names(path: Optional[str]) -> List[str]:
+    """Return the sorted, distinct query-parameter names from a request path.
+
+    ``"/search?q=1&page=2&q=3"`` -> ``["page", "q"]``. A flag with no value
+    (``"/x?debug"``) yields its name. No query string yields ``[]``. The
+    fragment (``#...``) is ignored.
+    """
+    if not path or "?" not in path:
+        return []
+    query = path.split("?", 1)[1].split("#", 1)[0]
+    names = set()
+    for pair in query.split("&"):
+        if not pair:
+            continue
+        name = pair.split("=", 1)[0]
+        if name:
+            names.add(name)
+    return sorted(names)

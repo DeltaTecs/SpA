@@ -828,3 +828,368 @@ body {
   margin: 0 0 8px;
   color: var(--text);
 }
+
+/* ---- Attack: tabs ------------------------------------------------------- */
+.attack-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.attack-tabs .tab {
+  padding: 7px 16px;
+  font-size: 13px;
+}
+
+/* ---- Attack: Create Plan ------------------------------------------------ */
+.create-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.create-plan__bar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.create-plan__list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.create-plan__select-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.create-plan__select-actions button {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.create-plan__select-actions button:hover {
+  background: #f7f9fb;
+}
+
+.muted {
+  color: var(--text-soft);
+  font-size: 13px;
+}
+
+/* ---- Provider form ------------------------------------------------------ */
+.provider-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.field--narrow {
+  width: 120px;
+}
+
+.field select,
+.field input {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text);
+}
+
+.provider-form__hint {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+/* ---- Launch control ----------------------------------------------------- */
+.launch {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.launch__button {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.launch__button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.launch__summary {
+  font-size: 13px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.launch__error {
+  font-size: 12px;
+  color: #b00020;
+}
+
+/* ---- Exchange list ------------------------------------------------------ */
+.exchange-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exchange {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  opacity: 0.55;
+  transition: opacity 0.12s;
+}
+
+.exchange--selected {
+  opacity: 1;
+  border-left: 3px solid var(--accent);
+}
+
+.exchange__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+}
+
+.exchange__check {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.exchange__badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.exchange__badge--http_pair {
+  background: #2f80ed;
+}
+
+.exchange__badge--conversation {
+  background: #6b7a8a;
+}
+
+.exchange__title {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.exchange__meta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.exchange__chevron {
+  flex-shrink: 0;
+  color: var(--text-soft);
+  width: 14px;
+  text-align: center;
+}
+
+.exchange__body {
+  padding: 0 12px 12px 12px;
+  border-top: 1px solid #f0f3f5;
+}
+
+.exchange__input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.exchange__annotation {
+  margin-top: 12px;
+  border-top: 1px dashed var(--border);
+  padding-top: 10px;
+}
+
+.exchange__annotation-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+}
+
+/* ---- Task status badge -------------------------------------------------- */
+.task-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.task-status--pending {
+  background: #eef1f4;
+  color: var(--text-soft);
+}
+
+.task-status--running {
+  background: #e6f0fd;
+  color: var(--accent);
+}
+
+.task-status--done {
+  background: #e3f6ea;
+  color: #1f9254;
+}
+
+.task-status--error {
+  background: #fbe6e9;
+  color: #b00020;
+}
+
+/* ---- Vulnerability checks ----------------------------------------------- */
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checks__warning {
+  font-size: 12px;
+  color: #8a6d00;
+  background: #fff6da;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.check {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.check__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.check__title {
+  margin: 0;
+  font-size: 13px;
+}
+
+.check__severity {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: #fff;
+}
+
+.check__severity--info {
+  background: #6b7a8a;
+}
+
+.check__severity--low {
+  background: #2f80ed;
+}
+
+.check__severity--medium {
+  background: #d98a00;
+}
+
+.check__severity--high {
+  background: #e05a2b;
+}
+
+.check__severity--critical {
+  background: #b00020;
+}
+
+.check__text,
+.check__rationale,
+.check__meta {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.check__rationale,
+.check__meta {
+  color: var(--text-soft);
+}
+
+.check__refs {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.check__refs a {
+  color: var(--accent);
+}
+
+.json-block {
+  margin: 0;
+  background: #1e2a36;
+  color: #d7e3ee;
+  padding: 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 360px;
+  overflow: auto;
+  font-size: 11px;
+}

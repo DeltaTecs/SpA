@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DbConfig
+from .exchanges.router import router as exchanges_router
 from .logging_config import configure_logging
 from .packets.router import router as packets_router
 from .stats.router import router as stats_router
@@ -37,3 +38,4 @@ def health() -> dict:
 
 app.include_router(packets_router)
 app.include_router(stats_router)
+app.include_router(exchanges_router)

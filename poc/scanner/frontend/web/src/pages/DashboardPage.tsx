@@ -10,6 +10,7 @@ import { RemoteIpTable } from "../components/dashboard/RemoteIpTable";
 import { StatCard } from "../components/dashboard/StatCard";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
+import { RecordingSelector } from "../components/common/RecordingSelector";
 import { useFetch } from "../lib/useFetch";
 
 // The brief asks for the default recording (id 1); a selector keeps it flexible.
@@ -76,28 +77,5 @@ function Panel({ title, children, wide }: { title: string; children: ReactNode; 
       <h2 className="panel__title">{title}</h2>
       <div className="panel__body">{children}</div>
     </section>
-  );
-}
-
-interface RecordingSelectorProps {
-  recordings: RecordingInfo[] | null;
-  value: number;
-  onChange: (id: number) => void;
-}
-
-function RecordingSelector({ recordings, value, onChange }: RecordingSelectorProps) {
-  const options = recordings ?? [{ recording_id: value, name: null, packet_count: 0 }];
-  return (
-    <label className="recording-select">
-      <span>Recording</span>
-      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
-        {options.map((rec) => (
-          <option key={rec.recording_id} value={rec.recording_id}>
-            #{rec.recording_id}
-            {rec.name ? ` – ${rec.name}` : ""} ({rec.packet_count.toLocaleString()})
-          </option>
-        ))}
-      </select>
-    </label>
   );
 }

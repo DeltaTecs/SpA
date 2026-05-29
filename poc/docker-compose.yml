@@ -94,13 +94,15 @@ services:
       timeout: 5s
       retries: 5
 
-  # Web frontend: serves the React SPA and proxies /api/* to db-api.
+  # Web frontend: serves the React SPA and proxies /api/* to db-api and
+  # /api/plan/* to the scanner-backend.
   frontend:
     build: ./scanner/frontend
     container_name: scanner-frontend
     restart: unless-stopped
     environment:
       - DB_API_URL=http://db-api:8000
+      - BACKEND_URL=http://scanner-backend:8000
       - LOG_LEVEL=VERBOSE
       - FRONTEND_LOG_DIR=/app/logs
     volumes:
@@ -112,6 +114,39 @@ services:
       - db-api-network
     depends_on:
       - db-api
+      - scanner-backend
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # LLM scan-planning backend: wraps scanner/backend/llm + MCP tools and runs
+  # concurrent analysis sessions. Reached by the frontend's /api/plan/* proxy.
+  scanner-backend:
+    build: ./scanner/backend
+    container_name: scanner-backend
+    restart: unless-stopped
+    environment:
+      - MCP_PACKET_DB_URL=http://mcp-packet-db:8765/mcp
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - PLAN_MAX_CONCURRENCY=${PLAN_MAX_CONCURRENCY:-4}
+      - LOG_LEVEL=VERBOSE
+      - LLM_LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8094:8000"
+    networks:
+      # app-network reaches mcp-packet-db; db-api-network is reachable by frontend.
+      - app-network
+      - db-api-network
+    depends_on:
+      - mcp-packet-db
     healthcheck:
       test:
         - CMD-SHELL

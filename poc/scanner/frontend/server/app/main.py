@@ -34,8 +34,9 @@ _INDEX_FILE = _STATIC_DIR / "index.html"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(
-        "Starting scanner frontend (db_api_url=%s, static_dir=%s, logs=%s)",
+        "Starting scanner frontend (db_api_url=%s, backend_url=%s, static_dir=%s, logs=%s)",
         settings.db_api_url,
+        settings.backend_url,
         settings.static_dir,
         _log_file,
     )
@@ -48,10 +49,14 @@ async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(
         base_url=settings.db_api_url, timeout=settings.proxy_timeout
     )
+    app.state.backend_client = httpx.AsyncClient(
+        base_url=settings.backend_url, timeout=settings.proxy_timeout
+    )
     try:
         yield
     finally:
         await app.state.http_client.aclose()
+        await app.state.backend_client.aclose()
         logger.info("Scanner frontend stopped")
 
 
@@ -78,8 +83,11 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-# All data access is proxied to the db-api under /api/*.
-app.include_router(build_proxy_router(), prefix="/api")
+# LLM scan-planning is proxied to the scanner backend under /api/plan/*; this
+# more-specific router must be registered before the /api catch-all below.
+app.include_router(build_proxy_router("backend_client"), prefix="/api/plan")
+# All other data access is proxied to the db-api under /api/*.
+app.include_router(build_proxy_router("http_client"), prefix="/api")
 
 
 def _safe_static_file(rel_path: str) -> Path | None:

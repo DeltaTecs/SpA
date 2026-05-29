@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from ..db import dict_cursor
+from ..flows import association_key as _association_key, flow_key as _flow_key
 from ..http_parsing import parse_http_header
 
 
@@ -373,65 +374,6 @@ def _enrich_row(row: Dict[str, Any]) -> Dict[str, Any]:
         stream_id,
     )
     return row
-
-
-def _association_key(
-    packet_id: int,
-    transport_protocol: Optional[str],
-    src_ip: Optional[str],
-    src_port: Optional[int],
-    dst_ip: Optional[str],
-    dst_port: Optional[int],
-    stream_id: Optional[int],
-) -> str:
-    """Stable grouping key for the explorer color toggle.
-
-    Packets in the same transport flow share a key. Endpoint order is normalized
-    so both directions of a TCP/UDP exchange get the same color. When an HTTP
-    stream id is present, the key is split further so multiplexed streams within
-    the same flow stay visually distinct. Packets without a complete IP/port
-    tuple fall back to their own id instead of being grouped accidentally.
-    """
-    base = _flow_key(transport_protocol, src_ip, src_port, dst_ip, dst_port)
-    if base is None:
-        base = f"pkt:{packet_id}"
-    if stream_id is not None:
-        base += f"|stream:{stream_id}"
-    return base
-
-
-def _flow_key(
-    transport_protocol: Optional[str],
-    src_ip: Optional[str],
-    src_port: Optional[int],
-    dst_ip: Optional[str],
-    dst_port: Optional[int],
-) -> Optional[str]:
-    """Return a normalized TCP/UDP 5-tuple key, or ``None`` if incomplete."""
-    if (
-        transport_protocol is None
-        or not src_ip
-        or not dst_ip
-        or src_port is None
-        or dst_port is None
-    ):
-        return None
-
-    protocol = transport_protocol.upper()
-    first = (src_ip, int(src_port))
-    second = (dst_ip, int(dst_port))
-    if first > second:
-        first, second = second, first
-
-    return (
-        f"flow:{protocol}|"
-        f"{_format_endpoint(first[0], first[1])}|"
-        f"{_format_endpoint(second[0], second[1])}"
-    )
-
-
-def _format_endpoint(ip_address: str, port: int) -> str:
-    return f"[{ip_address}]:{port}"
 
 
 def _select_headers(cursor, packet_id: int) -> Dict[str, Any]:

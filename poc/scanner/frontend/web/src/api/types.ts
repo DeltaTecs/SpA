@@ -124,3 +124,116 @@ export interface RecordingStats {
   remote_ips: RemoteIp[];
   endpoint_tree: EndpointNode[];
 }
+
+// --- LLM scan planning (scanner-backend, via /api/plan/*) ------------------
+
+export interface Endpoint {
+  ip: string | null;
+  port: number | null;
+}
+
+export interface HttpExchangeInfo {
+  method: string | null;
+  path: string | null;
+  endpoint_path: string | null;
+  param_names: string[];
+  status_code: number | null;
+  host: string | null;
+}
+
+export type ExchangeKind = "conversation" | "http_pair";
+
+export interface Exchange {
+  id: string;
+  kind: ExchangeKind;
+  transport: string | null;
+  local: Endpoint | null;
+  remote: Endpoint | null;
+  representative_packet_ids: number[];
+  packet_count: number;
+  payload_bytes: number;
+  protocols: string[];
+  http: HttpExchangeInfo | null;
+  dedup_key: string | null;
+}
+
+export interface ExchangeList {
+  recording_id: number;
+  items: Exchange[];
+}
+
+export interface ProviderOption {
+  type: string;
+  requires_key: boolean;
+  default_model: string | null;
+  model_options: string[];
+}
+
+export interface ProviderList {
+  providers: ProviderOption[];
+}
+
+export interface TaskTypeInfo {
+  task_type: string;
+  title: string;
+  description: string;
+  result_version: number;
+}
+
+export interface TaskTypeList {
+  tasks: TaskTypeInfo[];
+}
+
+export interface StartJobRequest {
+  recording_id: number;
+  provider: string;
+  model?: string | null;
+  task_type: string;
+  max_iterations: number;
+  exchanges: Exchange[];
+}
+
+export interface StartJobResponse {
+  job_id: string;
+}
+
+/** Generic, versioned envelope for any analysis task's structured output. */
+export interface TaskResult {
+  task_type: string;
+  result_version: number;
+  payload: Record<string, unknown>;
+}
+
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
+
+/** The `vulnerability_checks` task payload shape (`payload.checks`). */
+export interface VulnerabilityCheck {
+  title: string;
+  description: string;
+  rationale: string;
+  severity: Severity;
+  technique: string | null;
+  references: string[];
+}
+
+export type TaskStatusValue = "pending" | "running" | "done" | "error";
+
+export interface ExchangeTaskStatus {
+  exchange_id: string;
+  status: TaskStatusValue;
+  result: TaskResult | null;
+  error: string | null;
+  iterations: number | null;
+  stopped_on_limit: boolean | null;
+}
+
+export type JobStatusValue = "running" | "done" | "error";
+
+export interface JobStatus {
+  job_id: string;
+  status: JobStatusValue;
+  provider: string;
+  model: string | null;
+  task_type: string;
+  tasks: ExchangeTaskStatus[];
+}

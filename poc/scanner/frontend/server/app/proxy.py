@@ -1,8 +1,9 @@
-"""Reverse proxy that forwards ``/api/*`` requests to the packet database API.
+"""Reverse proxy that forwards SPA ``/api/*`` requests to an upstream service.
 
 Keeping the SPA same-origin (it calls ``/api/...``) avoids any CORS dependency
-and gives us a single place to log outbound calls and, later, to inject
-attack-orchestration endpoints alongside the passthrough.
+and gives us a single place to log outbound calls. One router instance forwards
+to one upstream ``httpx.AsyncClient`` (named via ``client_attr``), so the app can
+mount several: ``/api/plan/*`` to the scanner backend and ``/api/*`` to the db-api.
 """
 
 from __future__ import annotations
@@ -27,14 +28,19 @@ _HOP_BY_HOP = {
 _PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
 
 
-def build_proxy_router() -> APIRouter:
-    """Build the catch-all router that proxies to ``app.state.http_client``."""
+def build_proxy_router(client_attr: str = "http_client") -> APIRouter:
+    """Build a catch-all router proxying to ``app.state.<client_attr>``.
+
+    FastAPI strips the router's mount ``prefix`` from ``path``, so a router
+    mounted at ``/api/plan`` forwards the remainder (e.g. ``/jobs``) to its
+    upstream base URL.
+    """
 
     router = APIRouter()
 
     @router.api_route("/{path:path}", methods=_PROXY_METHODS)
     async def proxy(path: str, request: Request) -> Response:
-        client: httpx.AsyncClient = request.app.state.http_client
+        client: httpx.AsyncClient = getattr(request.app.state, client_attr)
         upstream_path = "/" + path
         body = await request.body()
         fwd_headers = {
@@ -51,10 +57,14 @@ def build_proxy_router() -> APIRouter:
             )
         except httpx.RequestError as exc:
             logger.error(
-                "Proxy to db-api failed for %s %s: %s", request.method, upstream_path, exc
+                "Proxy to %s failed for %s %s: %s",
+                client_attr,
+                request.method,
+                upstream_path,
+                exc,
             )
             return Response(
-                content=b'{"detail":"upstream db-api unavailable"}',
+                content=b'{"detail":"upstream service unavailable"}',
                 status_code=502,
                 media_type="application/json",
             )

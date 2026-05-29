@@ -17,9 +17,10 @@ app/
     schemas.py         # Pydantic request/response models
 ```
 
-Each domain (`packets`, `stats`) keeps its repository, router, and schemas
-together, so new areas of the database get their own sibling package.
-`http_parsing.py` and `logging_config.py` are shared helpers.
+Each domain (`packets`, `stats`, `exchanges`) keeps its repository, router, and
+schemas together, so new areas of the database get their own sibling package.
+`http_parsing.py`, `flows.py` (normalized 5-tuple / association keys) and
+`logging_config.py` are shared helpers.
 
 ## Endpoints
 
@@ -31,6 +32,7 @@ together, so new areas of the database get their own sibling package.
 | GET    | `/packets/{packet_id}/payload`| Raw packet bytes, base64-encoded.             |
 | GET    | `/recordings`                 | All recordings with their packet counts.      |
 | GET    | `/stats/{recording_id}`       | Aggregated stats: protocol/direction/entropy distributions, top remote IPs, and an IP→host→path endpoint tree. |
+| GET    | `/recordings/{recording_id}/exchanges` | Interesting data exchanges: non-HTTP conversation flows (clear payload) and deduplicated HTTP request/response pairs. |
 
 ### `GET /packets` query parameters
 
