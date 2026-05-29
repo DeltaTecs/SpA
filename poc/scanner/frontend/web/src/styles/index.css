@@ -252,7 +252,99 @@ body {
   color: var(--text-soft);
 }
 
+/* ---- Protocol segments ------------------------------------------------- */
+.protocol-segments {
+  display: grid;
+  gap: 16px;
+}
+
+.protocol-segment {
+  display: grid;
+  gap: 8px;
+}
+
+.protocol-segment__title {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.protocol-segment__bars {
+  display: grid;
+  gap: 7px;
+}
+
+.protocol-segment__row {
+  display: grid;
+  grid-template-columns: 88px 1fr 64px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.protocol-segment__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.protocol-segment__track {
+  height: 11px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: #eef1f4;
+}
+
+.protocol-segment__bar {
+  display: block;
+  height: 100%;
+}
+
+.protocol-segment__count {
+  color: var(--text-soft);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 520px) {
+  .protocol-segment__row {
+    grid-template-columns: 72px 1fr 52px;
+    gap: 8px;
+    font-size: 12px;
+  }
+}
+
 /* ---- Tree --------------------------------------------------------------- */
+.tree-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.tree-action {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.tree-action:hover {
+  background: #f7f9fb;
+}
+
+.tree-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .tree,
 .tree__children {
   list-style: none;
@@ -270,12 +362,17 @@ body {
   font-size: 13px;
 }
 
+.tree__row[role="button"] {
+  cursor: pointer;
+}
+
 .tree__row:hover {
   background: #f1f4f7;
 }
 
 .tree__toggle {
-  width: 14px;
+  flex: 0 0 14px;
+  text-align: center;
   color: var(--text-soft);
 }
 

@@ -1,39 +1,58 @@
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import type { NameCount } from "../../api/types";
+import type { ProtocolSegment } from "../../api/types";
 
-// Protocols the brief calls out explicitly get a distinct accent color.
-const HIGHLIGHT: Record<string, string> = {
-  HTTP: "#2f80ed",
-  TLS: "#9b51e0",
-  TCP: "#27ae60",
+const BAR_COLORS: Record<string, string> = {
   UDP: "#f2994a",
+  TCP: "#27ae60",
+  TLS: "#9b51e0",
+  QUIC: "#2d9cdb",
+  DTLS: "#bb6bd9",
+  DNS: "#56ccf2",
+  HTTP: "#2f80ed",
+  WebSocket: "#eb5757",
+  Other: "#7b8794",
 };
-const DEFAULT_COLOR = "#b0bec5";
 
-export function ProtocolDistribution({ data }: { data: NameCount[] }) {
-  if (data.length === 0) return <div className="chart-empty">No protocol data.</div>;
+export function ProtocolDistribution({ segments }: { segments: ProtocolSegment[] }) {
+  const hasData = segments.some((segment) =>
+    segment.protocols.some((protocol) => protocol.count > 0),
+  );
+
+  if (!hasData) return <div className="chart-empty">No protocol data.</div>;
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={data} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#eceff1" />
-        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-        <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-        <Tooltip />
-        <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-          {data.map((entry) => (
-            <Cell key={entry.name} fill={HIGHLIGHT[entry.name.toUpperCase()] ?? DEFAULT_COLOR} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+    <div className="protocol-segments">
+      {segments.map((segment) => (
+        <ProtocolSegmentChart key={segment.name} segment={segment} />
+      ))}
+    </div>
+  );
+}
+
+function ProtocolSegmentChart({ segment }: { segment: ProtocolSegment }) {
+  const max = Math.max(...segment.protocols.map((protocol) => protocol.count), 1);
+
+  return (
+    <section className="protocol-segment" aria-label={segment.name}>
+      <h3 className="protocol-segment__title">{segment.name}</h3>
+      <div className="protocol-segment__bars">
+        {segment.protocols.map((protocol) => (
+          <div className="protocol-segment__row" key={protocol.name}>
+            <span className="protocol-segment__name">{protocol.name}</span>
+            <span className="protocol-segment__track">
+              <span
+                className="protocol-segment__bar"
+                style={{
+                  width: `${(protocol.count / max) * 100}%`,
+                  backgroundColor: BAR_COLORS[protocol.name] ?? BAR_COLORS.Other,
+                }}
+              />
+            </span>
+            <span className="protocol-segment__count">
+              {protocol.count.toLocaleString()}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }

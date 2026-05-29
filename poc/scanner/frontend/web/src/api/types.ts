@@ -80,6 +80,11 @@ export interface NameCount {
   count: number;
 }
 
+export interface ProtocolSegment {
+  name: string;
+  protocols: NameCount[];
+}
+
 export interface DirectionCounts {
   incoming: number;
   outgoing: number;
@@ -111,6 +116,7 @@ export interface RecordingStats {
   recording_id: number;
   packet_count: number;
   protocol_distribution: NameCount[];
+  protocol_segments: ProtocolSegment[];
   direction: DirectionCounts;
   entropy_histogram: EntropyBucket[];
   remote_ips: RemoteIp[];

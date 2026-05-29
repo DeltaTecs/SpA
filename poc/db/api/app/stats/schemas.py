@@ -20,6 +20,13 @@ class NameCount(BaseModel):
     count: int
 
 
+class ProtocolSegment(BaseModel):
+    """One dashboard comparison group in the segmented protocol view."""
+
+    name: str
+    protocols: List[NameCount] = Field(default_factory=list)
+
+
 class DirectionCounts(BaseModel):
     """Packet counts split by traffic direction."""
 
@@ -57,6 +64,7 @@ class RecordingStats(BaseModel):
     recording_id: int
     packet_count: int = 0
     protocol_distribution: List[NameCount] = Field(default_factory=list)
+    protocol_segments: List[ProtocolSegment] = Field(default_factory=list)
     direction: DirectionCounts = Field(default_factory=DirectionCounts)
     entropy_histogram: List[EntropyBucket] = Field(default_factory=list)
     remote_ips: List[RemoteIp] = Field(default_factory=list)

@@ -51,7 +51,7 @@ function DashboardContent({ stats }: { stats: RecordingStats }) {
 
       <div className="panel-grid">
         <Panel title="Protocol distribution">
-          <ProtocolDistribution data={stats.protocol_distribution} />
+          <ProtocolDistribution segments={stats.protocol_segments} />
         </Panel>
         <Panel title={`Direction (${directionTotal.toLocaleString()} packets)`}>
           <DirectionChart data={stats.direction} />
