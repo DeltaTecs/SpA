@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cancelJob, getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
 import { getLatestScan } from "../../api/scans";
 import { getRecordings } from "../../api/stats";
@@ -13,6 +13,7 @@ import type {
   VulnerabilityCheck,
 } from "../../api/types";
 import { useFetch } from "../../lib/useFetch";
+import { usePersistedState } from "../../lib/usePersistedState";
 import { usePolling } from "../../lib/usePolling";
 import { useAnalysisQueue } from "../../state/AnalysisQueueContext";
 import { ErrorBanner } from "../common/ErrorBanner";
@@ -20,10 +21,11 @@ import { Loading } from "../common/Loading";
 import { RecordingSelector } from "../common/RecordingSelector";
 import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
+import { reconcilePlanConfig, TEST_PLANNER_CONFIG_KEY } from "./persistedConfig";
 import { ProviderForm } from "./ProviderForm";
 import { ScanHistorySelector } from "./ScanHistorySelector";
 import type { EditableExchange, PlanConfig } from "./types";
-import { customAnalysisCheck, taskPromptDefaults, toExchange } from "./types";
+import { customAnalysisCheck, seedPlanConfig, toExchange } from "./types";
 
 const DEFAULT_RECORDING_ID = 1;
 const POLL_INTERVAL_MS = 1500;
@@ -59,7 +61,10 @@ export function CreatePlanTab() {
   const exchanges = useFetch(() => getExchanges(recordingId), [recordingId]);
 
   const [items, setItems] = useState<EditableExchange[]>([]);
-  const [config, setConfig] = useState<PlanConfig | null>(null);
+  // Hydrate from the browser so the LLM configuration survives refreshes/restarts.
+  const [config, setConfig, { clear: clearStoredConfig }] =
+    usePersistedState<PlanConfig>(TEST_PLANNER_CONFIG_KEY);
+  const configReconciled = useRef(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<ScanResultRecord | null>(null);
   const [launching, setLaunching] = useState(false);
@@ -77,15 +82,30 @@ export function CreatePlanTab() {
     const provider = providers.data.providers[0];
     const task = taskTypes.data.tasks[0];
     if (!provider || !task) return;
-    setConfig({
-      provider: provider.type,
-      model: provider.default_model ?? "",
-      reasoningEffort: "",
-      taskType: task.task_type,
-      maxIterations: 10,
-      promptOverrides: taskPromptDefaults(task),
-    });
-  }, [config, providers.data, taskTypes.data]);
+    setConfig(seedPlanConfig(provider, task));
+  }, [config, providers.data, taskTypes.data, setConfig]);
+
+  // Once the catalogues are known, reconcile a restored config against them
+  // (drop a provider/task that's gone, refresh prompt parts). Runs once; when
+  // not hydrated `config` is still null here, so this is a no-op and the seed
+  // effect above produces an already-valid config.
+  useEffect(() => {
+    if (!providers.data || !taskTypes.data || configReconciled.current) return;
+    configReconciled.current = true;
+    const list = providers.data.providers;
+    const tasks = taskTypes.data.tasks;
+    setConfig((prev) => (prev ? reconcilePlanConfig(prev, list, tasks) : prev));
+  }, [providers.data, taskTypes.data, setConfig]);
+
+  // Drop the saved config and rebuild it from the first provider + task type,
+  // exactly as a fresh first visit would.
+  const resetConfig = useCallback(() => {
+    clearStoredConfig();
+    const provider = providers.data?.providers[0];
+    const task = taskTypes.data?.tasks[0];
+    setConfig(provider && task ? seedPlanConfig(provider, task) : null);
+    configReconciled.current = true;
+  }, [providers.data, taskTypes.data, clearStoredConfig, setConfig]);
 
   // Re-seed the selection when the exchange list (re)loads; drop any old job.
   useEffect(() => {
@@ -273,7 +293,17 @@ export function CreatePlanTab() {
       )}
 
       <section className="panel">
-        <h2 className="panel__title">LLM configuration</h2>
+        <div className="panel__title config-head">
+          <span>LLM configuration</span>
+          <button
+            type="button"
+            className="config-reset"
+            disabled={!config || running || launching}
+            onClick={resetConfig}
+          >
+            Reset to defaults
+          </button>
+        </div>
         {providers.error && <ErrorBanner message={providers.error} />}
         {taskTypes.error && <ErrorBanner message={taskTypes.error} />}
         {config && providers.data && taskTypes.data && (

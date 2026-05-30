@@ -1,70 +1,37 @@
-import type { ProviderOption } from "../../api/types";
-import type { LlmFieldValues, PentestUiConfig } from "./types";
+import type { ProviderOption, TaskTypeInfo } from "../../api/types";
+import type { LlmFieldValues, PentestUiConfig, PlanConfig } from "./types";
+import { taskPromptDefaults } from "./types";
 
 /**
- * localStorage key for the Analysis Queue configuration. Version-suffixed so a
- * future breaking change to `PentestUiConfig` can be rolled by bumping the
- * version, cleanly discarding incompatible stored data instead of crashing.
+ * localStorage keys for the persisted page configurations. Version-suffixed so a
+ * future breaking change to a config shape can be rolled by bumping the version,
+ * cleanly discarding incompatible stored data instead of crashing.
  */
-const STORAGE_KEY = "spa.analysisQueue.config.v1";
+export const ANALYSIS_QUEUE_CONFIG_KEY = "spa.analysisQueue.config.v1";
+export const TEST_PLANNER_CONFIG_KEY = "spa.testPlanner.config.v1";
 
 /**
- * Read the persisted pentest configuration, or `null` when absent or unreadable
- * (missing/corrupt/unparseable data, or storage disabled). Never throws, so a
- * bad value can't break application boot.
+ * Fallback provider field values when `currentType` is no longer offered by the
+ * backend, or `null` when the current choice is still valid (or no providers are
+ * available). Mirrors `setProvider` in `LlmProviderFields`.
  */
-export function loadStoredConfig(): PentestUiConfig | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed as PentestUiConfig;
-  } catch {
-    return null;
-  }
-}
-
-/** Persist the pentest configuration. Tolerates quota errors / disabled storage. */
-export function saveStoredConfig(config: PentestUiConfig): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  } catch {
-    /* best-effort: storage full or unavailable */
-  }
-}
-
-/** Drop the persisted configuration (used by "Reset to defaults"). */
-export function clearStoredConfig(): void {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch {
-    /* best-effort */
-  }
-}
-
-/**
- * If the chosen provider is no longer offered by the backend, fall back to the
- * first available provider's defaults (mirrors `setProvider` in
- * `LlmProviderFields`). Returns the input unchanged when it's already valid.
- */
-function reconcileProvider(
-  values: LlmFieldValues,
+function providerFallback(
+  currentType: string,
   providers: ProviderOption[],
-): LlmFieldValues {
-  if (providers.some((p) => p.type === values.provider)) return values;
+): Pick<LlmFieldValues, "provider" | "model" | "reasoningEffort"> | null {
+  if (providers.length === 0) return null;
+  if (providers.some((p) => p.type === currentType)) return null;
   const fallback = providers[0];
-  if (!fallback) return values;
-  return {
-    ...values,
-    provider: fallback.type,
-    model: fallback.default_model ?? "",
-    reasoningEffort: "",
-  };
+  return { provider: fallback.type, model: fallback.default_model ?? "", reasoningEffort: "" };
+}
+
+function reconcileLlmFields(values: LlmFieldValues, providers: ProviderOption[]): LlmFieldValues {
+  const fallback = providerFallback(values.provider, providers);
+  return fallback ? { ...values, ...fallback } : values;
 }
 
 /**
- * Validate a restored config against the available provider catalogue. A
+ * Validate a restored pentest config against the available provider catalogue. A
  * provider that has since become unavailable (e.g. its API key was removed)
  * would otherwise render a broken `<select>` or be posted to the backend; this
  * reconciles both the agent and reviewer providers to a valid choice. Pure /
@@ -77,7 +44,53 @@ export function reconcileConfig(
   if (providers.length === 0) return config;
   return {
     ...config,
-    agent: reconcileProvider(config.agent, providers),
-    reviewer: reconcileProvider(config.reviewer, providers),
+    agent: reconcileLlmFields(config.agent, providers),
+    reviewer: reconcileLlmFields(config.reviewer, providers),
   };
+}
+
+/**
+ * Reconcile persisted prompt overrides against a task's current prompt parts:
+ * keep the saved text for parts that still exist (the user may have edited it),
+ * drop parts the backend removed, and seed defaults for parts it added.
+ */
+function reconcilePromptOverrides(
+  overrides: Record<string, string>,
+  task: TaskTypeInfo,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const part of task.prompt_parts) {
+    result[part.id] = part.id in overrides ? overrides[part.id] : part.content;
+  }
+  return result;
+}
+
+/**
+ * Validate a restored Test Planner config against the available providers and
+ * task types. Falls back to the first provider when the saved one is gone, and
+ * to the first task (re-seeding its prompt defaults) when the saved task type is
+ * gone; otherwise reconciles the saved prompt overrides to the task's parts.
+ * Pure / idempotent.
+ */
+export function reconcilePlanConfig(
+  config: PlanConfig,
+  providers: ProviderOption[],
+  tasks: TaskTypeInfo[],
+): PlanConfig {
+  let next = config;
+
+  const fallback = providerFallback(config.provider, providers);
+  if (fallback) next = { ...next, ...fallback };
+
+  if (tasks.length > 0) {
+    const task = tasks.find((t) => t.task_type === next.taskType);
+    if (task) {
+      next = { ...next, promptOverrides: reconcilePromptOverrides(next.promptOverrides, task) };
+    } else {
+      const first = tasks[0];
+      next = { ...next, taskType: first.task_type, promptOverrides: taskPromptDefaults(first) };
+    }
+  }
+
+  return next;
 }

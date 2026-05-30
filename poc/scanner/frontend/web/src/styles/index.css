@@ -1913,14 +1913,15 @@ body {
 }
 
 .analysis-queue__completed-head,
-.analysis-queue__config-head {
+.config-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.analysis-queue__reset {
+/* Small "Reset to defaults" action shared by the page configuration panels. */
+.config-reset {
   border: 1px solid var(--border);
   background: var(--surface);
   border-radius: 8px;
@@ -1930,11 +1931,11 @@ body {
   color: var(--text);
 }
 
-.analysis-queue__reset:hover:not(:disabled) {
+.config-reset:hover:not(:disabled) {
   background: #f3f8ff;
 }
 
-.analysis-queue__reset:disabled {
+.config-reset:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }

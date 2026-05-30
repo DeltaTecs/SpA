@@ -47,11 +47,11 @@ export function AnalysisQueuePage() {
       </header>
 
       <section className="panel">
-        <div className="panel__title analysis-queue__config-head">
+        <div className="panel__title config-head">
           <span>Investigation configuration</span>
           <button
             type="button"
-            className="analysis-queue__reset"
+            className="config-reset"
             disabled={configDisabled || !config}
             onClick={resetConfig}
           >

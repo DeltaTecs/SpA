@@ -22,13 +22,12 @@ import {
   seedPentestConfig,
 } from "../components/attack/pentestConfig";
 import {
-  clearStoredConfig,
-  loadStoredConfig,
+  ANALYSIS_QUEUE_CONFIG_KEY,
   reconcileConfig,
-  saveStoredConfig,
 } from "../components/attack/persistedConfig";
 import type { PentestUiConfig } from "../components/attack/types";
 import { useFetch } from "../lib/useFetch";
+import { usePersistedState } from "../lib/usePersistedState";
 
 const POLL_INTERVAL_MS = 1500;
 /** Maximum investigations running at once when concurrent processing is enabled. */
@@ -119,10 +118,11 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
   const [completed, setCompleted] = useState<CompletedEntry[]>([]);
   const [runState, setRunState] = useState<RunState>("idle");
   // Hydrate from the browser so the configuration survives refreshes/restarts.
-  const [config, setConfig] = useState<PentestUiConfig | null>(loadStoredConfig);
+  const [config, setConfig, { hydrated: configHydrated, clear: clearStoredConfig }] =
+    usePersistedState<PentestUiConfig>(ANALYSIS_QUEUE_CONFIG_KEY);
   // Skip the default-seeding effects below when we restored a saved config, so
   // they don't clobber the restored tool selection.
-  const toolsSeeded = useRef(config !== null);
+  const toolsSeeded = useRef(configHydrated);
   const configReconciled = useRef(false);
   // True while a job submission is in flight, so the processor starts one at a time.
   const startingRef = useRef(false);
@@ -138,14 +138,14 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     const provider = providers.data.providers[0];
     if (!provider) return;
     setConfig(seedPentestConfig(provider));
-  }, [config, providers.data]);
+  }, [config, providers.data, setConfig]);
 
   useEffect(() => {
     if (!config || !tools.data || toolsSeeded.current) return;
     toolsSeeded.current = true;
     const defaults = defaultAllowedTools(tools.data.toolsets);
     setConfig((prev) => (prev ? { ...prev, allowedTools: defaults } : prev));
-  }, [config, tools.data]);
+  }, [config, tools.data, setConfig]);
 
   // Once the provider catalogue is known, reconcile a restored config against
   // it (drop a provider that's no longer available). Runs once; when not
@@ -156,12 +156,7 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     configReconciled.current = true;
     const list = providers.data.providers;
     setConfig((prev) => (prev ? reconcileConfig(prev, list) : prev));
-  }, [providers.data]);
-
-  // Persist every config change (seed, reconcile, and user edits).
-  useEffect(() => {
-    if (config) saveStoredConfig(config);
-  }, [config]);
+  }, [providers.data, setConfig]);
 
   // Processor: while running and below capacity, submit the next pending entry.
   useEffect(() => {
@@ -289,7 +284,7 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     });
     toolsSeeded.current = toolsReady;
     configReconciled.current = true;
-  }, [providers.data, tools.data]);
+  }, [providers.data, tools.data, clearStoredConfig, setConfig]);
 
   const runAll = useCallback(() => setRunState("running"), []);
   const pauseAfterCurrent = useCallback(() => setRunState("pausing"), []);

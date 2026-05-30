@@ -1,5 +1,6 @@
 import type {
   Exchange,
+  ProviderOption,
   ReasoningEffort,
   ReviewMode,
   TaskPromptPart,
@@ -54,6 +55,18 @@ export function promptPartDefaults(parts: TaskPromptPart[]): Record<string, stri
 
 export function taskPromptDefaults(task: TaskTypeInfo | undefined): Record<string, string> {
   return promptPartDefaults(task?.prompt_parts ?? []);
+}
+
+/** Seed a fresh Test Planner config from the first provider and task type. */
+export function seedPlanConfig(provider: ProviderOption, task: TaskTypeInfo): PlanConfig {
+  return {
+    provider: provider.type,
+    model: provider.default_model ?? "",
+    reasoningEffort: "",
+    taskType: task.task_type,
+    maxIterations: 10,
+    promptOverrides: taskPromptDefaults(task),
+  };
 }
 
 /**
