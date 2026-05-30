@@ -1060,6 +1060,100 @@ body {
   color: #b00020;
 }
 
+/* ---- Progress ----------------------------------------------------------- */
+.progress-bar {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  background: #eef1f4;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar__fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+
+.progress-bar__fill--accent {
+  background: var(--accent);
+}
+
+.progress-bar__fill--success {
+  background: #1f9254;
+}
+
+.progress-bar__fill--warning {
+  background: #c9821a;
+}
+
+/* Animated sweep used while the completed fraction is not yet meaningful. */
+.progress-bar--indeterminate .progress-bar__fill {
+  width: 35%;
+  animation: progress-sweep 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-sweep {
+  0% {
+    margin-left: -35%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+.job-progress {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.job-progress__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.job-progress__count {
+  font-weight: 600;
+}
+
+.job-progress__detail {
+  color: var(--text-soft);
+}
+
+.job-progress__action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.job-progress__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: progress-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes progress-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* ---- Exchange list ------------------------------------------------------ */
 .exchange-list {
   display: flex;

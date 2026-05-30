@@ -67,6 +67,23 @@ class ToolApprover(Protocol):
         ...
 
 
+class ActivityReporter(Protocol):
+    """Optional sink for coarse, human-readable run activity.
+
+    The orchestrator notifies it as a session moves between phases — waiting on
+    the model vs. executing a tool — so a UI can show what a long-running session
+    is currently doing. Calls must be cheap and must not raise; the orchestrator
+    ignores any return value. (The approval phase is reported by the approver
+    itself, which knows whether it is awaiting a human or a reviewer model.)
+    """
+
+    def on_thinking(self) -> None:
+        """The run is waiting for the model to respond."""
+
+    def on_tool_call(self, tool_name: str) -> None:
+        """The run is about to execute the named tool."""
+
+
 @dataclass(frozen=True)
 class RunResult:
     """The outcome of :meth:`McpLlmClient.run`."""
@@ -89,6 +106,7 @@ class McpLlmClient:
         allowed_tools: set[str] | None = None,
         approver: ToolApprover | None = None,
         cancel_token: CancellationToken | None = None,
+        activity: ActivityReporter | None = None,
     ) -> None:
         self.provider = provider
         self.toolsets = list(toolsets or [])
@@ -100,6 +118,8 @@ class McpLlmClient:
         self.approver = approver
         # Optional cooperative cancellation, polled between turns and tool calls.
         self.cancel_token = cancel_token
+        # Optional progress sink for surfacing the current phase to a UI.
+        self.activity = activity
         logger.info(
             "McpLlmClient ready (provider=%s, toolsets=%d, max_iterations=%d, "
             "allowed_tools=%s, approver=%s, cancellable=%s)",
@@ -127,6 +147,8 @@ class McpLlmClient:
         for iteration in range(1, self.max_iterations + 1):
             self._check_cancelled()
             logger.info("Iteration %d/%d", iteration, self.max_iterations)
+            if self.activity is not None:
+                self.activity.on_thinking()
             result = self.provider.chat(messages, tool_specs or None)
 
             if not result.tool_calls:
@@ -220,6 +242,8 @@ class McpLlmClient:
                     f"DENIED by reviewer: {feedback}. "
                     "Do not retry this exact call; adjust your approach."
                 )
+        if self.activity is not None:
+            self.activity.on_tool_call(call.name)
         return self._dispatch(call, dispatch)
 
     def _dispatch(self, call: ToolCall, dispatch: dict[str, Toolset]) -> str:

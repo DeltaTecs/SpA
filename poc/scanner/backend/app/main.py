@@ -147,6 +147,7 @@ def get_job(job_id: str) -> JobStatus:
                 "error": task.error,
                 "iterations": task.iterations,
                 "stopped_on_limit": task.stopped_on_limit,
+                "activity": task.activity,
             }
             for task in job.tasks
         ],
@@ -232,6 +233,7 @@ def get_pentest_job(job_id: str) -> PentestJobStatus:
                 "error": item.error,
                 "iterations": item.iterations,
                 "stopped_on_limit": item.stopped_on_limit,
+                "activity": item.activity,
                 "pending_reviews": [
                     {
                         "review_id": review.review_id,

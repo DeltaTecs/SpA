@@ -159,6 +159,8 @@ class ExchangeTaskStatus(BaseModel):
     error: Optional[str] = None
     iterations: Optional[int] = None
     stopped_on_limit: Optional[bool] = None
+    #: Human-readable current phase while running (None when not running).
+    activity: Optional[str] = None
 
 
 class JobStatus(BaseModel):
@@ -277,6 +279,8 @@ class PentestItemStatus(BaseModel):
     error: Optional[str] = None
     iterations: Optional[int] = None
     stopped_on_limit: Optional[bool] = None
+    #: Human-readable current phase while running (None when not running).
+    activity: Optional[str] = None
     pending_reviews: List[PendingReview] = Field(default_factory=list)
 
 

@@ -228,6 +228,63 @@ class TestMcpLlmClient(unittest.TestCase):
         result = McpLlmClient(provider, [], cancel_token=None).run("q")
         self.assertEqual(result.output, "ok")
 
+    def test_activity_reporter_observes_thinking_and_tool_calls(self):
+        # One tool round then a final answer: thinking -> running tool -> thinking.
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="done"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "v"})
+
+        class RecordingReporter:
+            def __init__(self):
+                self.events = []
+
+            def on_thinking(self):
+                self.events.append("thinking")
+
+            def on_tool_call(self, tool_name):
+                self.events.append(f"tool:{tool_name}")
+
+        reporter = RecordingReporter()
+        McpLlmClient(provider, [toolset], activity=reporter).run("q")
+
+        self.assertEqual(reporter.events, ["thinking", "tool:lookup", "thinking"])
+
+    def test_activity_tool_call_not_reported_when_denied(self):
+        # A denied call must not be reported as "running tool" (it never executes).
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="adjusted"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")])
+
+        class DenyApprover:
+            def review(self, call):
+                return ToolDecision(False, "nope")
+
+        class RecordingReporter:
+            def __init__(self):
+                self.events = []
+
+            def on_thinking(self):
+                self.events.append("thinking")
+
+            def on_tool_call(self, tool_name):
+                self.events.append(f"tool:{tool_name}")
+
+        reporter = RecordingReporter()
+        McpLlmClient(
+            provider, [toolset], approver=DenyApprover(), activity=reporter
+        ).run("q")
+
+        self.assertEqual(reporter.events, ["thinking", "thinking"])
+        self.assertEqual(toolset.calls, [])
+
     def test_stops_on_max_iterations(self):
         # Provider always asks for another tool call -> never terminates on its own.
         looping = [

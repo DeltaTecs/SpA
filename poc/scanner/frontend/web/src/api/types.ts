@@ -239,6 +239,8 @@ export interface ExchangeTaskStatus {
   error: string | null;
   iterations: number | null;
   stopped_on_limit: boolean | null;
+  /** Human-readable current phase while running (null when not running). */
+  activity: string | null;
 }
 
 export type JobStatusValue = "running" | "done" | "error" | "cancelled";
@@ -331,6 +333,8 @@ export interface PentestItemStatus {
   error: string | null;
   iterations: number | null;
   stopped_on_limit: boolean | null;
+  /** Human-readable current phase while running (null when not running). */
+  activity: string | null;
   pending_reviews: PendingReview[];
 }
 

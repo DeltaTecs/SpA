@@ -1,4 +1,5 @@
-import type { JobStatus, TaskStatusValue, TerminationResult } from "../../api/types";
+import type { JobStatus, TerminationResult } from "../../api/types";
+import { JobProgress } from "./JobProgress";
 import { TerminateControl } from "./TerminateControl";
 
 interface LaunchControlProps {
@@ -37,49 +38,39 @@ export function LaunchControl({
   const disabled = selectedCount === 0 || launching || running;
 
   return (
-    <div className="launch">
-      <button type="button" className="launch__button" disabled={disabled} onClick={onLaunch}>
-        {launching
-          ? "Launching…"
-          : running
-            ? "Analysis running…"
-            : `Launch analysis (${selectedCount})`}
-      </button>
-      <button
-        type="button"
-        className="launch__button launch__button--secondary"
-        disabled={!planReady || !pentestReady}
-        onClick={onGoToPentest}
-        title={planReady ? "Continue to penetration testing" : "Run an analysis first"}
-      >
-        Go to Pentest →
-      </button>
-      <TerminateControl
-        running={!!running}
-        terminating={terminating}
-        result={termination}
-        error={terminationError}
-        onTerminate={onTerminate}
-      />
-      {job && <JobSummary job={job} />}
-      {error && <span className="launch__error">{error}</span>}
-    </div>
-  );
-}
-
-function JobSummary({ job }: { job: JobStatus }) {
-  const counts: Record<TaskStatusValue, number> = {
-    pending: 0,
-    running: 0,
-    done: 0,
-    error: 0,
-    cancelled: 0,
-  };
-  for (const task of job.tasks) counts[task.status] += 1;
-  return (
-    <span className="launch__summary">
-      {counts.done} done · {counts.pending + counts.running} in progress · {counts.error} error
-      {counts.cancelled > 0 && ` · ${counts.cancelled} cancelled`}
-    </span>
+    <>
+      <div className="launch">
+        <button type="button" className="launch__button" disabled={disabled} onClick={onLaunch}>
+          {launching
+            ? "Launching…"
+            : running
+              ? "Analysis running…"
+              : `Launch analysis (${selectedCount})`}
+        </button>
+        <button
+          type="button"
+          className="launch__button launch__button--secondary"
+          disabled={!planReady || !pentestReady}
+          onClick={onGoToPentest}
+          title={planReady ? "Continue to penetration testing" : "Run an analysis first"}
+        >
+          Go to Pentest →
+        </button>
+        <TerminateControl
+          running={!!running}
+          terminating={terminating}
+          result={termination}
+          error={terminationError}
+          onTerminate={onTerminate}
+        />
+        {error && <span className="launch__error">{error}</span>}
+      </div>
+      {job && (
+        <JobProgress
+          items={job.tasks.map((task) => ({ status: task.status, activity: task.activity }))}
+          unitLabel="exchange"
+        />
+      )}
+    </>
   );
 }

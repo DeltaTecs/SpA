@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from llm import McpLlmClient, OperationCancelled, ProviderFactory
 from llm.provider.base import BaseProvider
 
+from ..activity import THINKING, SessionActivity
 from ..config import Settings, settings
 from ..providers import validate_reasoning_effort
 from ..schemas import Exchange, StartJobRequest
@@ -103,11 +104,14 @@ def run_exchange(
     token = store.token_for(job_id)
     if token is not None and token.is_cancelled:
         return  # job was terminated before this worker started; leave it cancelled
-    store.update_task(job_id, exchange.id, status="running")
+    store.update_task(job_id, exchange.id, status="running", activity=THINKING)
+    activity = SessionActivity(
+        lambda phrase: store.update_task(job_id, exchange.id, activity=phrase)
+    )
     try:
         toolsets = task.select_toolsets(cfg)
         client = McpLlmClient(
-            provider, toolsets, max_iterations=max_iterations, cancel_token=token
+            provider, toolsets, max_iterations=max_iterations, cancel_token=token, activity=activity
         )
         system_prompt = task.build_system_prompt_for_run(prompt_overrides)
         user_prompt = task.build_user_prompt_for_run(exchange, prompt_overrides)
@@ -120,10 +124,11 @@ def run_exchange(
             result=result.model_dump(),
             iterations=run_result.iterations,
             stopped_on_limit=run_result.stopped_on_limit,
+            activity=None,
         )
     except OperationCancelled:
         # The store already marked this task cancelled (and froze it); nothing to record.
         logger.info("Analysis cancelled for exchange %s in job %s", exchange.id, job_id)
     except Exception as exc:  # noqa: BLE001 - record the failure on the task
         logger.exception("Analysis failed for exchange %s in job %s", exchange.id, job_id)
-        store.update_task(job_id, exchange.id, status="error", error=str(exc))
+        store.update_task(job_id, exchange.id, status="error", error=str(exc), activity=None)

@@ -26,6 +26,9 @@ class ExchangeTaskState:
     error: Optional[str] = None
     iterations: Optional[int] = None
     stopped_on_limit: Optional[bool] = None
+    #: Current phase of a running session ("thinking", "running tool X", ...).
+    #: Set by a SessionActivity reporter; cleared by the runner on completion.
+    activity: Optional[str] = None
 
 
 @dataclass
