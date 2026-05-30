@@ -211,6 +211,33 @@ body {
   font-size: 13px;
 }
 
+.scan-history {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scan-history__delete {
+  padding: 6px 10px;
+  border: 1px solid #b00020;
+  border-radius: 8px;
+  background: var(--surface);
+  color: #b00020;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.scan-history__delete:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.scan-history__error {
+  color: #b00020;
+  font-size: 12px;
+}
+
 /* ---- Remote IP table ---------------------------------------------------- */
 .ip-table {
   display: flex;

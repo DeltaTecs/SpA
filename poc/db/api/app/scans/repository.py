@@ -98,3 +98,12 @@ class ScanRepository:
             )
             row = cursor.fetchone()
         return ScanResultRecord(**row) if row else None
+
+    def delete(self, scan_result_id: int) -> bool:
+        """Delete one stored scan snapshot, returning whether it existed."""
+        with dict_cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM scan_result WHERE scan_result_id = %s",
+                (scan_result_id,),
+            )
+            return cursor.rowcount > 0

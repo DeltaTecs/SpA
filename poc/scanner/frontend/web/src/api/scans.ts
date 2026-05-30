@@ -1,4 +1,4 @@
-import { ApiError, apiGet } from "./client";
+import { ApiError, apiDelete, apiGet } from "./client";
 import type { ScanResultRecord, ScanResultSummary } from "./types";
 
 /** Scan types persisted by the scanner-backend (see db-api scan_result.scan_type). */
@@ -33,4 +33,9 @@ export function listScans(
 /** A single stored scan, including its full snapshot payload. */
 export function getScan(scanResultId: number): Promise<ScanResultRecord> {
   return apiGet<ScanResultRecord>(`/scans/${scanResultId}`);
+}
+
+/** Delete a single stored scan snapshot. */
+export function deleteScan(scanResultId: number): Promise<{ deleted: boolean }> {
+  return apiDelete<{ deleted: boolean }>(`/scans/${scanResultId}`);
 }

@@ -45,6 +45,10 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
+export function apiDelete<T>(path: string): Promise<T> {
+  return request<T>(path, { method: "DELETE" });
+}
+
 export function buildQuery<T extends object>(params: T): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

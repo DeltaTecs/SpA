@@ -58,3 +58,11 @@ def get_scan(scan_result_id: int) -> ScanResultRecord:
     if record is None:
         raise HTTPException(status_code=404, detail=f"Unknown scan result '{scan_result_id}'.")
     return record
+
+
+@router.delete("/scans/{scan_result_id}")
+def delete_scan(scan_result_id: int) -> dict[str, bool]:
+    """Delete a single stored scan snapshot (404 if unknown)."""
+    if not repository.delete(scan_result_id):
+        raise HTTPException(status_code=404, detail=f"Unknown scan result '{scan_result_id}'.")
+    return {"deleted": True}

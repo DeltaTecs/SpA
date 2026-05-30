@@ -220,6 +220,7 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
             refreshToken={`${recordingId}:${liveJob?.status ?? ""}`}
             disabled={running || launching}
             onSelect={showStoredScan}
+            onDelete={setLoaded}
           />
         )}
       </div>
