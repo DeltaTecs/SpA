@@ -10,6 +10,22 @@ import { taskPromptDefaults } from "./types";
 export const ANALYSIS_QUEUE_CONFIG_KEY = "spa.analysisQueue.config.v1";
 export const TEST_PLANNER_CONFIG_KEY = "spa.testPlanner.config.v1";
 
+/** Persisted handle to the Test Planner's live job, so progress survives a
+ *  refresh. Scoped to the recording + task type it was launched for, so it only
+ *  reattaches when the same recording/task is displayed (matching `getLatestScan`). */
+export const TEST_PLANNER_JOB_KEY = "spa.testPlanner.job.v1";
+
+/** Persisted snapshot of the Analysis Queue (pending/active/completed lists and
+ *  run state), so in-flight investigations resume after a refresh. */
+export const ANALYSIS_QUEUE_STATE_KEY = "spa.analysisQueue.state.v1";
+
+/** A reference to a launched Test Planner job and the view it belongs to. */
+export interface ActiveJobRef {
+  jobId: string;
+  recordingId: number;
+  taskType: string;
+}
+
 /**
  * Fallback provider field values when `currentType` is no longer offered by the
  * backend, or `null` when the current choice is still valid (or no providers are

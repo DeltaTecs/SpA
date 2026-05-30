@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ApiError } from "../../api/client";
 import { cancelJob, getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
 import { getLatestScan } from "../../api/scans";
 import { getRecordings } from "../../api/stats";
@@ -21,7 +22,12 @@ import { Loading } from "../common/Loading";
 import { RecordingSelector } from "../common/RecordingSelector";
 import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
-import { reconcilePlanConfig, TEST_PLANNER_CONFIG_KEY } from "./persistedConfig";
+import {
+  reconcilePlanConfig,
+  TEST_PLANNER_CONFIG_KEY,
+  TEST_PLANNER_JOB_KEY,
+} from "./persistedConfig";
+import type { ActiveJobRef } from "./persistedConfig";
 import { ProviderForm } from "./ProviderForm";
 import { ScanHistorySelector } from "./ScanHistorySelector";
 import type { EditableExchange, PlanConfig } from "./types";
@@ -57,16 +63,34 @@ export function CreatePlanTab() {
   const taskTypes = useFetch(() => getTaskTypes(), []);
   const { enqueue } = useAnalysisQueue();
 
-  const [recordingId, setRecordingId] = useState(DEFAULT_RECORDING_ID);
+  // Hydrate the live job handle and LLM configuration from the browser so they
+  // survive refreshes/restarts (both hydrate synchronously on first render).
+  const [jobRef, setJobRef, { clear: clearStoredJobRef }] =
+    usePersistedState<ActiveJobRef>(TEST_PLANNER_JOB_KEY);
+  // Land back on the recording an analysis was launched for, so its progress is
+  // visible immediately after a refresh.
+  const [recordingId, setRecordingId] = useState(jobRef?.recordingId ?? DEFAULT_RECORDING_ID);
   const exchanges = useFetch(() => getExchanges(recordingId), [recordingId]);
 
   const [items, setItems] = useState<EditableExchange[]>([]);
-  // Hydrate from the browser so the LLM configuration survives refreshes/restarts.
   const [config, setConfig, { clear: clearStoredConfig }] =
     usePersistedState<PlanConfig>(TEST_PLANNER_CONFIG_KEY);
   const configReconciled = useRef(false);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<ScanResultRecord | null>(null);
+
+  // Drop the persisted live job handle (e.g. the user picked a stored scan, or
+  // the backend restarted and the job is gone) and stop polling for it.
+  const clearJobRef = useCallback(() => {
+    clearStoredJobRef();
+    setJobRef(null);
+  }, [clearStoredJobRef, setJobRef]);
+
+  // The live job only applies while the current recording + task type match the
+  // handle it was launched for; otherwise we show that view's stored scan.
+  const activeJobId =
+    jobRef && jobRef.recordingId === recordingId && jobRef.taskType === config?.taskType
+      ? jobRef.jobId
+      : null;
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [terminating, setTerminating] = useState(false);
@@ -107,11 +131,13 @@ export function CreatePlanTab() {
     configReconciled.current = true;
   }, [providers.data, taskTypes.data, clearStoredConfig, setConfig]);
 
-  // Re-seed the selection when the exchange list (re)loads; drop any old job.
+  // Re-seed the selection when the exchange list (re)loads. The live job is not
+  // cleared here: it's scoped to its recording via `activeJobId`, so it stays
+  // hidden for other recordings yet reappears (and keeps polling) on return —
+  // including right after a refresh, where this effect also runs on mount.
   useEffect(() => {
     if (!exchanges.data) return;
     setItems(exchanges.data.items.map((exchange) => ({ ...exchange, selected: true })));
-    setJobId(null);
     setTermination(null);
     setTerminationError(null);
     setQueuedNote(null);
@@ -137,14 +163,23 @@ export function CreatePlanTab() {
   }, [recordingId, config?.taskType]);
 
   const job = usePolling<JobStatus>(
-    () => getJob(jobId as string),
-    { enabled: jobId !== null, intervalMs: POLL_INTERVAL_MS, stopWhen: (j) => j.status !== "running" },
-    [jobId],
+    () => getJob(activeJobId as string),
+    {
+      enabled: activeJobId !== null,
+      intervalMs: POLL_INTERVAL_MS,
+      stopWhen: (j) => j.status !== "running",
+      // The job is gone (backend restarted): forget the handle so polling stops
+      // and the view falls back to the last saved scan loaded below.
+      onError: (err) => {
+        if (err instanceof ApiError && err.status === 404) clearJobRef();
+      },
+    },
+    [activeJobId],
   );
 
   // While a job is live its polled status wins; otherwise display the stored
   // snapshot (auto-loaded latest, or one picked from the history dropdown).
-  const liveJob = jobId ? job.data : null;
+  const liveJob = activeJobId ? job.data : null;
   const effectiveJob: JobStatus | null = liveJob ?? (loaded?.payload as JobStatus | undefined) ?? null;
   const selectedScanId = liveJob ? null : loaded?.scan_result_id ?? null;
 
@@ -170,7 +205,7 @@ export function CreatePlanTab() {
 
   // Switch the view to a stored snapshot chosen from the history dropdown.
   function showStoredScan(record: ScanResultRecord) {
-    setJobId(null);
+    clearJobRef();
     setTermination(null);
     setTerminationError(null);
     setLoaded(record);
@@ -249,7 +284,7 @@ export function CreatePlanTab() {
         exchanges: selected,
         prompt_overrides: config.promptOverrides,
       });
-      setJobId(response.job_id);
+      setJobRef({ jobId: response.job_id, recordingId, taskType: config.taskType });
     } catch (err) {
       setLaunchError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -258,11 +293,11 @@ export function CreatePlanTab() {
   }
 
   async function terminate() {
-    if (!jobId) return;
+    if (!activeJobId) return;
     setTerminationError(null);
     setTerminating(true);
     try {
-      setTermination(await cancelJob(jobId));
+      setTermination(await cancelJob(activeJobId));
     } catch (err) {
       setTerminationError(err instanceof Error ? err.message : String(err));
     } finally {

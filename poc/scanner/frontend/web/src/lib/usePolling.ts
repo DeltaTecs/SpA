@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export interface PollState<T> {
   data: T | null;
@@ -10,6 +10,9 @@ export interface PollOptions<T> {
   intervalMs: number;
   /** Stop polling once this returns true for the latest result. */
   stopWhen?: (data: T) => boolean;
+  /** Called with the raw error on each failed poll, so callers can inspect its
+   *  type (e.g. clear state on a 404). Polling still retries afterwards. */
+  onError?: (err: unknown) => void;
 }
 
 /**
@@ -19,10 +22,14 @@ export interface PollOptions<T> {
  */
 export function usePolling<T>(
   fn: () => Promise<T>,
-  { enabled, intervalMs, stopWhen }: PollOptions<T>,
+  { enabled, intervalMs, stopWhen, onError }: PollOptions<T>,
   deps: unknown[],
 ): PollState<T> {
   const [state, setState] = useState<PollState<T>>({ data: null, error: null });
+  // Held in a ref so the polling effect always calls the latest callback
+  // without listing it in `deps` (which the caller controls).
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   useEffect(() => {
     if (!enabled) {
@@ -42,6 +49,7 @@ export function usePolling<T>(
         })
         .catch((err: unknown) => {
           if (!active) return;
+          onErrorRef.current?.(err);
           setState((prev) => ({
             ...prev,
             error: err instanceof Error ? err.message : String(err),

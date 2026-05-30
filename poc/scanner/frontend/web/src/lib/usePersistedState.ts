@@ -1,18 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-
-/** Read and parse an object value from localStorage, or null when absent/unreadable. */
-function readStored<T extends object>(key: string): T | null {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return null;
-    return parsed as T;
-  } catch {
-    return null;
-  }
-}
+import { readJson, removeStored, writeJson } from "./storage";
 
 export interface PersistedStateMeta {
   /** True when the initial value was restored from storage (vs. a fresh start). */
@@ -34,26 +22,16 @@ export interface PersistedStateMeta {
 export function usePersistedState<T extends object>(
   key: string,
 ): [T | null, Dispatch<SetStateAction<T | null>>, PersistedStateMeta] {
-  const [value, setValue] = useState<T | null>(() => readStored<T>(key));
+  const [value, setValue] = useState<T | null>(() => readJson<T>(key));
   // Captured once: whether the very first value came from storage.
   const hydrated = useRef(value !== null).current;
 
   useEffect(() => {
     if (value === null) return;
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {
-      /* best-effort: storage full or unavailable */
-    }
+    writeJson(key, value);
   }, [key, value]);
 
-  const clear = useCallback(() => {
-    try {
-      localStorage.removeItem(key);
-    } catch {
-      /* best-effort */
-    }
-  }, [key]);
+  const clear = useCallback(() => removeStored(key), [key]);
 
   return [value, setValue, { hydrated, clear }];
 }

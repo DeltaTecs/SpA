@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import type { ReactNode } from "react";
+import { ApiError } from "../api/client";
 import { cancelPentestJob, getMcpTools, getPentestJob, startPentestJob } from "../api/pentest";
 import { getProviders } from "../api/plans";
 import type {
@@ -23,11 +24,13 @@ import {
 } from "../components/attack/pentestConfig";
 import {
   ANALYSIS_QUEUE_CONFIG_KEY,
+  ANALYSIS_QUEUE_STATE_KEY,
   reconcileConfig,
 } from "../components/attack/persistedConfig";
 import type { PentestUiConfig } from "../components/attack/types";
 import { useFetch } from "../lib/useFetch";
 import { usePersistedState } from "../lib/usePersistedState";
+import { readJson, writeJson } from "../lib/storage";
 
 const POLL_INTERVAL_MS = 1500;
 /** Maximum investigations running at once when concurrent processing is enabled. */
@@ -86,12 +89,30 @@ interface AnalysisQueueValue {
   stopNow: () => void;
 }
 
+/** The queue state mirrored to the browser so a refresh keeps in-flight work. */
+interface QueueSnapshot {
+  pending: QueueEntry[];
+  active: ActiveEntry[];
+  completed: CompletedEntry[];
+  runState: RunState;
+}
+
 const AnalysisQueueContext = createContext<AnalysisQueueValue | null>(null);
 
 let queueIdCounter = 0;
 function nextQueueId(): string {
   queueIdCounter += 1;
   return `q${queueIdCounter}-${Date.now()}`;
+}
+
+/** Highest counter value embedded in a set of entry ids (`q<n>-<ts>`), or 0. */
+function highestQueueId(entries: QueueEntry[]): number {
+  let max = 0;
+  for (const entry of entries) {
+    const n = Number(/^q(\d+)-/.exec(entry.id)?.[1]);
+    if (Number.isFinite(n)) max = Math.max(max, n);
+  }
+  return max;
 }
 
 /** Terminal item status used when a job returns no item or fails to start. */
@@ -113,10 +134,21 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
   const providers = useFetch(() => getProviders(), []);
   const tools = useFetch(() => getMcpTools(), []);
 
-  const [pending, setPending] = useState<QueueEntry[]>([]);
-  const [active, setActive] = useState<ActiveEntry[]>([]);
-  const [completed, setCompleted] = useState<CompletedEntry[]>([]);
-  const [runState, setRunState] = useState<RunState>("idle");
+  // Restored snapshot, read from the browser exactly once (memoized in a ref so
+  // the lazy state initializers below all see the same value), so a refresh
+  // keeps pending work, resumes in-flight jobs, and preserves completed results.
+  const restoredRef = useRef<QueueSnapshot | null | undefined>(undefined);
+  const getRestored = (): QueueSnapshot | null => {
+    if (restoredRef.current === undefined) {
+      restoredRef.current = readJson<QueueSnapshot>(ANALYSIS_QUEUE_STATE_KEY);
+    }
+    return restoredRef.current;
+  };
+
+  const [pending, setPending] = useState<QueueEntry[]>(() => getRestored()?.pending ?? []);
+  const [active, setActive] = useState<ActiveEntry[]>(() => getRestored()?.active ?? []);
+  const [completed, setCompleted] = useState<CompletedEntry[]>(() => getRestored()?.completed ?? []);
+  const [runState, setRunState] = useState<RunState>(() => getRestored()?.runState ?? "idle");
   // Hydrate from the browser so the configuration survives refreshes/restarts.
   const [config, setConfig, { hydrated: configHydrated, clear: clearStoredConfig }] =
     usePersistedState<PentestUiConfig>(ANALYSIS_QUEUE_CONFIG_KEY);
@@ -131,6 +163,27 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
+
+  // Advance the id counter past any restored entry so newly enqueued items can't
+  // reuse an id. Runs once after mount, when the lazy initializers have read the
+  // snapshot. (The lists are stale here by design — only their ids are needed.)
+  useEffect(() => {
+    const r = restoredRef.current;
+    if (r) queueIdCounter = highestQueueId([...r.pending, ...r.active, ...r.completed]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Mirror the queue to the browser so a refresh keeps pending work, resumes
+  // in-flight jobs (re-polled below), and preserves completed results. The
+  // per-entry `status` is dropped — it's large and the poll refills it on resume.
+  useEffect(() => {
+    writeJson(ANALYSIS_QUEUE_STATE_KEY, {
+      pending,
+      active: active.map((entry) => ({ ...entry, status: null })),
+      completed,
+      runState,
+    });
+  }, [pending, active, completed, runState]);
 
   // Seed the config once providers load, then conservative tool defaults.
   useEffect(() => {
@@ -216,29 +269,43 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
       const settled = await Promise.all(
         entries.map((entry) =>
           getPentestJob(entry.jobId).then(
-            (status) => ({ jobId: entry.jobId, status }),
-            () => ({ jobId: entry.jobId, status: null as PentestJobStatus | null }),
+            (status) => ({ jobId: entry.jobId, status, gone: false }),
+            (err: unknown) => ({
+              jobId: entry.jobId,
+              status: null as PentestJobStatus | null,
+              // A 404 means the backend no longer has the job (it restarted);
+              // treat it as terminal so the entry stops polling forever. Other
+              // (transient) errors leave the entry active to retry next tick.
+              gone: err instanceof ApiError && err.status === 404,
+            }),
           ),
         ),
       );
       if (cancelled) return;
 
-      const statusByJob = new Map(settled.map((r) => [r.jobId, r.status]));
+      const resultByJob = new Map(settled.map((r) => [r.jobId, r]));
       const done: CompletedEntry[] = [];
       for (const entry of entries) {
-        const status = statusByJob.get(entry.jobId);
-        if (status && status.status !== "running") {
-          const item = status.items[0] ?? syntheticItem(entry, "No result returned.");
+        const result = resultByJob.get(entry.jobId);
+        if (!result) continue;
+        if (result.gone) {
+          done.push({
+            ...entry,
+            result: syntheticItem(entry, "Job no longer available (backend restarted)."),
+          });
+        } else if (result.status && result.status.status !== "running") {
+          const item = result.status.items[0] ?? syntheticItem(entry, "No result returned.");
           done.push({ ...entry, result: item });
         }
       }
 
       setActive((prev) =>
         prev.flatMap((entry) => {
-          const status = statusByJob.get(entry.jobId);
-          if (status === undefined) return [entry]; // added after this poll's snapshot
-          if (status === null) return [entry]; // fetch failed; retry next tick
-          if (status.status === "running") return [{ ...entry, status }];
+          const result = resultByJob.get(entry.jobId);
+          if (result === undefined) return [entry]; // added after this poll's snapshot
+          if (result.gone) return []; // job lost — moved to completed below
+          if (result.status === null) return [entry]; // fetch failed; retry next tick
+          if (result.status.status === "running") return [{ ...entry, status: result.status }];
           return []; // finished — moved to completed below
         }),
       );
