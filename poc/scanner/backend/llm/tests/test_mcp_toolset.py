@@ -47,6 +47,19 @@ class TestMcpToolset(unittest.TestCase):
         toolset = McpToolset("http://mcp-packet-db:8765/mcp")
         self.assertEqual(toolset.name, "mcp-packet-db:8765")
 
+    def test_log_url_masks_query_credentials(self):
+        toolset = McpToolset("https://mcp.tavily.com/mcp/?tavilyApiKey=secret-key")
+        # The connection URL keeps the key so the remote MCP server still works.
+        self.assertIn("secret-key", toolset.url)
+        # The logged/repr representation must not leak it.
+        self.assertNotIn("secret-key", toolset._log_url)
+        self.assertNotIn("secret-key", repr(toolset))
+        self.assertEqual(toolset._log_url, "https://mcp.tavily.com/mcp/?tavilyApiKey=***")
+
+    def test_log_url_unchanged_without_query(self):
+        toolset = McpToolset("http://mcp-packet-db:8765/mcp")
+        self.assertEqual(toolset._log_url, "http://mcp-packet-db:8765/mcp")
+
     def test_list_tool_specs_conversion_and_cache(self):
         self._patch_list(
             {

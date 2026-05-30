@@ -18,7 +18,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from ..logging_config import log_payload
 from ..provider.base import ToolSpec
@@ -27,6 +27,28 @@ logger = logging.getLogger(__name__)
 
 #: Transports understood by :class:`McpToolset`.
 SUPPORTED_TRANSPORTS = ("streamable-http", "sse")
+
+
+def _redact_url(url: str) -> str:
+    """Return ``url`` with any query-parameter values masked for safe logging.
+
+    Some MCP endpoints carry credentials in the query string (e.g. Tavily's
+    ``?tavilyApiKey=...``). The unredacted URL is still used to connect to the
+    remote server; only its logged representation is masked so secrets never
+    reach the log file.
+    """
+
+    try:
+        parts = urlparse(url)
+    except ValueError:  # pragma: no cover - urlparse is very permissive
+        return url
+    if not parts.query:
+        return url
+    redacted = urlencode(
+        [(key, "***") for key, _ in parse_qsl(parts.query, keep_blank_values=True)],
+        safe="*",
+    )
+    return urlunparse(parts._replace(query=redacted))
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -116,8 +138,12 @@ class McpToolset:
         self.timeout = timeout
         # A short label for logs; defaults to the URL host.
         self.name = name or urlparse(url).netloc or url
+        # URL with any query-string credentials masked, for use in logs.
+        self._log_url = _redact_url(url)
         self._tool_specs: list[ToolSpec] | None = None
-        logger.info("Configured MCP toolset '%s' -> %s (%s)", self.name, self.url, self.transport)
+        logger.info(
+            "Configured MCP toolset '%s' -> %s (%s)", self.name, self._log_url, self.transport
+        )
 
     def list_tool_specs(self, *, refresh: bool = False) -> list[ToolSpec]:
         """Discover (and cache) the server's tools as :class:`ToolSpec` objects."""
@@ -125,7 +151,7 @@ class McpToolset:
         if self._tool_specs is not None and not refresh:
             return self._tool_specs
 
-        logger.info("Discovering tools from MCP toolset '%s' (%s)", self.name, self.url)
+        logger.info("Discovering tools from MCP toolset '%s' (%s)", self.name, self._log_url)
         raw = asyncio.run(_list_tools_async(self.url, self.transport))
         tools = raw.get("tools", []) if isinstance(raw, dict) else []
 
@@ -188,4 +214,7 @@ class McpToolset:
         return log_payload(raw, max_chars=1_000_000)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return f"McpToolset(name={self.name!r}, url={self.url!r}, transport={self.transport!r})"
+        return (
+            f"McpToolset(name={self.name!r}, url={self._log_url!r}, "
+            f"transport={self.transport!r})"
+        )
