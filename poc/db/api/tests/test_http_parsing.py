@@ -22,6 +22,7 @@ class ParseHttpHeaderTests(unittest.TestCase):
         info = parse_http_header(text)
         self.assertTrue(info.is_request)
         self.assertEqual(info.method, "GET")
+        self.assertEqual(info.scheme, "https")
         self.assertEqual(info.host, "cdn.example.com")
         self.assertEqual(info.path, "/static/app.js")
 

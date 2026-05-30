@@ -18,6 +18,7 @@ class HttpExchangeInfo(BaseModel):
     """
 
     method: Optional[str] = None
+    scheme: Optional[str] = None
     path: Optional[str] = Field(None, description="Request path as captured, incl. query string.")
     endpoint_path: Optional[str] = Field(
         None, description="Path with query/fragment stripped (used for dedup)."

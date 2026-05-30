@@ -134,6 +134,7 @@ export interface Endpoint {
 
 export interface HttpExchangeInfo {
   method: string | null;
+  scheme: string | null;
   path: string | null;
   endpoint_path: string | null;
   param_names: string[];

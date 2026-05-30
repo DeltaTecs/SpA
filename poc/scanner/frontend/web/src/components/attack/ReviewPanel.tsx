@@ -33,12 +33,17 @@ function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function decide(approved: boolean) {
+  // Resolve the review. `overrideHint`, when given, replaces the typed hint — used
+  // by the "forward auto-reviewer's reason" action to send that exact text instead.
+  async function decide(approved: boolean, overrideHint?: string) {
     // Stay busy until the next poll drops this card; reset only on failure.
     setBusy(true);
     setError(null);
     try {
-      await submitReview(jobId, review.review_id, { approved, hint });
+      await submitReview(jobId, review.review_id, {
+        approved,
+        hint: overrideHint ?? hint,
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
       setBusy(false);
@@ -54,9 +59,21 @@ function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
       </header>
       <ToolCallArguments args={review.arguments} />
       {review.auto_reason && (
-        <p className="review__auto">
-          <strong>Auto-reviewer:</strong> {review.auto_reason}
-        </p>
+        <div className="review__auto">
+          <p className="review__auto-text">
+            <strong>Auto-reviewer:</strong> {review.auto_reason}
+          </p>
+          {/* One-click escalation outcome: deny and hand the auto-reviewer's own
+              reason back to the acting model so it knows why and can adjust. */}
+          <button
+            type="button"
+            className="review__forward"
+            disabled={busy}
+            onClick={() => decide(false, review.auto_reason ?? "")}
+          >
+            Deny &amp; send this reason to the model
+          </button>
+        </div>
       )}
       <textarea
         className="review__hint"

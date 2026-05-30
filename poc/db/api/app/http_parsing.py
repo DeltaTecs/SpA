@@ -1,11 +1,11 @@
 """Parse raw HTTP header blobs into structured request/response fields.
 
 The ``http_header_information.text_header`` column stores the raw header text as
-captured. This helper extracts request ``method``, ``host`` and ``path`` values
-from either HTTP/1.x header text (``GET /path HTTP/1.1`` + ``Host:`` header) or
-HTTP/2 style pseudo-headers (``:method``, ``:path``, ``:authority``). It also
-extracts response status information from HTTP/1.x status lines and HTTP/2
-``:status`` pseudo-headers.
+captured. This helper extracts request ``method``, ``scheme``, ``host`` and
+``path`` values from either HTTP/1.x header text (``GET /path HTTP/1.1`` +
+``Host:`` header) or HTTP/2 style pseudo-headers (``:method``, ``:scheme``,
+``:path``, ``:authority``). It also extracts response status information from
+HTTP/1.x status lines and HTTP/2 ``:status`` pseudo-headers.
 
 All functions are pure and tolerant: anything that cannot be parsed (e.g. a
 truncated blob) yields ``None`` fields rather than raising.
@@ -35,6 +35,7 @@ class HttpRequestInfo:
     """Structured view of the request/response parts of an HTTP header blob."""
 
     method: Optional[str] = None
+    scheme: Optional[str] = None
     host: Optional[str] = None
     path: Optional[str] = None
     status_code: Optional[int] = None
@@ -106,9 +107,9 @@ def parse_http_header(text: Optional[str]) -> HttpRequestInfo:
     """Parse a raw HTTP header blob into :class:`HttpRequestInfo`.
 
     Recognises HTTP/1.x request lines plus ``Host`` headers, and HTTP/2
-    ``:method`` / ``:path`` / ``:authority`` pseudo-headers. Recognises HTTP/1.x
-    response status lines and HTTP/2 ``:status`` pseudo-headers. Unparseable
-    input returns an empty result.
+    ``:method`` / ``:scheme`` / ``:path`` / ``:authority`` pseudo-headers.
+    Recognises HTTP/1.x response status lines and HTTP/2 ``:status``
+    pseudo-headers. Unparseable input returns an empty result.
     """
     if not text:
         return HttpRequestInfo()
@@ -137,12 +138,14 @@ def parse_http_header(text: Optional[str]) -> HttpRequestInfo:
 
     # HTTP/2 pseudo-headers (order-independent).
     method = _pseudo_value(lines, ":method")
+    scheme = _pseudo_value(lines, ":scheme")
     path = _pseudo_value(lines, ":path")
     authority = _pseudo_value(lines, ":authority")
     status = _pseudo_value(lines, ":status")
     if path is not None or method is not None:
         return HttpRequestInfo(
             method=method.upper() if method else None,
+            scheme=scheme,
             host=authority or _header_value(lines, "Host"),
             path=path,
             is_request=True,

@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from app.exchanges.grouping import (
     EnrichedPacket,
@@ -91,6 +92,16 @@ class HttpPairTests(unittest.TestCase):
         self.assertEqual(exchanges[0]["http"]["status_code"], 200)
         self.assertEqual(exchanges[0]["representative_packet_ids"], [1, 2])
         self.assertEqual(exchanges[0]["remote"], {"ip": REMOTE_IP, "port": 80})
+
+    def test_http2_scheme_is_preserved(self):
+        request = http_request(1, "/a", dst_port=443)
+        request = replace(
+            request,
+            http_text=":method: GET\n:scheme: https\n:authority: api.example.com\n:path: /a\n",
+            protocols=("TCP", "TLS", "HTTP"),
+        )
+        exchanges, _ = compile_http_pairs([request])
+        self.assertEqual(exchanges[0]["http"]["scheme"], "https")
 
 
 class ConversationTests(unittest.TestCase):

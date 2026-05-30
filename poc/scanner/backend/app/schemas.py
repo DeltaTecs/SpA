@@ -22,6 +22,7 @@ class Endpoint(BaseModel):
 
 class HttpExchangeInfo(BaseModel):
     method: Optional[str] = None
+    scheme: Optional[str] = None
     path: Optional[str] = None
     endpoint_path: Optional[str] = None
     param_names: List[str] = Field(default_factory=list)

@@ -141,6 +141,7 @@ def compile_http_pairs(
                 "protocols": _union_protocols(packet for packet, _ in members),
                 "http": {
                     "method": rep_info.method,
+                    "scheme": rep_info.scheme,
                     "path": rep_info.path,
                     "endpoint_path": _endpoint_path(rep_info.path),
                     "param_names": query_param_names(rep_info.path),
