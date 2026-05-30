@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { submitReview } from "../../api/pentest";
 import type { PendingReview } from "../../api/types";
+import { ToolCallArguments } from "./ToolCallArguments";
 
 export interface ReviewEntry {
   review: PendingReview;
@@ -47,10 +48,11 @@ function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
   return (
     <article className="review">
       <header className="review__head">
+        <span className="review__label">Tool call</span>
         <code className="review__tool">{review.tool_name}</code>
         <span className="review__item">{itemTitle}</span>
       </header>
-      <pre className="json-block review__args">{formatArgs(review.arguments)}</pre>
+      <ToolCallArguments args={review.arguments} />
       {review.auto_reason && (
         <p className="review__auto">
           <strong>Auto-reviewer:</strong> {review.auto_reason}
@@ -85,12 +87,4 @@ function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
       {error && <span className="launch__error">{error}</span>}
     </article>
   );
-}
-
-function formatArgs(args: Record<string, unknown>): string {
-  try {
-    return JSON.stringify(args, null, 2);
-  } catch {
-    return String(args);
-  }
 }
