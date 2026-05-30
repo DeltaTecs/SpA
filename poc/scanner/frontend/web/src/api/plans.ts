@@ -6,6 +6,7 @@ import type {
   StartJobRequest,
   StartJobResponse,
   TaskTypeList,
+  TerminationResult,
 } from "./types";
 
 // Interesting data exchanges come from the db-api (proxied under /api/*).
@@ -28,4 +29,9 @@ export function startJob(request: StartJobRequest): Promise<StartJobResponse> {
 
 export function getJob(jobId: string): Promise<JobStatus> {
   return apiGet<JobStatus>(`/plan/jobs/${jobId}`);
+}
+
+// Terminate the analysis and kill all MCP tools (and their tool processes).
+export function cancelJob(jobId: string): Promise<TerminationResult> {
+  return apiPost<TerminationResult>(`/plan/jobs/${jobId}/cancel`, {});
 }

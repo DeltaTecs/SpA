@@ -230,7 +230,7 @@ export interface VulnerabilityCheck {
   references: string[];
 }
 
-export type TaskStatusValue = "pending" | "running" | "done" | "error";
+export type TaskStatusValue = "pending" | "running" | "done" | "error" | "cancelled";
 
 export interface ExchangeTaskStatus {
   exchange_id: string;
@@ -241,7 +241,7 @@ export interface ExchangeTaskStatus {
   stopped_on_limit: boolean | null;
 }
 
-export type JobStatusValue = "running" | "done" | "error";
+export type JobStatusValue = "running" | "done" | "error" | "cancelled";
 
 export interface JobStatus {
   job_id: string;
@@ -354,4 +354,21 @@ export interface PentestReportPayload {
   summary: string;
   evidence: string[];
   parse_warning?: string;
+}
+
+// --- termination -----------------------------------------------------------
+
+/** Per-server outcome of killing MCP tool processes during termination. */
+export interface ToolTerminationInfo {
+  name: string;
+  category: ToolCategory;
+  ok: boolean;
+  detail: string;
+}
+
+/** Response to a job-cancel request. */
+export interface TerminationResult {
+  job_id: string;
+  cancelled: boolean;
+  tools: ToolTerminationInfo[];
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from llm.cancellation import CancellationToken, OperationCancelled  # noqa: E402
 from llm.client import McpLlmClient, ToolDecision  # noqa: E402
 from llm.provider.base import BaseProvider, ChatResult, ToolCall, ToolSpec  # noqa: E402
 
@@ -187,6 +188,45 @@ class TestMcpLlmClient(unittest.TestCase):
         client = McpLlmClient(provider, [toolset], approver=AllowApprover())
         client.run("q")
         self.assertEqual(toolset.calls, [("lookup", {})])
+
+    def test_cancel_before_run_raises_without_calling_provider(self):
+        provider = ScriptedProvider([ChatResult(content="never reached")])
+        token = CancellationToken()
+        token.cancel()
+        client = McpLlmClient(provider, [], cancel_token=token)
+
+        with self.assertRaises(OperationCancelled):
+            client.run("hello")
+        self.assertEqual(provider.received, [])  # loop stopped before the first turn
+
+    def test_cancel_during_tool_call_stops_before_next_turn(self):
+        # The model asks for a tool; invoking it cancels the token, so the loop
+        # must stop instead of consulting the model a second time.
+        token = CancellationToken()
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="should not be reached"),
+            ]
+        )
+
+        class CancellingToolset(FakeToolset):
+            def call_tool(self, name, arguments):
+                token.cancel()
+                return super().call_tool(name, arguments)
+
+        toolset = CancellingToolset([_spec("lookup")])
+        client = McpLlmClient(provider, [toolset], cancel_token=token)
+
+        with self.assertRaises(OperationCancelled):
+            client.run("q")
+        self.assertEqual(len(toolset.calls), 1)  # the tool ran exactly once
+        self.assertEqual(len(provider.received), 1)  # only the first turn happened
+
+    def test_no_token_runs_normally(self):
+        provider = ScriptedProvider([ChatResult(content="ok")])
+        result = McpLlmClient(provider, [], cancel_token=None).run("q")
+        self.assertEqual(result.output, "ok")
 
     def test_stops_on_max_iterations(self):
         # Provider always asks for another tool call -> never terminates on its own.

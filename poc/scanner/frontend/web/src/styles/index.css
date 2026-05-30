@@ -1039,10 +1039,20 @@ body {
   cursor: not-allowed;
 }
 
+.launch__button--danger {
+  background: #b00020;
+  color: #fff;
+}
+
 .launch__summary {
   font-size: 13px;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;
+}
+
+.launch__termination {
+  font-size: 13px;
+  color: var(--text-soft);
 }
 
 .launch__error {
@@ -1270,6 +1280,11 @@ body {
 .task-status--error {
   background: #fbe6e9;
   color: #b00020;
+}
+
+.task-status--cancelled {
+  background: #f3ede2;
+  color: #8a6d3b;
 }
 
 /* ---- Vulnerability checks ----------------------------------------------- */

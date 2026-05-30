@@ -16,6 +16,7 @@ Example::
 
 from __future__ import annotations
 
+from .cancellation import CancellationToken, OperationCancelled
 from .client import McpLlmClient, RunResult, ToolApprover, ToolDecision
 from .logging_config import configure_logging
 from .mcp.toolset import McpToolset
@@ -36,6 +37,8 @@ __all__ = [
     "RunResult",
     "ToolApprover",
     "ToolDecision",
+    "CancellationToken",
+    "OperationCancelled",
     "McpToolset",
     "ProviderFactory",
     "BaseProvider",

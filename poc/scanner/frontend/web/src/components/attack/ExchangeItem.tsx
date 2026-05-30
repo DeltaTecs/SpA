@@ -123,6 +123,7 @@ function Annotation({ task }: { task: ExchangeTaskStatus }) {
       </div>
       {task.status === "pending" && <div className="muted">Queued...</div>}
       {task.status === "running" && <div className="muted">Analysing...</div>}
+      {task.status === "cancelled" && <div className="muted">Terminated by operator.</div>}
       {task.status === "error" && (
         <div className="state state--error">{task.error ?? "Analysis failed."}</div>
       )}
@@ -132,15 +133,14 @@ function Annotation({ task }: { task: ExchangeTaskStatus }) {
 }
 
 function StatusBadge({ status }: { status: TaskStatusValue }) {
-  const label =
-    status === "done"
-      ? "done"
-      : status === "error"
-        ? "error"
-        : status === "running"
-          ? "running..."
-          : "queued";
-  return <span className={`task-status task-status--${status}`}>{label}</span>;
+  const labels: Record<TaskStatusValue, string> = {
+    done: "done",
+    error: "error",
+    running: "running...",
+    cancelled: "cancelled",
+    pending: "queued",
+  };
+  return <span className={`task-status task-status--${status}`}>{labels[status]}</span>;
 }
 
 function Row({ label, value }: { label: string; value: string }) {

@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from .cancellation import CancellationToken
 from .provider.base import BaseProvider, ChatMessage, ToolCall, ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class McpLlmClient:
         max_iterations: int = DEFAULT_MAX_ITERATIONS,
         allowed_tools: set[str] | None = None,
         approver: ToolApprover | None = None,
+        cancel_token: CancellationToken | None = None,
     ) -> None:
         self.provider = provider
         self.toolsets = list(toolsets or [])
@@ -96,14 +98,17 @@ class McpLlmClient:
         self.allowed_tools = set(allowed_tools) if allowed_tools is not None else None
         # Optional pre-execution gate (human approval / reviewer model).
         self.approver = approver
+        # Optional cooperative cancellation, polled between turns and tool calls.
+        self.cancel_token = cancel_token
         logger.info(
             "McpLlmClient ready (provider=%s, toolsets=%d, max_iterations=%d, "
-            "allowed_tools=%s, approver=%s)",
+            "allowed_tools=%s, approver=%s, cancellable=%s)",
             provider.name,
             len(self.toolsets),
             max_iterations,
             "all" if self.allowed_tools is None else len(self.allowed_tools),
             "yes" if approver is not None else "no",
+            "yes" if cancel_token is not None else "no",
         )
 
     def run(self, prompt: str, *, system: str | None = None) -> RunResult:
@@ -120,6 +125,7 @@ class McpLlmClient:
         executed_calls: list[ToolCall] = []
 
         for iteration in range(1, self.max_iterations + 1):
+            self._check_cancelled()
             logger.info("Iteration %d/%d", iteration, self.max_iterations)
             result = self.provider.chat(messages, tool_specs or None)
 
@@ -138,6 +144,7 @@ class McpLlmClient:
                 )
             )
             for call in result.tool_calls:
+                self._check_cancelled()
                 executed_calls.append(call)
                 output = self._handle_call(call, dispatch)
                 messages.append(
@@ -165,6 +172,11 @@ class McpLlmClient:
         )
 
     # -- helpers ------------------------------------------------------------
+
+    def _check_cancelled(self) -> None:
+        """Stop the run if cancellation was requested (no-op without a token)."""
+        if self.cancel_token is not None:
+            self.cancel_token.raise_if_cancelled()
 
     def _collect_tools(self) -> tuple[list[ToolSpec], dict[str, Toolset]]:
         """Aggregate tool specs across toolsets and map tool name -> owner.

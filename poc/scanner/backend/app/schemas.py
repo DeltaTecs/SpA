@@ -148,9 +148,13 @@ class VulnerabilityCheck(BaseModel):
     references: List[str] = Field(default_factory=list)
 
 
+TaskStatus = Literal["pending", "running", "done", "error", "cancelled"]
+JobLifecycle = Literal["running", "done", "error", "cancelled"]
+
+
 class ExchangeTaskStatus(BaseModel):
     exchange_id: str
-    status: Literal["pending", "running", "done", "error"]
+    status: TaskStatus
     result: Optional[TaskResult] = None
     error: Optional[str] = None
     iterations: Optional[int] = None
@@ -159,7 +163,7 @@ class ExchangeTaskStatus(BaseModel):
 
 class JobStatus(BaseModel):
     job_id: str
-    status: Literal["running", "done", "error"]
+    status: JobLifecycle
     provider: str
     model: Optional[str] = None
     reasoning_effort: Optional[ReasoningEffort] = None
@@ -268,7 +272,7 @@ class PendingReview(BaseModel):
 class PentestItemStatus(BaseModel):
     item_id: str
     title: str
-    status: Literal["pending", "running", "done", "error"]
+    status: TaskStatus
     result: Optional[TaskResult] = None
     error: Optional[str] = None
     iterations: Optional[int] = None
@@ -278,7 +282,7 @@ class PentestItemStatus(BaseModel):
 
 class PentestJobStatus(BaseModel):
     job_id: str
-    status: Literal["running", "done", "error"]
+    status: JobLifecycle
     provider: str
     model: Optional[str] = None
     reasoning_effort: Optional[ReasoningEffort] = None
@@ -288,3 +292,24 @@ class PentestJobStatus(BaseModel):
 class ReviewDecisionRequest(BaseModel):
     approved: bool
     hint: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)
+
+
+# --- termination -------------------------------------------------------------
+
+
+class ToolTerminationInfo(BaseModel):
+    """The result of asking one MCP server to kill its tool processes."""
+
+    name: str
+    category: ToolCategory
+    ok: bool
+    detail: str = ""
+
+
+class TerminationResult(BaseModel):
+    """Response to a job-cancel request: the job was cancelled and the per-server
+    outcome of killing MCP tool processes."""
+
+    job_id: str
+    cancelled: bool
+    tools: List[ToolTerminationInfo] = Field(default_factory=list)

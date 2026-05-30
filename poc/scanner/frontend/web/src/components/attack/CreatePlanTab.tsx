@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
+import { cancelJob, getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
 import { getRecordings } from "../../api/stats";
 import type {
   Exchange,
@@ -7,6 +7,7 @@ import type {
   JobStatus,
   PentestItemInput,
   RecordingInfo,
+  TerminationResult,
   VulnerabilityCheck,
 } from "../../api/types";
 import { useFetch } from "../../lib/useFetch";
@@ -65,6 +66,9 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
   const [jobId, setJobId] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
+  const [terminating, setTerminating] = useState(false);
+  const [termination, setTermination] = useState<TerminationResult | null>(null);
+  const [terminationError, setTerminationError] = useState<string | null>(null);
 
   // Seed the config once the providers and task types have loaded.
   useEffect(() => {
@@ -87,6 +91,8 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     if (!exchanges.data) return;
     setItems(exchanges.data.items.map((exchange) => ({ ...exchange, selected: true })));
     setJobId(null);
+    setTermination(null);
+    setTerminationError(null);
   }, [exchanges.data]);
 
   const job = usePolling<JobStatus>(
@@ -130,6 +136,8 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     if (!config) return;
     const selected = items.filter((item) => item.selected).map(toExchange);
     setLaunchError(null);
+    setTermination(null);
+    setTerminationError(null);
     setLaunching(true);
     try {
       const response = await startJob({
@@ -147,6 +155,19 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
       setLaunchError(err instanceof Error ? err.message : String(err));
     } finally {
       setLaunching(false);
+    }
+  }
+
+  async function terminate() {
+    if (!jobId) return;
+    setTerminationError(null);
+    setTerminating(true);
+    try {
+      setTermination(await cancelJob(jobId));
+    } catch (err) {
+      setTerminationError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setTerminating(false);
     }
   }
 
@@ -178,6 +199,10 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
           planReady={planReady}
           pentestReady={pentestReady}
           onGoToPentest={onGoToPentest}
+          onTerminate={terminate}
+          terminating={terminating}
+          termination={termination}
+          terminationError={terminationError}
         />
       </section>
 

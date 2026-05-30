@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from llm.provider.base import BaseProvider, ChatResult  # noqa: E402
+from llm.provider.base import BaseProvider, ChatResult, ToolCall, ToolSpec  # noqa: E402
 
 from app.config import settings  # noqa: E402
 from app.jobs.runner import run_exchange, store  # noqa: E402
@@ -78,6 +78,48 @@ class _OverrideTask(_EchoTask):
 
     def build_user_prompt_for_run(self, exchange: Exchange, prompt_overrides=None):
         return (prompt_overrides or {}).get("user_prompt", "default user")
+
+
+class _ToolThenAnswerProvider(BaseProvider):
+    """Requests one tool call on the first turn, then returns a final answer."""
+
+    name = "tooler"
+
+    def __init__(self):
+        super().__init__(api_key=None, model="m")
+        self.turns = 0
+
+    def chat(self, messages, tools=None):
+        self.turns += 1
+        if self.turns == 1:
+            return ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})])
+        return ChatResult(content="done")
+
+
+class _CancellingToolset:
+    """A toolset that runs a side effect (e.g. cancel the job) when called."""
+
+    name = "fake"
+
+    def __init__(self, on_call):
+        self._on_call = on_call
+        self.calls = []
+
+    def list_tool_specs(self):
+        return [ToolSpec(name="lookup", description="d", parameters={"type": "object"})]
+
+    def call_tool(self, name, arguments):
+        self.calls.append((name, arguments))
+        self._on_call()
+        return "out"
+
+
+class _ToolTask(_EchoTask):
+    def __init__(self, toolset):
+        self._toolset = toolset
+
+    def select_toolsets(self, cfg):
+        return [self._toolset]
 
 
 class JobStoreTests(unittest.TestCase):
@@ -200,6 +242,74 @@ class RunExchangeTests(unittest.TestCase):
         job = store.get(job_id)
         self.assertTrue(all(t.status == "done" for t in job.tasks))
         self.assertEqual(derived_status(job.tasks), "done")
+
+
+class JobCancellationTests(unittest.TestCase):
+    def _job(self, s, ids=("a", "b")):
+        return s.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=list(ids),
+        )
+
+    def test_cancel_marks_inflight_and_sets_token(self):
+        s = JobStore()
+        job_id = self._job(s)
+        s.update_task(job_id, "a", status="running")
+        self.assertTrue(s.cancel(job_id))
+        job = s.get(job_id)
+        self.assertEqual([t.status for t in job.tasks], ["cancelled", "cancelled"])
+        self.assertEqual(derived_status(job.tasks), "cancelled")
+        self.assertTrue(s.token_for(job_id).is_cancelled)
+
+    def test_cancel_keeps_finished_outcomes(self):
+        s = JobStore()
+        job_id = self._job(s)
+        s.update_task(job_id, "a", status="done", result={"x": 1})
+        s.cancel(job_id)
+        statuses = {t.exchange_id: t.status for t in s.get(job_id).tasks}
+        self.assertEqual(statuses, {"a": "done", "b": "cancelled"})
+
+    def test_update_task_frozen_after_cancel(self):
+        s = JobStore()
+        job_id = self._job(s, ids=("a",))
+        s.cancel(job_id)
+        s.update_task(job_id, "a", status="done", result={"x": 1})  # late worker write
+        self.assertEqual(s.get(job_id).tasks[0].status, "cancelled")
+
+    def test_cancel_unknown_returns_false(self):
+        self.assertFalse(JobStore().cancel("nope"))
+
+
+class RunExchangeCancellationTests(unittest.TestCase):
+    def test_skips_when_cancelled_before_start(self):
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["e1"],
+        )
+        store.cancel(job_id)
+        run_exchange(job_id, Exchange(id="e1"), _EchoTask(), _StubProvider("hi"), 5, settings)
+        self.assertEqual(store.get(job_id).tasks[0].status, "cancelled")
+
+    def test_midrun_cancellation_records_cancelled(self):
+        job_id = store.create(
+            provider="local",
+            model="m",
+            reasoning_effort=None,
+            task_type="echo",
+            exchange_ids=["e1"],
+        )
+        toolset = _CancellingToolset(lambda: store.cancel(job_id))
+        run_exchange(
+            job_id, Exchange(id="e1"), _ToolTask(toolset), _ToolThenAnswerProvider(), 5, settings
+        )
+        self.assertEqual(store.get(job_id).tasks[0].status, "cancelled")
+        self.assertEqual(len(toolset.calls), 1)  # stopped before a second tool call
 
 
 if __name__ == "__main__":

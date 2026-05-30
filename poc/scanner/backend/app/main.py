@@ -19,7 +19,7 @@ from llm import configure_logging
 from .config import settings
 from .jobs.runner import store, submit_job
 from .jobs.store import derived_status
-from .mcp_catalog import build_catalog
+from .mcp_catalog import build_catalog, terminate_tool_processes
 from .pentest import store as pentest_store
 from .pentest import submit_pentest_job
 from .pentest.store import derived_status as pentest_derived_status
@@ -39,6 +39,8 @@ from .schemas import (
     StartPentestJobResponse,
     TaskTypeInfo,
     TaskTypeList,
+    TerminationResult,
+    ToolTerminationInfo,
 )
 from .tasks import available as available_tasks
 
@@ -151,6 +153,27 @@ def get_job(job_id: str) -> JobStatus:
     )
 
 
+@app.post("/jobs/{job_id}/cancel", response_model=TerminationResult, tags=["plan"])
+def cancel_job(job_id: str) -> TerminationResult:
+    """Terminate an analysis job and kill all MCP tools and their tool processes."""
+    if not store.cancel(job_id):
+        raise HTTPException(status_code=404, detail=f"Unknown job '{job_id}'.")
+    return _terminate_tools(job_id)
+
+
+def _terminate_tools(job_id: str) -> TerminationResult:
+    """Kill every stop-capable MCP server's tool processes and report the outcome.
+
+    Run after the job's cancellation token is set, so its sessions stop as soon
+    as their in-flight (now-killed) tool calls return.
+    """
+    tools = [
+        ToolTerminationInfo(name=t.name, category=t.category, ok=t.ok, detail=t.detail)
+        for t in terminate_tool_processes(settings)
+    ]
+    return TerminationResult(job_id=job_id, cancelled=True, tools=tools)
+
+
 # --- pentest -----------------------------------------------------------------
 
 
@@ -238,3 +261,14 @@ def resolve_pentest_review(
     if not resolved:
         raise HTTPException(status_code=404, detail="Unknown or already-resolved review.")
     return {"resolved": True}
+
+
+@app.post("/pentest/jobs/{job_id}/cancel", response_model=TerminationResult, tags=["pentest"])
+def cancel_pentest_job(job_id: str) -> TerminationResult:
+    """Terminate a pentest job and kill all MCP tools and their tool processes.
+
+    Also releases any sessions blocked awaiting a manual tool review.
+    """
+    if not pentest_store.cancel(job_id):
+        raise HTTPException(status_code=404, detail=f"Unknown pentest job '{job_id}'.")
+    return _terminate_tools(job_id)
