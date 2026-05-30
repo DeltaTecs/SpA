@@ -9,6 +9,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -16,7 +17,7 @@ from app import mcp_catalog  # noqa: E402
 from app.config import Settings  # noqa: E402
 from app.mcp_catalog import (  # noqa: E402
     StopSpec,
-    _parse_jsonrpc_payload,
+    _post_admin_stop,
     build_catalog,
     terminate_tool_processes,
 )
@@ -29,6 +30,7 @@ def _settings(**overrides) -> Settings:
         tavily_url="http://tavily/mcp",
         hexstrike_bash_url="http://hexstrike:8766/mcp",
         hexstrike_tools_url="http://hexstrike:8767/mcp",
+        hexstrike_tools_admin_token="test-admin-token",
         openai_api_key=None,
         deepseek_api_key=None,
         max_concurrency=4,
@@ -46,21 +48,37 @@ class CatalogStopSpecTests(unittest.TestCase):
         self.assertIsNone(by_name["packet-db"].stop)
         self.assertIsNone(by_name["tavily"].stop)
         self.assertEqual(by_name["hexstrike-bash"].stop, StopSpec("tool", "stop_active_bash"))
-        self.assertEqual(by_name["hexstrike-tools"].stop, StopSpec("method", "tools/stop"))
+        self.assertEqual(by_name["hexstrike-tools"].stop, StopSpec("admin", "/admin/tools/stop"))
 
 
-class ParseJsonRpcPayloadTests(unittest.TestCase):
-    def test_parses_sse(self):
-        text = 'event: message\ndata: {"jsonrpc": "2.0", "result": {"message": "stopped 2"}}\n\n'
-        self.assertEqual(_parse_jsonrpc_payload(text)["result"]["message"], "stopped 2")
+class PostAdminStopTests(unittest.TestCase):
+    def test_derives_admin_url_and_sends_bearer_token(self):
+        response = mock.Mock()
+        response.json.return_value = {"message": "stopped"}
+        with mock.patch.object(mcp_catalog.httpx, "post", return_value=response) as post:
+            self.assertEqual(
+                _post_admin_stop(
+                    "http://hexstrike:8767/mcp",
+                    "/admin/tools/stop",
+                    "secret",
+                ),
+                "stopped",
+            )
 
-    def test_parses_plain_json(self):
-        self.assertEqual(_parse_jsonrpc_payload('{"result": {}}'), {"result": {}})
+        post.assert_called_once_with(
+            "http://hexstrike:8767/admin/tools/stop",
+            headers={
+                "Accept": "application/json",
+                "Authorization": "Bearer secret",
+            },
+            timeout=mcp_catalog.STOP_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status.assert_called_once_with()
 
 
 class TerminateToolProcessesTests(unittest.TestCase):
     def setUp(self):
-        # The bash stop is a real MCP tool call; the bridge stop is a raw POST.
+        # The bash stop is a real MCP tool call; the bridge stop is an admin POST.
         self.tool_calls = []
         self.posts = []
 
@@ -71,16 +89,16 @@ class TerminateToolProcessesTests(unittest.TestCase):
         self._orig_call_tool = mcp_catalog.McpToolset.call_tool
         mcp_catalog.McpToolset.call_tool = fake_call_tool
 
-        def fake_post(url, method):
-            self.posts.append((url, method))
+        def fake_post(url, path, token):
+            self.posts.append((url, path, token))
             return "Stop requested for active HexStrike MCP subprocesses."
 
-        self._orig_post = mcp_catalog._post_jsonrpc_method
-        mcp_catalog._post_jsonrpc_method = fake_post
+        self._orig_post = mcp_catalog._post_admin_stop
+        mcp_catalog._post_admin_stop = fake_post
 
     def tearDown(self):
         mcp_catalog.McpToolset.call_tool = self._orig_call_tool
-        mcp_catalog._post_jsonrpc_method = self._orig_post
+        mcp_catalog._post_admin_stop = self._orig_post
 
     def test_stops_only_stop_capable_servers(self):
         results = terminate_tool_processes(_settings())
@@ -88,9 +106,12 @@ class TerminateToolProcessesTests(unittest.TestCase):
         # Read-only servers (db, search) are skipped entirely.
         self.assertEqual(set(by_name), {"hexstrike-bash", "hexstrike-tools"})
         self.assertTrue(all(r.ok for r in results))
-        # Bash via MCP tool call; bridge via raw JSON-RPC method.
+        # Bash via MCP tool call; bridge via authenticated admin POST.
         self.assertEqual(self.tool_calls, [("hexstrike-bash", "stop_active_bash", {})])
-        self.assertEqual(self.posts, [("http://hexstrike:8767/mcp", "tools/stop")])
+        self.assertEqual(
+            self.posts,
+            [("http://hexstrike:8767/mcp", "/admin/tools/stop", "test-admin-token")],
+        )
 
     def test_only_configured_servers_are_signalled(self):
         results = terminate_tool_processes(_settings(hexstrike_tools_url=None))
@@ -98,10 +119,10 @@ class TerminateToolProcessesTests(unittest.TestCase):
         self.assertEqual(self.posts, [])
 
     def test_failure_is_reported_not_raised(self):
-        def boom(url, method):
+        def boom(url, path, token):
             raise RuntimeError("bridge unreachable")
 
-        mcp_catalog._post_jsonrpc_method = boom
+        mcp_catalog._post_admin_stop = boom
         results = {r.name: r for r in terminate_tool_processes(_settings())}
         self.assertTrue(results["hexstrike-bash"].ok)  # the other server still stopped
         self.assertFalse(results["hexstrike-tools"].ok)

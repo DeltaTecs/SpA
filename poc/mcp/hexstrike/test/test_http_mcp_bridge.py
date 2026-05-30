@@ -7,6 +7,8 @@ from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 from unittest import mock
 
+from starlette.testclient import TestClient
+
 
 def _load_bridge_module():
     local_script = Path(__file__).resolve().parents[1] / "http_mcp_bridge.py"
@@ -23,6 +25,49 @@ def _load_bridge_module():
 
 
 bridge = _load_bridge_module()
+
+
+class AdminStopRouteTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(bridge.app)
+
+    def test_correct_token_invokes_stop_logic(self) -> None:
+        result = {"message": "stopped"}
+        with (
+            mock.patch.object(bridge, "TOOLS_ADMIN_TOKEN", "secret"),
+            mock.patch.object(bridge, "_stop_active_tools", return_value=result) as stop,
+        ):
+            response = self.client.post(
+                "/admin/tools/stop",
+                headers={"Authorization": "Bearer secret"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), result)
+        stop.assert_called_once_with()
+
+    def test_missing_token_returns_401_without_stopping(self) -> None:
+        with (
+            mock.patch.object(bridge, "TOOLS_ADMIN_TOKEN", "secret"),
+            mock.patch.object(bridge, "_stop_active_tools") as stop,
+        ):
+            response = self.client.post("/admin/tools/stop")
+
+        self.assertEqual(response.status_code, 401)
+        stop.assert_not_called()
+
+    def test_wrong_token_returns_401_without_stopping(self) -> None:
+        with (
+            mock.patch.object(bridge, "TOOLS_ADMIN_TOKEN", "secret"),
+            mock.patch.object(bridge, "_stop_active_tools") as stop,
+        ):
+            response = self.client.post(
+                "/admin/tools/stop",
+                headers={"Authorization": "Bearer wrong"},
+            )
+
+        self.assertEqual(response.status_code, 401)
+        stop.assert_not_called()
 
 
 class ListManagedProcessPidsTests(unittest.TestCase):

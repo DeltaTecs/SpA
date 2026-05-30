@@ -30,6 +30,7 @@ class Settings:
     tavily_url: Optional[str]
     hexstrike_bash_url: Optional[str]
     hexstrike_tools_url: Optional[str]
+    hexstrike_tools_admin_token: Optional[str]
     openai_api_key: Optional[str]
     deepseek_api_key: Optional[str]
     #: Base URL of the db-api. When set, finished scans are persisted there
@@ -46,13 +47,21 @@ class Settings:
         tavily_url = (
             f"https://mcp.tavily.com/mcp/?tavilyApiKey={tavily_key}" if tavily_key else None
         )
+        hexstrike_tools_url = _optional("HEXSTRIKE_TOOLS_MCP_URL")
+        hexstrike_tools_admin_token = _optional("HEXSTRIKE_TOOLS_ADMIN_TOKEN")
+        if hexstrike_tools_url and not hexstrike_tools_admin_token:
+            raise ValueError(
+                "HEXSTRIKE_TOOLS_ADMIN_TOKEN must be configured when "
+                "HEXSTRIKE_TOOLS_MCP_URL is set"
+            )
         return Settings(
             mcp_packet_db_url=os.environ.get(
                 "MCP_PACKET_DB_URL", "http://mcp-packet-db:8765/mcp"
             ),
             tavily_url=tavily_url,
             hexstrike_bash_url=_optional("HEXSTRIKE_BASH_MCP_URL"),
-            hexstrike_tools_url=_optional("HEXSTRIKE_TOOLS_MCP_URL"),
+            hexstrike_tools_url=hexstrike_tools_url,
+            hexstrike_tools_admin_token=hexstrike_tools_admin_token,
             openai_api_key=_optional("OPENAI_API_KEY"),
             deepseek_api_key=_optional("DEEPSEEK_API_KEY"),
             db_api_url=_optional("DB_API_URL"),

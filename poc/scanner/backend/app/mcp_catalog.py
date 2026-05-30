@@ -19,6 +19,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from typing import List, Literal, Optional, Set
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -113,12 +114,11 @@ class StopSpec:
     """How to terminate a toolset's running tool processes.
 
     ``kind="tool"`` invokes a regular MCP tool by name (full handshake), e.g.
-    hexstrike-bash's ``stop_active_bash``. ``kind="method"`` sends a raw JSON-RPC
-    method to the server URL — used for the hexstrike HTTP bridge's custom
-    ``tools/stop``, which is not exposed as a standard MCP tool.
+    hexstrike-bash's ``stop_active_bash``. ``kind="admin"`` posts to an
+    authenticated HTTP admin endpoint outside the MCP protocol.
     """
 
-    kind: Literal["tool", "method"]
+    kind: Literal["tool", "admin"]
     name: str
 
 
@@ -178,9 +178,9 @@ def build_catalog(settings: Settings) -> List[CatalogEntry]:
                     name="hexstrike-tools",
                     timeout=settings.mcp_timeout,
                 ),
-                # The HTTP bridge handles a custom `tools/stop` JSON-RPC method
-                # that terminates managed scanners and their stdio MCP wrappers.
-                stop=StopSpec("method", "tools/stop"),
+                # The admin endpoint terminates managed scanners and their
+                # stdio MCP wrappers without exposing stop as an MCP tool.
+                stop=StopSpec("admin", "/admin/tools/stop"),
             )
         )
     return entries
@@ -270,7 +270,11 @@ def terminate_tool_processes(settings: Settings) -> List[ToolTermination]:
             if entry.stop.kind == "tool":
                 detail = entry.toolset.call_tool(entry.stop.name, {})
             else:
-                detail = _post_jsonrpc_method(entry.toolset.url, entry.stop.name)
+                detail = _post_admin_stop(
+                    entry.toolset.url,
+                    entry.stop.name,
+                    settings.hexstrike_tools_admin_token,
+                )
             logger.info("Stopped tool processes for '%s': %s", entry.name, detail)
             results.append(ToolTermination(entry.name, entry.category, True, detail))
         except Exception as exc:  # noqa: BLE001 - one bad server must not block the rest
@@ -279,33 +283,23 @@ def terminate_tool_processes(settings: Settings) -> List[ToolTermination]:
     return results
 
 
-def _post_jsonrpc_method(url: str, method: str) -> str:
-    """Send a single JSON-RPC ``method`` to ``url`` and return its message.
+def _post_admin_stop(mcp_url: str, path: str, token: Optional[str]) -> str:
+    """Ask the HexStrike bridge admin endpoint to stop active tool processes."""
+    if not token:
+        raise RuntimeError("HEXSTRIKE_TOOLS_ADMIN_TOKEN is not configured")
 
-    Targets the HexStrike HTTP bridge, which answers each POST independently
-    (no session handshake) and replies as Server-Sent Events.
-    """
+    parsed = urlsplit(mcp_url)
+    url = urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
     response = httpx.post(
         url,
-        json={"jsonrpc": "2.0", "id": 1, "method": method},
-        headers={"Accept": "application/json, text/event-stream"},
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
         timeout=STOP_TIMEOUT_SECONDS,
     )
     response.raise_for_status()
-    data = _parse_jsonrpc_payload(response.text)
-    error = data.get("error")
-    if error:
-        raise RuntimeError(str(error.get("message", error)))
-    result = data.get("result")
-    if isinstance(result, dict) and result.get("message"):
-        return str(result["message"])
-    return json.dumps(result) if result is not None else "stopped"
-
-
-def _parse_jsonrpc_payload(text: str) -> dict:
-    """Decode a JSON-RPC body that may arrive as SSE (``data: {...}``) or raw JSON."""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("data:"):
-            return json.loads(stripped[len("data:") :].strip())
-    return json.loads(text)
+    result = response.json()
+    if not isinstance(result, dict):
+        raise RuntimeError("HexStrike admin stop response is not a JSON object")
+    return str(result["message"]) if result.get("message") else json.dumps(result)

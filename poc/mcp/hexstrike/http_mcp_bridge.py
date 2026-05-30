@@ -1,24 +1,32 @@
 #!/opt/hexstrike-venv/bin/python
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
+import secrets
 import signal
 import sys
 import time
-import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request as UrlRequest
+from urllib.request import urlopen
 
-from mcp import ClientSession
+import anyio
+import uvicorn
+from mcp import ClientSession, types
 from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 
 
 PYTHON = os.environ.get("HEXSTRIKE_VENV_PYTHON", "/opt/hexstrike-venv/bin/python")
@@ -30,6 +38,12 @@ MCP_PORT = int(os.environ.get("HEXSTRIKE_MCP_HTTP_PORT", "8767"))
 TOOL_TIMEOUT_SECONDS = int(os.environ.get("HEXSTRIKE_MCP_HTTP_TIMEOUT", "900"))
 PROCESS_API_TIMEOUT_SECONDS = float(os.environ.get("HEXSTRIKE_PROCESS_API_TIMEOUT", "5"))
 MAX_PROCESS_STOP_WORKERS = int(os.environ.get("HEXSTRIKE_PROCESS_STOP_WORKERS", "8"))
+TOOLS_ADMIN_TOKEN = os.environ.get("HEXSTRIKE_TOOLS_ADMIN_TOKEN", "").strip()
+MCP_ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+]
 
 
 logger = logging.getLogger(__name__)
@@ -73,24 +87,23 @@ def _stdio_params() -> StdioServerParameters:
     )
 
 
-async def _list_tools() -> dict[str, Any]:
+async def _list_tools() -> list[types.Tool]:
     async with stdio_client(_stdio_params()) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             tools = await session.list_tools()
-            return _to_jsonable(tools)
+            return tools.tools
 
 
-async def _call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
     async with stdio_client(_stdio_params()) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
-            result = await session.call_tool(
+            return await session.call_tool(
                 name,
                 arguments,
                 read_timeout_seconds=timedelta(seconds=TOOL_TIMEOUT_SECONDS),
             )
-            return _to_jsonable(result)
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -103,102 +116,76 @@ def _to_jsonable(value: Any) -> Any:
     return value
 
 
-class BridgeHandler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
+mcp_server = Server("hexstrike-http-mcp-bridge", version="2.0")
 
-    def do_POST(self) -> None:
-        if self.path.rstrip("/") != "/mcp":
-            self.send_error(404)
-            return
 
-        try:
-            payload = self._read_json()
-            method = payload.get("method")
-            request_id = payload.get("id")
+@mcp_server.list_tools()
+async def list_tools() -> list[types.Tool]:
+    return await _list_tools()
 
-            if method == "initialize":
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": {
-                        "protocolVersion": "2024-11-05",
-                        "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {
-                            "name": "hexstrike-http-mcp-bridge",
-                            "version": "1.0",
-                        },
-                    },
-                }
-            elif method == "notifications/initialized":
-                response = {"jsonrpc": "2.0", "id": request_id, "result": {}}
-            elif method == "tools/list":
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": asyncio.run(_list_tools()),
-                }
-            elif method == "tools/call":
-                params = payload.get("params") or {}
-                tool_name = str(params.get("name") or "")
-                tool_arguments = params.get("arguments") or {}
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "MCP tool input name=%s arguments=%s",
-                        tool_name,
-                        _log_payload(tool_arguments),
-                    )
-                result = asyncio.run(_call_tool(tool_name, tool_arguments))
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(
-                        "MCP tool output name=%s output=%s",
-                        tool_name,
-                        _log_payload(result),
-                    )
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": result,
-                }
-            elif method == "tools/stop":
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "result": _stop_active_tools(),
-                }
-            else:
-                response = {
-                    "jsonrpc": "2.0",
-                    "id": request_id,
-                    "error": {"code": -32601, "message": f"Unknown method: {method}"},
-                }
-        except Exception as exc:
-            logger.exception("HexStrike MCP bridge request failed")
-            response = {
-                "jsonrpc": "2.0",
-                "id": None,
-                "error": {"code": -32000, "message": str(exc)},
-            }
 
-        self._send_sse(response)
+@mcp_server.call_tool(validate_input=True)
+async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool input name=%s arguments=%s", name, _log_payload(arguments))
+    result = await _call_tool(name, arguments)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("MCP tool output name=%s output=%s", name, _log_payload(_to_jsonable(result)))
+    return result
 
-    def log_message(self, fmt: str, *args: Any) -> None:
-        logger.info("%s - %s", self.address_string(), fmt % args)
 
-    def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or "0")
-        raw = self.rfile.read(length)
-        if not raw:
-            return {}
-        return json.loads(raw.decode("utf-8"))
+session_manager = StreamableHTTPSessionManager(
+    app=mcp_server,
+    stateless=True,
+    json_response=True,
+    security_settings=TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=MCP_ALLOWED_HOSTS,
+        allowed_origins=[],
+    ),
+)
 
-    def _send_sse(self, payload: dict[str, Any]) -> None:
-        body = f"event: message\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Mcp-Session-Id", self.headers.get("Mcp-Session-Id") or uuid.uuid4().hex)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+
+class McpApp:
+    """Delegate the mounted ASGI route to the SDK's transport manager."""
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        await session_manager.handle_request(scope, receive, send)
+
+
+async def _health(_request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+def _is_admin_authorized(request: Request) -> bool:
+    prefix = "Bearer "
+    authorization = request.headers.get("authorization", "")
+    return bool(
+        TOOLS_ADMIN_TOKEN
+        and authorization.startswith(prefix)
+        and secrets.compare_digest(authorization[len(prefix) :], TOOLS_ADMIN_TOKEN)
+    )
+
+
+async def _stop_tools(request: Request) -> JSONResponse:
+    if not _is_admin_authorized(request):
+        return JSONResponse(
+            {"detail": "Unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    result = await anyio.to_thread.run_sync(_stop_active_tools)
+    return JSONResponse(result)
+
+
+app = Starlette(
+    routes=[
+        Route("/mcp", endpoint=McpApp()),
+        Route("/health", endpoint=_health, methods=["GET"]),
+        Route("/admin/tools/stop", endpoint=_stop_tools, methods=["POST"]),
+    ],
+    lifespan=lambda _app: session_manager.run(),
+)
 
 
 class HexStrikeApiError(RuntimeError):
@@ -338,7 +325,7 @@ def _terminate_hexstrike_managed_process(pid: int) -> bool:
 def _request_hexstrike_json(path: str, *, method: str = "GET") -> dict[str, Any]:
     """Call the local HexStrike REST API and decode an object response."""
 
-    request = Request(
+    request = UrlRequest(
         f"{HEXSTRIKE_SERVER_URL.rstrip('/')}{path}",
         data=b"" if method == "POST" else None,
         headers={"Accept": "application/json"},
@@ -454,13 +441,17 @@ def main() -> None:
         force=True,
     )
     logging.getLogger().setLevel(log_level)
+    if not TOOLS_ADMIN_TOKEN:
+        raise RuntimeError("HEXSTRIKE_TOOLS_ADMIN_TOKEN must be configured")
+    if not MCP_ALLOWED_HOSTS:
+        raise RuntimeError("HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS must be configured")
     logger.info(
         "Starting HexStrike HTTP MCP bridge on %s:%d for %s",
         MCP_HOST,
         MCP_PORT,
         HEXSTRIKE_SERVER_URL,
     )
-    ThreadingHTTPServer((MCP_HOST, MCP_PORT), BridgeHandler).serve_forever()
+    uvicorn.run(app, host=MCP_HOST, port=MCP_PORT, log_level=log_level)
 
 
 if __name__ == "__main__":

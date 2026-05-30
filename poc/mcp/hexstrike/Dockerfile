@@ -145,7 +145,9 @@ RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir \
       "requests>=2.31.0,<3.0.0" \
       "psutil>=5.9.0,<6.0.0" \
       "fastmcp>=0.2.0,<1.0.0" \
-      "mcp>=1.2.0" \
+      "mcp>=1.27.1,<2.0.0" \
+      "starlette>=0.37.2,<2.0.0" \
+      "uvicorn>=0.29.0,<1.0.0" \
       "beautifulsoup4>=4.12.0,<5.0.0" \
       "selenium>=4.15.0,<5.0.0" \
       "webdriver-manager>=4.0.0,<5.0.0" \
@@ -310,7 +312,7 @@ WORKDIR /workspace
 EXPOSE 8888 8766
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; mcp-http|http-mcp|streamable-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_MCP_HTTP_PORT}" ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
+  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; mcp-http|http-mcp|streamable-mcp) curl -fsS "http://127.0.0.1:${HEXSTRIKE_MCP_HTTP_PORT}/health" >/dev/null ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
 
 ENTRYPOINT ["tini", "--", "hexstrike-entrypoint"]
 CMD []

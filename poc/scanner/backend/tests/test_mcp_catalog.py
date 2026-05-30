@@ -24,6 +24,7 @@ def _settings() -> Settings:
         tavily_url="http://tavily/mcp",
         hexstrike_bash_url="http://hexstrike:8766/mcp",
         hexstrike_tools_url="http://hexstrike:8767/mcp",
+        hexstrike_tools_admin_token="test-admin-token",
         openai_api_key=None,
         deepseek_api_key=None,
         max_concurrency=4,

@@ -20,6 +20,7 @@ def _settings(*, tavily_url=None):
         tavily_url=tavily_url,
         hexstrike_bash_url=None,
         hexstrike_tools_url=None,
+        hexstrike_tools_admin_token=None,
         openai_api_key=None,
         deepseek_api_key=None,
         max_concurrency=2,

@@ -137,6 +137,7 @@ services:
       # network via the mcp-hexstrike alias on hexstrike-vpn.
       - HEXSTRIKE_BASH_MCP_URL=http://mcp-hexstrike:8766/mcp
       - HEXSTRIKE_TOOLS_MCP_URL=http://mcp-hexstrike:8767/mcp
+      - HEXSTRIKE_TOOLS_ADMIN_TOKEN=${HEXSTRIKE_TOOLS_ADMIN_TOKEN:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
@@ -237,6 +238,8 @@ services:
       - HEXSTRIKE_MCP_HTTP_HOST=0.0.0.0
       - HEXSTRIKE_MCP_HTTP_PORT=8767
       - HEXSTRIKE_MCP_HTTP_TIMEOUT=900
+      - HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS=${HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS:-mcp-hexstrike:8767,127.0.0.1:8767,localhost:8767}
+      - HEXSTRIKE_TOOLS_ADMIN_TOKEN=${HEXSTRIKE_TOOLS_ADMIN_TOKEN:-}
       - LOG_LEVEL=VERBOSE
     depends_on:
       - hexstrike-vpn

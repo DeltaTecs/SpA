@@ -57,6 +57,9 @@ task-agnostic, and the frontend renders the result via its renderer registry.
 | Variable | Purpose | Default |
 | -------- | ------- | ------- |
 | `MCP_PACKET_DB_URL` | packet-db MCP endpoint | `http://mcp-packet-db:8765/mcp` |
+| `HEXSTRIKE_BASH_MCP_URL` | optional HexStrike bash MCP endpoint | _(unset -> disabled)_ |
+| `HEXSTRIKE_TOOLS_MCP_URL` | optional HexStrike tools MCP endpoint | _(unset -> disabled)_ |
+| `HEXSTRIKE_TOOLS_ADMIN_TOKEN` | required shared secret when HexStrike tools are enabled | _(unset)_ |
 | `TAVILY_API_KEY` | enables the Tavily web-search MCP toolset | _(unset → disabled)_ |
 | `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` | keys for the keyed providers | _(unset)_ |
 | `PLAN_MAX_CONCURRENCY` | worker threads (concurrent sessions) | `4` |
