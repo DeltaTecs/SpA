@@ -1912,10 +1912,31 @@ body {
   margin-left: 4px;
 }
 
-.analysis-queue__completed-head {
+.analysis-queue__completed-head,
+.analysis-queue__config-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.analysis-queue__reset {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.analysis-queue__reset:hover:not(:disabled) {
+  background: #f3f8ff;
+}
+
+.analysis-queue__reset:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .analysis-queue__completed-item {

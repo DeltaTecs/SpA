@@ -24,6 +24,7 @@ export function AnalysisQueuePage() {
     runState,
     config,
     setConfig,
+    resetConfig,
     providers,
     providersError,
     toolsets,
@@ -46,7 +47,17 @@ export function AnalysisQueuePage() {
       </header>
 
       <section className="panel">
-        <h2 className="panel__title">Investigation configuration</h2>
+        <div className="panel__title analysis-queue__config-head">
+          <span>Investigation configuration</span>
+          <button
+            type="button"
+            className="analysis-queue__reset"
+            disabled={configDisabled || !config}
+            onClick={resetConfig}
+          >
+            Reset to defaults
+          </button>
+        </div>
         {providersError && <ErrorBanner message={providersError} />}
         {config && providers && (
           <div className="provider-form">

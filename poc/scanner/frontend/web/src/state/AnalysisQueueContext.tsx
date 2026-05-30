@@ -21,6 +21,12 @@ import {
   defaultAllowedTools,
   seedPentestConfig,
 } from "../components/attack/pentestConfig";
+import {
+  clearStoredConfig,
+  loadStoredConfig,
+  reconcileConfig,
+  saveStoredConfig,
+} from "../components/attack/persistedConfig";
 import type { PentestUiConfig } from "../components/attack/types";
 import { useFetch } from "../lib/useFetch";
 
@@ -60,6 +66,8 @@ interface AnalysisQueueValue {
   runState: RunState;
   config: PentestUiConfig | null;
   setConfig: (config: PentestUiConfig) => void;
+  /** Discard the saved config and re-seed from provider/tool defaults. */
+  resetConfig: () => void;
   /** Provider/tool catalogues for the config form (fetched once, shared). */
   providers: ProviderOption[] | undefined;
   providersError: string | null;
@@ -110,8 +118,12 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
   const [active, setActive] = useState<ActiveEntry[]>([]);
   const [completed, setCompleted] = useState<CompletedEntry[]>([]);
   const [runState, setRunState] = useState<RunState>("idle");
-  const [config, setConfig] = useState<PentestUiConfig | null>(null);
-  const toolsSeeded = useRef(false);
+  // Hydrate from the browser so the configuration survives refreshes/restarts.
+  const [config, setConfig] = useState<PentestUiConfig | null>(loadStoredConfig);
+  // Skip the default-seeding effects below when we restored a saved config, so
+  // they don't clobber the restored tool selection.
+  const toolsSeeded = useRef(config !== null);
+  const configReconciled = useRef(false);
   // True while a job submission is in flight, so the processor starts one at a time.
   const startingRef = useRef(false);
   // Mirror of `active` for the polling loop, so it always reads the current set.
@@ -134,6 +146,22 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     const defaults = defaultAllowedTools(tools.data.toolsets);
     setConfig((prev) => (prev ? { ...prev, allowedTools: defaults } : prev));
   }, [config, tools.data]);
+
+  // Once the provider catalogue is known, reconcile a restored config against
+  // it (drop a provider that's no longer available). Runs once; when not
+  // hydrated `config` is still null here, so this is a no-op and the seed
+  // effect above produces an already-valid config.
+  useEffect(() => {
+    if (!providers.data || configReconciled.current) return;
+    configReconciled.current = true;
+    const list = providers.data.providers;
+    setConfig((prev) => (prev ? reconcileConfig(prev, list) : prev));
+  }, [providers.data]);
+
+  // Persist every config change (seed, reconcile, and user edits).
+  useEffect(() => {
+    if (config) saveStoredConfig(config);
+  }, [config]);
 
   // Processor: while running and below capacity, submit the next pending entry.
   useEffect(() => {
@@ -241,6 +269,28 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearCompleted = useCallback(() => setCompleted([]), []);
+
+  // Drop the saved config and rebuild it from provider + tool defaults, exactly
+  // as a fresh first visit would. If tools haven't loaded yet, defer the tool
+  // defaults to the seeding effect above.
+  const resetConfig = useCallback(() => {
+    clearStoredConfig();
+    const provider = providers.data?.providers[0];
+    if (!provider) {
+      setConfig(null);
+      toolsSeeded.current = false;
+      return;
+    }
+    const seeded = seedPentestConfig(provider);
+    const toolsReady = tools.data != null;
+    setConfig({
+      ...seeded,
+      allowedTools: toolsReady ? defaultAllowedTools(tools.data!.toolsets) : [],
+    });
+    toolsSeeded.current = toolsReady;
+    configReconciled.current = true;
+  }, [providers.data, tools.data]);
+
   const runAll = useCallback(() => setRunState("running"), []);
   const pauseAfterCurrent = useCallback(() => setRunState("pausing"), []);
 
@@ -260,6 +310,7 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     runState,
     config,
     setConfig,
+    resetConfig,
     providers: providers.data?.providers,
     providersError: providers.error,
     toolsets: tools.data?.toolsets,
