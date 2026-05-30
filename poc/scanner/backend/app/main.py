@@ -18,11 +18,11 @@ from llm import configure_logging
 
 from .config import settings
 from .jobs.runner import store, submit_job
-from .jobs.store import derived_status
+from .jobs.serialization import build_job_status
 from .mcp_catalog import build_catalog, terminate_tool_processes
 from .pentest import store as pentest_store
 from .pentest import submit_pentest_job
-from .pentest.store import derived_status as pentest_derived_status
+from .pentest.serialization import build_pentest_status
 from .providers import list_providers
 from .schemas import (
     JobStatus,
@@ -132,26 +132,7 @@ def get_job(job_id: str) -> JobStatus:
     job = store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Unknown job '{job_id}'.")
-    return JobStatus(
-        job_id=job.job_id,
-        status=derived_status(job.tasks),
-        provider=job.provider,
-        model=job.model,
-        reasoning_effort=job.reasoning_effort,
-        task_type=job.task_type,
-        tasks=[
-            {
-                "exchange_id": task.exchange_id,
-                "status": task.status,
-                "result": task.result,
-                "error": task.error,
-                "iterations": task.iterations,
-                "stopped_on_limit": task.stopped_on_limit,
-                "activity": task.activity,
-            }
-            for task in job.tasks
-        ],
-    )
+    return build_job_status(job)
 
 
 @app.post("/jobs/{job_id}/cancel", response_model=TerminationResult, tags=["plan"])
@@ -218,38 +199,7 @@ def get_pentest_job(job_id: str) -> PentestJobStatus:
     job = pentest_store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Unknown pentest job '{job_id}'.")
-    return PentestJobStatus(
-        job_id=job.job_id,
-        status=pentest_derived_status(job.items),
-        provider=job.provider,
-        model=job.model,
-        reasoning_effort=job.reasoning_effort,
-        items=[
-            {
-                "item_id": item.item_id,
-                "title": item.title,
-                "status": item.status,
-                "result": item.result,
-                "error": item.error,
-                "iterations": item.iterations,
-                "stopped_on_limit": item.stopped_on_limit,
-                "activity": item.activity,
-                "pending_reviews": [
-                    {
-                        "review_id": review.review_id,
-                        "item_id": review.item_id,
-                        "tool_name": review.tool_name,
-                        "arguments": review.arguments,
-                        "auto_reason": review.auto_reason,
-                        "created_at": review.created_at,
-                    }
-                    for review in job.pending_reviews
-                    if review.item_id == item.item_id
-                ],
-            }
-            for item in job.items
-        ],
-    )
+    return build_pentest_status(job)
 
 
 @app.post("/pentest/jobs/{job_id}/reviews/{review_id}", tags=["pentest"])

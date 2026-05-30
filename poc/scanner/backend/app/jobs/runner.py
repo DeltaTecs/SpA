@@ -13,17 +13,22 @@ store, so new task types need no changes here.
 from __future__ import annotations
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import wait as futures_wait
+from typing import List
 
 from llm import McpLlmClient, OperationCancelled, ProviderFactory
 from llm.provider.base import BaseProvider
 
 from ..activity import THINKING, SessionActivity
 from ..config import Settings, settings
+from ..persistence import persist_scan
 from ..providers import validate_reasoning_effort
 from ..schemas import Exchange, StartJobRequest
 from ..tasks import get as get_task
 from ..tasks.base import AnalysisTask, PromptOverrideMap
+from .serialization import build_job_status
 from .store import JobStore
 
 logger = logging.getLogger(__name__)
@@ -62,6 +67,7 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
     getattr(provider, "client", None)
 
     job_id = store.create(
+        recording_id=request.recording_id,
         provider=request.provider,
         model=provider.model,
         reasoning_effort=provider.reasoning_effort,
@@ -69,15 +75,16 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
         exchange_ids=[exchange.id for exchange in request.exchanges],
     )
     logger.info(
-        "Job %s: %d exchange(s), task=%s, provider=%s, model=%s, reasoning_effort=%s",
+        "Job %s: recording=%s, %d exchange(s), task=%s, provider=%s, model=%s, reasoning_effort=%s",
         job_id,
+        request.recording_id,
         len(request.exchanges),
         request.task_type,
         provider.name,
         provider.model,
         provider.reasoning_effort or "<default>",
     )
-    for exchange in request.exchanges:
+    futures = [
         _executor.submit(
             run_exchange,
             job_id,
@@ -88,7 +95,35 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
             cfg,
             prompt_overrides,
         )
+        for exchange in request.exchanges
+    ]
+    _persist_on_completion(job_id, request.recording_id, futures, cfg)
     return job_id
+
+
+def _persist_on_completion(
+    job_id: str, recording_id: int, futures: List[Future], cfg: Settings
+) -> None:
+    """Wait (off the request path) for all workers, then persist the final snapshot."""
+
+    def wait_and_persist() -> None:
+        futures_wait(futures)
+        job = store.get(job_id)
+        if job is None:
+            return
+        status = build_job_status(job)
+        persist_scan(
+            cfg,
+            recording_id=recording_id,
+            scan_type=status.task_type,
+            provider=status.provider,
+            model=status.model,
+            payload=status.model_dump(mode="json"),
+        )
+
+    threading.Thread(
+        target=wait_and_persist, name=f"plan-persist-{job_id[:8]}", daemon=True
+    ).start()
 
 
 def run_exchange(

@@ -34,6 +34,7 @@ class ExchangeTaskState:
 @dataclass
 class Job:
     job_id: str
+    recording_id: int
     provider: str
     model: Optional[str]
     reasoning_effort: Optional[str]
@@ -69,6 +70,7 @@ class JobStore:
     def create(
         self,
         *,
+        recording_id: int,
         provider: str,
         model: Optional[str],
         reasoning_effort: Optional[str],
@@ -78,6 +80,7 @@ class JobStore:
         job_id = uuid4().hex
         job = Job(
             job_id=job_id,
+            recording_id=recording_id,
             provider=provider,
             model=model,
             reasoning_effort=reasoning_effort,

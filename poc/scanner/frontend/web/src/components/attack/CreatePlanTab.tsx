@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cancelJob, getExchanges, getJob, getProviders, getTaskTypes, startJob } from "../../api/plans";
+import { getLatestScan } from "../../api/scans";
 import { getRecordings } from "../../api/stats";
 import type {
   Exchange,
@@ -7,6 +8,7 @@ import type {
   JobStatus,
   PentestItemInput,
   RecordingInfo,
+  ScanResultRecord,
   TerminationResult,
   VulnerabilityCheck,
 } from "../../api/types";
@@ -18,6 +20,7 @@ import { RecordingSelector } from "../common/RecordingSelector";
 import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
 import { ProviderForm } from "./ProviderForm";
+import { ScanHistorySelector } from "./ScanHistorySelector";
 import type { EditableExchange, PentestPlan, PlanConfig } from "./types";
 import { taskPromptDefaults, toExchange } from "./types";
 
@@ -64,6 +67,7 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
   const [items, setItems] = useState<EditableExchange[]>([]);
   const [config, setConfig] = useState<PlanConfig | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<ScanResultRecord | null>(null);
   const [launching, setLaunching] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [terminating, setTerminating] = useState(false);
@@ -95,28 +99,61 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     setTerminationError(null);
   }, [exchanges.data]);
 
+  // Load the last stored scan for this recording + task type so the suggestions
+  // reappear after a reload. A live job (below) takes precedence when present.
+  useEffect(() => {
+    const taskType = config?.taskType;
+    if (!taskType) return;
+    let cancelled = false;
+    setLoaded(null);
+    getLatestScan(recordingId, taskType)
+      .then((record) => {
+        if (!cancelled && record) setLoaded(record);
+      })
+      .catch(() => {
+        /* best-effort: show nothing if the stored scan can't be loaded */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [recordingId, config?.taskType]);
+
   const job = usePolling<JobStatus>(
     () => getJob(jobId as string),
     { enabled: jobId !== null, intervalMs: POLL_INTERVAL_MS, stopWhen: (j) => j.status !== "running" },
     [jobId],
   );
 
+  // While a job is live its polled status wins; otherwise display the stored
+  // snapshot (auto-loaded latest, or one picked from the history dropdown).
+  const liveJob = jobId ? job.data : null;
+  const effectiveJob: JobStatus | null = liveJob ?? (loaded?.payload as JobStatus | undefined) ?? null;
+  const selectedScanId = liveJob ? null : loaded?.scan_result_id ?? null;
+
   const taskByExchange = useMemo(() => {
     const map = new Map<string, ExchangeTaskStatus>();
-    job.data?.tasks.forEach((task) => map.set(task.exchange_id, task));
+    effectiveJob?.tasks.forEach((task) => map.set(task.exchange_id, task));
     return map;
-  }, [job.data]);
+  }, [effectiveJob]);
 
   // Lift the executable plan (one item per suggested check) up to the Attack page
   // so the Pentest tab can be enabled and seeded once the analysis completes.
-  const pentestItems = useMemo(() => buildPentestItems(job.data, items), [job.data, items]);
+  const pentestItems = useMemo(() => buildPentestItems(effectiveJob, items), [effectiveJob, items]);
   useEffect(() => {
     onPlanReady(pentestItems.length > 0 ? { recordingId, items: pentestItems } : null);
   }, [pentestItems, recordingId, onPlanReady]);
 
   const selectedCount = items.filter((item) => item.selected).length;
-  const running = job.data?.status === "running";
+  const running = liveJob?.status === "running";
   const planReady = pentestItems.length > 0;
+
+  // Switch the view to a stored snapshot chosen from the history dropdown.
+  function showStoredScan(record: ScanResultRecord) {
+    setJobId(null);
+    setTermination(null);
+    setTerminationError(null);
+    setLoaded(record);
+  }
 
   function toggle(id: string) {
     setItems((prev) =>
@@ -175,7 +212,22 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     <div className="create-plan">
       <div className="create-plan__bar">
         <RecordingSelector recordings={recordings.data} value={recordingId} onChange={setRecordingId} />
+        {config && (
+          <ScanHistorySelector
+            recordingId={recordingId}
+            scanType={config.taskType}
+            selectedId={selectedScanId}
+            refreshToken={`${recordingId}:${liveJob?.status ?? ""}`}
+            disabled={running || launching}
+            onSelect={showStoredScan}
+          />
+        )}
       </div>
+      {!liveJob && loaded && (
+        <p className="muted">
+          Showing saved scan from {new Date(loaded.created_at).toLocaleString()}.
+        </p>
+      )}
 
       <section className="panel">
         <h2 className="panel__title">LLM configuration</h2>
@@ -192,7 +244,7 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
         )}
         <LaunchControl
           selectedCount={selectedCount}
-          job={job.data}
+          job={effectiveJob}
           launching={launching}
           error={launchError}
           onLaunch={launch}

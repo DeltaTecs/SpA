@@ -360,6 +360,24 @@ export interface PentestReportPayload {
   parse_warning?: string;
 }
 
+// --- persisted scan results (db-api /recordings/{id}/scans) ----------------
+
+export interface ScanResultSummary {
+  scan_result_id: number;
+  recording_id: number;
+  /** Producing task_type, e.g. "vulnerability_checks", or "pentest". */
+  scan_type: string;
+  /** Unix epoch milliseconds. */
+  created_at: number;
+  provider: string | null;
+  model: string | null;
+}
+
+export interface ScanResultRecord extends ScanResultSummary {
+  /** The stored job snapshot: a JobStatus or PentestJobStatus, by scan_type. */
+  payload: Record<string, unknown>;
+}
+
 // --- termination -----------------------------------------------------------
 
 /** Per-server outcome of killing MCP tool processes during termination. */

@@ -131,6 +131,8 @@ services:
     restart: unless-stopped
     environment:
       - MCP_PACKET_DB_URL=http://mcp-packet-db:8765/mcp
+      # db-api (over db-api-network) for persisting finished scan results.
+      - DB_API_URL=http://db-api:8000
       # Active-testing MCP tools (bash + hexstrike), reached over the hexstrike
       # network via the mcp-hexstrike alias on hexstrike-vpn.
       - HEXSTRIKE_BASH_MCP_URL=http://mcp-hexstrike:8766/mcp

@@ -92,6 +92,22 @@ CREATE TABLE IF NOT EXISTS recording_processing_tag (
   step text
 );
 
+-- Persisted scan results: a finished scan's full snapshot (the same JobStatus /
+-- PentestJobStatus the scanner-backend serves) stored as JSON so the UI can
+-- reload the last vulnerability-check suggestions and pentest reports per
+-- recording. `scan_type` is the producing analysis task_type (e.g.
+-- 'vulnerability_checks') or 'pentest'; left unconstrained so new pluggable
+-- task types persist without a schema change.
+CREATE TABLE IF NOT EXISTS scan_result (
+  scan_result_id bigserial PRIMARY KEY,
+  recording_id bigint NOT NULL REFERENCES recording(recording_id) ON DELETE CASCADE,
+  scan_type text NOT NULL,
+  created_at bigint NOT NULL,  -- unix epoch milliseconds
+  provider text,
+  model text,
+  payload jsonb NOT NULL
+);
+
 -- Seed default protocol names
 INSERT INTO protocol (name) VALUES
   ('IP'),('IPv6'),('UDP'), ('TCP'), ('DNS'), ('TLS'), ('QUIC'), ('DTLS'), ('STUN'), ('TURN'),('RTP'),('RTCP'), ('HTTP'), ('Websocket')
@@ -107,3 +123,6 @@ CREATE INDEX IF NOT EXISTS idx_packet_recording ON packet(recording_id);
 CREATE INDEX IF NOT EXISTS idx_packet_protocol_ids ON packet USING GIN (protocol_ids);
 -- Index for conversation lookup
 CREATE INDEX IF NOT EXISTS idx_packet_conversation ON packet(conversation_id);
+-- Newest-first lookup of stored scans per recording and type
+CREATE INDEX IF NOT EXISTS idx_scan_result_recording_type
+  ON scan_result(recording_id, scan_type, created_at DESC, scan_result_id DESC);

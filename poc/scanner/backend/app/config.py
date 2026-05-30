@@ -32,6 +32,9 @@ class Settings:
     hexstrike_tools_url: Optional[str]
     openai_api_key: Optional[str]
     deepseek_api_key: Optional[str]
+    #: Base URL of the db-api. When set, finished scans are persisted there
+    #: (the db-api owns all DB access); when unset, persistence is disabled.
+    db_api_url: Optional[str]
     max_concurrency: int
     default_max_iterations: int
     mcp_timeout: float
@@ -52,6 +55,7 @@ class Settings:
             hexstrike_tools_url=_optional("HEXSTRIKE_TOOLS_MCP_URL"),
             openai_api_key=_optional("OPENAI_API_KEY"),
             deepseek_api_key=_optional("DEEPSEEK_API_KEY"),
+            db_api_url=_optional("DB_API_URL"),
             max_concurrency=int(os.environ.get("PLAN_MAX_CONCURRENCY", "4")),
             default_max_iterations=int(os.environ.get("PLAN_MAX_ITERATIONS", "10")),
             mcp_timeout=float(os.environ.get("PLAN_MCP_TIMEOUT", "60")),

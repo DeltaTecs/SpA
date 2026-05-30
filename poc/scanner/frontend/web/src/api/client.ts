@@ -4,6 +4,17 @@
 
 const API_BASE = "/api";
 
+/** A failed HTTP request, carrying the status code so callers can branch on it. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, detail: string) {
+    super(`Request failed (${status}): ${detail}`);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -17,7 +28,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // non-JSON error body; keep statusText
     }
-    throw new Error(`Request failed (${res.status}): ${detail}`);
+    throw new ApiError(res.status, detail);
   }
   return (await res.json()) as T;
 }
