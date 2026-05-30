@@ -245,6 +245,9 @@ class StartPentestJobRequest(BaseModel):
     items: List[PentestItem] = Field(default_factory=list)
     concurrent: bool = False
     tool_config: ToolConfig = Field(default_factory=ToolConfig)
+    #: Persist the finished job snapshot to the db-api. Disabled by callers (e.g.
+    #: the Analysis Queue) that manage their own session-only result lifecycle.
+    persist: bool = True
 
     @field_validator("items")
     @classmethod

@@ -1,10 +1,10 @@
 import type {
   Exchange,
-  PentestItemInput,
   ReasoningEffort,
   ReviewMode,
   TaskPromptPart,
   TaskTypeInfo,
+  VulnerabilityCheck,
 } from "../../api/types";
 
 /** An exchange plus its include/exclude selection in the Create Plan list. */
@@ -20,12 +20,6 @@ export interface PlanConfig {
   taskType: string;
   maxIterations: number;
   promptOverrides: Record<string, string>;
-}
-
-/** A completed analysis plan, lifted to the Attack page to drive the Pentest tab. */
-export interface PentestPlan {
-  recordingId: number;
-  items: PentestItemInput[];
 }
 
 /** The provider/model/effort/iterations subset shared by every LLM config form. */
@@ -60,4 +54,19 @@ export function promptPartDefaults(parts: TaskPromptPart[]): Record<string, stri
 
 export function taskPromptDefaults(task: TaskTypeInfo | undefined): Record<string, string> {
   return promptPartDefaults(task?.prompt_parts ?? []);
+}
+
+/**
+ * Synthesize a `VulnerabilityCheck` from a user's free-text custom analysis so
+ * it flows through the same pentest pipeline as an LLM-suggested check.
+ */
+export function customAnalysisCheck(description: string): VulnerabilityCheck {
+  return {
+    title: "Custom analysis",
+    description,
+    rationale: "User-requested custom analysis.",
+    severity: "info",
+    technique: null,
+    references: [],
+  };
 }

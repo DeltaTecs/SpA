@@ -310,6 +310,8 @@ export interface StartPentestJobRequest {
   items: PentestItemInput[];
   concurrent: boolean;
   tool_config: ToolConfig;
+  /** Persist the finished snapshot to db-api. The Analysis Queue sends false. */
+  persist?: boolean;
 }
 
 export interface StartPentestJobResponse {

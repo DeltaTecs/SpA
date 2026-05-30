@@ -14,6 +14,7 @@ import type {
 } from "../../api/types";
 import { useFetch } from "../../lib/useFetch";
 import { usePolling } from "../../lib/usePolling";
+import { useAnalysisQueue } from "../../state/AnalysisQueueContext";
 import { ErrorBanner } from "../common/ErrorBanner";
 import { Loading } from "../common/Loading";
 import { RecordingSelector } from "../common/RecordingSelector";
@@ -21,22 +22,14 @@ import { ExchangeList } from "./ExchangeList";
 import { LaunchControl } from "./LaunchControl";
 import { ProviderForm } from "./ProviderForm";
 import { ScanHistorySelector } from "./ScanHistorySelector";
-import type { EditableExchange, PentestPlan, PlanConfig } from "./types";
-import { taskPromptDefaults, toExchange } from "./types";
+import type { EditableExchange, PlanConfig } from "./types";
+import { customAnalysisCheck, taskPromptDefaults, toExchange } from "./types";
 
 const DEFAULT_RECORDING_ID = 1;
 const POLL_INTERVAL_MS = 1500;
 
-interface CreatePlanTabProps {
-  /** Called with the executable plan once an analysis completes (or null while none). */
-  onPlanReady: (plan: PentestPlan | null) => void;
-  /** Whether the Pentest tab is currently reachable (a plan exists). */
-  pentestReady: boolean;
-  /** Navigate to the Pentest tab. */
-  onGoToPentest: () => void;
-}
-
-/** Flatten a completed analysis job into one pentest item per suggested check. */
+/** Flatten a completed analysis job into one pentest item per suggested check.
+ *  Item ids (`${exchange_id}#${idx}`) double as the per-check selection keys. */
 function buildPentestItems(
   job: JobStatus | null,
   exchanges: EditableExchange[],
@@ -56,10 +49,11 @@ function buildPentestItems(
   return items;
 }
 
-export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: CreatePlanTabProps) {
+export function CreatePlanTab() {
   const recordings = useFetch<RecordingInfo[]>(() => getRecordings(), []);
   const providers = useFetch(() => getProviders(), []);
   const taskTypes = useFetch(() => getTaskTypes(), []);
+  const { enqueue } = useAnalysisQueue();
 
   const [recordingId, setRecordingId] = useState(DEFAULT_RECORDING_ID);
   const exchanges = useFetch(() => getExchanges(recordingId), [recordingId]);
@@ -73,6 +67,9 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
   const [terminating, setTerminating] = useState(false);
   const [termination, setTermination] = useState<TerminationResult | null>(null);
   const [terminationError, setTerminationError] = useState<string | null>(null);
+  // Per-check selection (keyed by pentest item id) and a transient queue note.
+  const [selectedCheckIds, setSelectedCheckIds] = useState<Set<string>>(new Set());
+  const [queuedNote, setQueuedNote] = useState<string | null>(null);
 
   // Seed the config once the providers and task types have loaded.
   useEffect(() => {
@@ -97,6 +94,7 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     setJobId(null);
     setTermination(null);
     setTerminationError(null);
+    setQueuedNote(null);
   }, [exchanges.data]);
 
   // Load the last stored scan for this recording + task type so the suggestions
@@ -136,16 +134,19 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
     return map;
   }, [effectiveJob]);
 
-  // Lift the executable plan (one item per suggested check) up to the Attack page
-  // so the Pentest tab can be enabled and seeded once the analysis completes.
+  // One queueable analysis per suggested check, derived from the completed job.
   const pentestItems = useMemo(() => buildPentestItems(effectiveJob, items), [effectiveJob, items]);
+
+  // Default to "all checked" whenever the set of suggested checks changes
+  // (a job completes, the recording changes, or a stored scan is loaded).
+  const checkIdsKey = pentestItems.map((it) => it.id).join("|");
   useEffect(() => {
-    onPlanReady(pentestItems.length > 0 ? { recordingId, items: pentestItems } : null);
-  }, [pentestItems, recordingId, onPlanReady]);
+    setSelectedCheckIds(new Set(checkIdsKey ? checkIdsKey.split("|") : []));
+  }, [checkIdsKey]);
 
   const selectedCount = items.filter((item) => item.selected).length;
+  const selectedCheckCount = pentestItems.filter((it) => selectedCheckIds.has(it.id)).length;
   const running = liveJob?.status === "running";
-  const planReady = pentestItems.length > 0;
 
   // Switch the view to a stored snapshot chosen from the history dropdown.
   function showStoredScan(record: ScanResultRecord) {
@@ -167,6 +168,47 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
 
   function setAllSelected(selected: boolean) {
     setItems((prev) => prev.map((item) => ({ ...item, selected })));
+  }
+
+  function toggleCheck(checkId: string) {
+    setSelectedCheckIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(checkId)) next.delete(checkId);
+      else next.add(checkId);
+      return next;
+    });
+  }
+
+  function queueItems(toQueue: PentestItemInput[], note: string) {
+    if (toQueue.length === 0) return;
+    enqueue(toQueue.map((item) => ({ recordingId, label: `Recording ${recordingId}`, item })));
+    setQueuedNote(note);
+  }
+
+  function queueSelected() {
+    const selected = pentestItems.filter((it) => selectedCheckIds.has(it.id));
+    queueItems(selected, `Queued ${selected.length} analysis task(s) to the Analysis Queue.`);
+  }
+
+  function queueAll() {
+    queueItems(pentestItems, `Queued ${pentestItems.length} analysis task(s) to the Analysis Queue.`);
+  }
+
+  function queueCustom(exchangeId: string, description: string) {
+    const source = items.find((it) => it.id === exchangeId);
+    if (!source) return;
+    enqueue([
+      {
+        recordingId,
+        label: "Custom",
+        item: {
+          id: `custom#${exchangeId}#${Date.now()}`,
+          exchange: toExchange(source),
+          check: customAnalysisCheck(description),
+        },
+      },
+    ]);
+    setQueuedNote("Queued a custom analysis to the Analysis Queue.");
   }
 
   async function launch() {
@@ -249,9 +291,6 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
           launching={launching}
           error={launchError}
           onLaunch={launch}
-          planReady={planReady}
-          pentestReady={pentestReady}
-          onGoToPentest={onGoToPentest}
           onTerminate={terminate}
           terminating={terminating}
           termination={termination}
@@ -273,10 +312,43 @@ export function CreatePlanTab({ onPlanReady, pentestReady, onGoToPentest }: Crea
             </span>
           )}
         </div>
+        {pentestItems.length > 0 && (
+          <div className="create-plan__queue-bar">
+            <span className="muted">
+              {selectedCheckCount} of {pentestItems.length} suggested analyses selected
+            </span>
+            <span className="create-plan__queue-actions">
+              <button
+                type="button"
+                className="launch__button"
+                disabled={selectedCheckCount === 0}
+                onClick={queueSelected}
+              >
+                Queue selected ({selectedCheckCount})
+              </button>
+              <button
+                type="button"
+                className="launch__button launch__button--secondary"
+                onClick={queueAll}
+              >
+                Queue all
+              </button>
+            </span>
+          </div>
+        )}
+        {queuedNote && <p className="create-plan__queue-note">{queuedNote}</p>}
         {exchanges.loading && <Loading label="Compiling exchanges..." />}
         {exchanges.error && <ErrorBanner message={exchanges.error} />}
         {exchanges.data && (
-          <ExchangeList items={items} tasks={taskByExchange} onToggle={toggle} onEdit={edit} />
+          <ExchangeList
+            items={items}
+            tasks={taskByExchange}
+            onToggle={toggle}
+            onEdit={edit}
+            selectedCheckIds={selectedCheckIds}
+            onToggleCheck={toggleCheck}
+            onQueueCustom={queueCustom}
+          />
         )}
         {job.error && <ErrorBanner message={job.error} />}
       </section>

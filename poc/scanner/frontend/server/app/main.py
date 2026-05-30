@@ -107,7 +107,7 @@ async def serve_spa(full_path: str):
     """Serve a built static asset if it exists, else the SPA entry point.
 
     The index.html fallback lets the client-side router own paths like
-    ``/explorer`` and ``/attack``.
+    ``/explorer``, ``/test-planner`` and ``/analysis-queue``.
     """
     asset = _safe_static_file(full_path)
     if asset is not None:

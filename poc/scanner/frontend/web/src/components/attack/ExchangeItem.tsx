@@ -1,7 +1,15 @@
 import { useState } from "react";
-import type { Exchange, ExchangeTaskStatus, HttpExchangeInfo, TaskStatusValue } from "../../api/types";
+import type {
+  Exchange,
+  ExchangeTaskStatus,
+  HttpExchangeInfo,
+  TaskResult,
+  TaskStatusValue,
+  VulnerabilityCheck,
+} from "../../api/types";
 import { formatBytes } from "../../lib/format";
 import { ExchangeEvidence } from "./ExchangeEvidence";
+import { CheckCard } from "./results/CheckCard";
 import { renderTaskResult } from "./results/resultRenderers";
 import type { EditableExchange } from "./types";
 
@@ -10,9 +18,21 @@ interface ExchangeItemProps {
   task?: ExchangeTaskStatus;
   onToggle: (id: string) => void;
   onEdit: (id: string, patch: Partial<Exchange>) => void;
+  /** Selected pentest-item ids (`${exchangeId}#${idx}`) for the suggested checks. */
+  selectedCheckIds: Set<string>;
+  onToggleCheck: (checkId: string) => void;
+  onQueueCustom: (exchangeId: string, description: string) => void;
 }
 
-export function ExchangeItem({ item, task, onToggle, onEdit }: ExchangeItemProps) {
+export function ExchangeItem({
+  item,
+  task,
+  onToggle,
+  onEdit,
+  selectedCheckIds,
+  onToggleCheck,
+  onQueueCustom,
+}: ExchangeItemProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -49,7 +69,15 @@ export function ExchangeItem({ item, task, onToggle, onEdit }: ExchangeItemProps
         <div className="exchange__body">
           <Inspect item={item} onEdit={onEdit} />
           <ExchangeEvidence item={item} />
-          {task && <Annotation task={task} />}
+          {task && (
+            <Annotation
+              task={task}
+              exchangeId={item.id}
+              selectedCheckIds={selectedCheckIds}
+              onToggleCheck={onToggleCheck}
+            />
+          )}
+          <CustomAnalysis exchangeId={item.id} onQueue={onQueueCustom} />
         </div>
       )}
     </article>
@@ -114,7 +142,17 @@ function HttpEdit({
   );
 }
 
-function Annotation({ task }: { task: ExchangeTaskStatus }) {
+function Annotation({
+  task,
+  exchangeId,
+  selectedCheckIds,
+  onToggleCheck,
+}: {
+  task: ExchangeTaskStatus;
+  exchangeId: string;
+  selectedCheckIds: Set<string>;
+  onToggleCheck: (checkId: string) => void;
+}) {
   return (
     <div className="exchange__annotation">
       <div className="exchange__annotation-title">
@@ -127,7 +165,114 @@ function Annotation({ task }: { task: ExchangeTaskStatus }) {
       {task.status === "error" && (
         <div className="state state--error">{task.error ?? "Analysis failed."}</div>
       )}
-      {task.status === "done" && task.result && renderTaskResult(task.result)}
+      {task.status === "done" && task.result && (
+        <SelectableChecks
+          result={task.result}
+          exchangeId={exchangeId}
+          selectedCheckIds={selectedCheckIds}
+          onToggleCheck={onToggleCheck}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Suggested `vulnerability_checks` rendered with a per-check queue checkbox.
+ *  Other task types fall back to the read-only generic renderer. */
+function SelectableChecks({
+  result,
+  exchangeId,
+  selectedCheckIds,
+  onToggleCheck,
+}: {
+  result: TaskResult;
+  exchangeId: string;
+  selectedCheckIds: Set<string>;
+  onToggleCheck: (checkId: string) => void;
+}) {
+  if (result.task_type !== "vulnerability_checks") return <>{renderTaskResult(result)}</>;
+
+  const checks = (result.payload.checks as VulnerabilityCheck[] | undefined) ?? [];
+  const warning = result.payload.parse_warning as string | undefined;
+
+  return (
+    <div className="checks">
+      {warning && <div className="checks__warning">{warning}</div>}
+      {checks.length === 0 && !warning && <div className="muted">No checks suggested.</div>}
+      {checks.map((check, index) => {
+        const checkId = `${exchangeId}#${index}`;
+        return (
+          <CheckCard
+            key={index}
+            check={check}
+            selection={{
+              checked: selectedCheckIds.has(checkId),
+              onToggle: () => onToggleCheck(checkId),
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function CustomAnalysis({
+  exchangeId,
+  onQueue,
+}: {
+  exchangeId: string;
+  onQueue: (exchangeId: string, description: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+
+  function submit() {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    onQueue(exchangeId, trimmed);
+    setText("");
+    setOpen(false);
+  }
+
+  if (!open) {
+    return (
+      <div className="custom-analysis">
+        <button type="button" className="custom-analysis__open" onClick={() => setOpen(true)}>
+          + Queue custom analysis
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="custom-analysis custom-analysis--open">
+      <textarea
+        className="custom-analysis__input"
+        rows={3}
+        placeholder="Describe the analysis to run against this exchange…"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
+      <div className="custom-analysis__actions">
+        <button
+          type="button"
+          className="launch__button"
+          disabled={text.trim().length === 0}
+          onClick={submit}
+        >
+          Queue analysis
+        </button>
+        <button
+          type="button"
+          className="launch__button launch__button--secondary"
+          onClick={() => {
+            setOpen(false);
+            setText("");
+          }}
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

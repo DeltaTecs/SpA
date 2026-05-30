@@ -8,11 +8,6 @@ interface LaunchControlProps {
   launching: boolean;
   error: string | null;
   onLaunch: () => void;
-  /** True once the completed analysis yields at least one check to pentest. */
-  planReady: boolean;
-  /** True when the Pentest tab is reachable (the lifted plan is non-empty). */
-  pentestReady: boolean;
-  onGoToPentest: () => void;
   /** Terminate the running analysis and kill all MCP tools. */
   onTerminate: () => void;
   terminating: boolean;
@@ -26,9 +21,6 @@ export function LaunchControl({
   launching,
   error,
   onLaunch,
-  planReady,
-  pentestReady,
-  onGoToPentest,
   onTerminate,
   terminating,
   termination,
@@ -46,15 +38,6 @@ export function LaunchControl({
             : running
               ? "Analysis running…"
               : `Launch analysis (${selectedCount})`}
-        </button>
-        <button
-          type="button"
-          className="launch__button launch__button--secondary"
-          disabled={!planReady || !pentestReady}
-          onClick={onGoToPentest}
-          title={planReady ? "Continue to penetration testing" : "Run an analysis first"}
-        >
-          Go to Pentest →
         </button>
         <TerminateControl
           running={!!running}

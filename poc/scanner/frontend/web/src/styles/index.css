@@ -1811,3 +1811,160 @@ body {
   font-size: 13px;
   line-height: 1.45;
 }
+
+/* ---- Test Planner: queue suggestions ------------------------------------ */
+.create-plan__queue-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.create-plan__queue-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.create-plan__queue-note {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #1f9254;
+}
+
+.check--selected {
+  border-color: var(--accent);
+  background: #f3f8ff;
+}
+
+.check__select {
+  flex-shrink: 0;
+}
+
+/* ---- Test Planner: custom analysis -------------------------------------- */
+.custom-analysis {
+  margin-top: 4px;
+}
+
+.custom-analysis__open {
+  border: 1px dashed var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.custom-analysis__open:hover {
+  background: #f3f8ff;
+}
+
+.custom-analysis--open {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.custom-analysis__input {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 13px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.custom-analysis__actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---- Analysis Queue page ------------------------------------------------ */
+.analysis-queue {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .analysis-queue {
+    grid-template-columns: 1fr;
+  }
+}
+
+.analysis-queue__col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.analysis-queue__count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  background: #eef1f4;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 4px;
+}
+
+.analysis-queue__completed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.analysis-queue__completed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analysis-queue__context {
+  margin: 0;
+  font-size: 12px;
+}
+
+.queue-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.queue-card--active {
+  border-color: var(--accent);
+  background: #f3f8ff;
+}
+
+.queue-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.queue-card__evict {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #b00020;
+}
+
+.queue-card__evict:hover {
+  background: #fdf0f2;
+}

@@ -7,9 +7,21 @@ interface ExchangeListProps {
   tasks: Map<string, ExchangeTaskStatus>;
   onToggle: (id: string) => void;
   onEdit: (id: string, patch: Partial<Exchange>) => void;
+  /** Selected pentest-item ids (`${exchangeId}#${idx}`) for the suggested checks. */
+  selectedCheckIds: Set<string>;
+  onToggleCheck: (checkId: string) => void;
+  onQueueCustom: (exchangeId: string, description: string) => void;
 }
 
-export function ExchangeList({ items, tasks, onToggle, onEdit }: ExchangeListProps) {
+export function ExchangeList({
+  items,
+  tasks,
+  onToggle,
+  onEdit,
+  selectedCheckIds,
+  onToggleCheck,
+  onQueueCustom,
+}: ExchangeListProps) {
   if (items.length === 0) {
     return <div className="muted">No interesting data exchanges in this recording.</div>;
   }
@@ -22,6 +34,9 @@ export function ExchangeList({ items, tasks, onToggle, onEdit }: ExchangeListPro
           task={tasks.get(item.id)}
           onToggle={onToggle}
           onEdit={onEdit}
+          selectedCheckIds={selectedCheckIds}
+          onToggleCheck={onToggleCheck}
+          onQueueCustom={onQueueCustom}
         />
       ))}
     </div>

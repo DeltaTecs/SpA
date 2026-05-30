@@ -11,13 +11,20 @@ recording and presents AI-powered analysis surfaces. Three areas:
   (normalized 5-tuple, split per HTTP stream) so related packets share a color.
   Filters narrow by decrypted payload, HTTP header text, and application
   protocol bucket.
-- **Attack** — a **Create Plan** tab that configures and launches LLM-driven
-  vulnerability-scan planning (plus an Overview placeholder for upcoming active
-  scans). Create Plan compiles a recording's *interesting data exchanges*
-  (non-HTTP conversation flows + deduplicated HTTP request/response pairs), lets
-  you inspect/edit/deselect them, pick an LLM provider + model + analysis task,
-  then runs one concurrent LLM session per exchange and annotates each with the
-  suggested vulnerability checks.
+- **Test Planner** — configures and launches LLM-driven vulnerability-scan
+  planning. It compiles a recording's *interesting data exchanges* (non-HTTP
+  conversation flows + deduplicated HTTP request/response pairs), lets you
+  inspect/edit/deselect them, pick an LLM provider + model + analysis task, then
+  runs one concurrent LLM session per exchange and annotates each with the
+  suggested vulnerability checks. Each suggested check (and ad-hoc *custom
+  analyses* typed against an exchange) can be checkmarked and pushed to the
+  Analysis Queue.
+- **Analysis Queue** — investigates the queued checks with the `pentest` task
+  (real MCP tools, verdict + evidence). Pending checks (left) are processed
+  serially — or concurrently via a checkbox — on **Run All Queued Pentests**, can
+  be paused after the current test, and can be evicted while still pending;
+  finished investigations land in the completed list (right). The queue is
+  session-only state shared across pages by `state/AnalysisQueueContext.tsx`.
 
 ## Architecture
 
@@ -44,13 +51,14 @@ server/            FastAPI app: serves SPA, proxies /api/*, logging
 web/               React + TypeScript + Vite SPA
   src/
     api/           typed client (mirrors db-api + scanner-backend schemas)
-    pages/         Dashboard, Explorer, Attack
+    pages/         Dashboard, Explorer, Test Planner, Analysis Queue
     components/    dashboard/, explorer/, attack/, common/
+    state/         AnalysisQueueContext (session queue shared across pages)
     lib/           colors, formatting, hexdump, useFetch, usePolling
 Dockerfile         multi-stage: build SPA -> serve from python
 ```
 
-The Create Plan UI renders each analysis task's result through a small renderer
+The Test Planner UI renders each analysis task's result through a small renderer
 registry (`components/attack/results/resultRenderers.tsx`), so a new backend task
 type only needs its own renderer entry.
 
@@ -63,8 +71,9 @@ docker compose up -d --build db db-api mcp-packet-db scanner-backend frontend
 ```
 
 Open <http://localhost:8093>. The dashboard reads recording `1` by default. The
-Attack → Create Plan tab needs `scanner-backend` (and `mcp-packet-db` for the LLM
-to read packets); set provider API keys in `.env` (see `poc/.env.sample`). Logs
+Test Planner and Analysis Queue pages need `scanner-backend` (and `mcp-packet-db`
+for the LLM to read packets); set provider API keys in `.env` (see
+`poc/.env.sample`). Logs
 are written to `poc/logs/scanner-frontend.log`, `poc/logs/db-api.log` and
 `poc/logs/scanner-llm.log`.
 

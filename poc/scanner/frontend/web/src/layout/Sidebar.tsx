@@ -3,7 +3,8 @@ import { NavLink } from "react-router-dom";
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", end: true },
   { to: "/explorer", label: "Packet Explorer", end: false },
-  { to: "/attack", label: "Attack", end: false },
+  { to: "/test-planner", label: "Test Planner", end: false },
+  { to: "/analysis-queue", label: "Analysis Queue", end: false },
 ];
 
 export function Sidebar() {
