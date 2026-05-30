@@ -22,7 +22,7 @@ from typing import List, Literal, Optional, Set
 
 import httpx
 
-from llm import McpToolset
+from llm import McpToolset, ToolSpec
 
 from .config import Settings
 
@@ -32,6 +32,76 @@ logger = logging.getLogger(__name__)
 #: exempted from approval via the "allow DB tools & web search without approval"
 #: option.
 EXEMPT_CATEGORIES = frozenset({"db", "search"})
+
+#: HexStrike's MCP server exposes a broad toolbox. Keep the pentest surface
+#: intentionally smaller so operators only select tools supported by this flow.
+HEXSTRIKE_PENTEST_TOOLS = frozenset(
+    {
+        "gobuster_scan",
+        "checkov_iac_scan",
+        "terrascan_iac_scan",
+        "create_file",
+        "modify_file",
+        "delete_file",
+        "list_files",
+        "generate_payload",
+        "install_python_package",
+        "execute_python_script",
+        "dirb_scan",
+        "nikto_scan",
+        "sqlmap_scan",
+        "metasploit_run",
+        "hydra_attack",
+        "wpscan_analyze",
+        "ffuf_scan",
+        "subfinder_scan",
+        "rustscan_fast_scan",
+        "autorecon_comprehensive",
+        "msfvenom_generate",
+        "feroxbuster_scan",
+        "dotdotpwn_scan",
+        "xsser_scan",
+        "wfuzz_scan",
+        "amass_scan",
+        "fierce_scan",
+        "dnsenum_scan",
+        "wafw00f_scan",
+        "httpx_probe",
+        "nmap_scan",
+        "nmap_advanced_scan",
+        "masscan_high_speed",
+        "nbtscan_netbios",
+        "rpcclient_enumeration",
+        "netexec_scan",
+        "dirsearch_scan",
+        "katana_crawl",
+        "hakrawler_crawl",
+        "arjun_parameter_discovery",
+        "paramspider_discovery",
+        "paramspider_mining",
+        "x8_parameter_discovery",
+        "jaeles_vulnerability_scan",
+        "dalfox_xss_scan",
+        "anew_data_processing",
+        "qsreplace_parameter_replacement",
+        "uro_url_filtering",
+        "api_fuzzer",
+        "graphql_scanner",
+        "jwt_analyzer",
+        "api_schema_analyzer",
+        "comprehensive_api_audit",
+        "burpsuite_scan",
+        "zap_scan",
+        "arjun_scan",
+        "generate_exploit_from_cve",
+        "browser_agent_inspect",
+        "http_set_rules",
+        "http_set_scope",
+        "http_repeater",
+        "http_intruder",
+        "burpsuite_alternative_scan",
+    }
+)
 
 #: How long to wait for a server to kill its tool processes (the HexStrike
 #: servers escalate SIGTERM -> SIGKILL with a few seconds in between).
@@ -109,17 +179,27 @@ def build_catalog(settings: Settings) -> List[CatalogEntry]:
                     timeout=settings.mcp_timeout,
                 ),
                 # The HTTP bridge handles a custom `tools/stop` JSON-RPC method
-                # that terminates the spawned HexStrike MCP subprocesses.
+                # that terminates managed scanners and their stdio MCP wrappers.
                 stop=StopSpec("method", "tools/stop"),
             )
         )
     return entries
 
 
+def list_selectable_tool_specs(entry: CatalogEntry) -> List[ToolSpec]:
+    """List the tools this pentest flow permits an operator to select."""
+    specs = entry.toolset.list_tool_specs()
+    if entry.category != "hexstrike":
+        return specs
+    return [spec for spec in specs if spec.name in HEXSTRIKE_PENTEST_TOOLS]
+
+
 @dataclass(frozen=True)
 class CatalogTools:
     """Result of enumerating the catalogue once before a job runs."""
 
+    #: Requested tool names that exist in the selectable catalogue.
+    allowed_names: Set[str] = field(default_factory=set)
     #: Read-only (db + search) tool names eligible for approval exemption.
     exempt_names: Set[str] = field(default_factory=set)
     #: Categories that contain at least one selected (allowed) tool — i.e. the
@@ -134,22 +214,29 @@ def enumerate_catalog(
 
     A toolset that cannot be reached is skipped (logged), so an unselected or
     down active-tooling server never aborts the job. Returns the exempt tool
-    names and the set of categories that actually hold a selected tool, so each
-    session only connects to the toolsets it needs.
+    names, sanitized allowed names, and the set of categories that actually hold
+    a selected tool, so each session only connects to the toolsets it needs.
     """
+    selected: Set[str] = set()
     exempt: Set[str] = set()
     needed: Set[str] = set()
     for entry in build_catalog(settings):
         try:
-            names = {spec.name for spec in entry.toolset.list_tool_specs()}
+            names = {spec.name for spec in list_selectable_tool_specs(entry)}
         except Exception as exc:  # noqa: BLE001 - one bad server must not abort the job
             logger.warning("Skipping toolset '%s' (could not list tools): %s", entry.name, exc)
             continue
         if include_exempt and entry.category in EXEMPT_CATEGORIES:
             exempt |= names
-        if names & allowed:
+        selected_here = names & allowed
+        if selected_here:
+            selected |= selected_here
             needed.add(entry.category)
-    return CatalogTools(exempt_names=exempt, needed_categories=needed)
+    return CatalogTools(
+        allowed_names=selected,
+        exempt_names=exempt,
+        needed_categories=needed,
+    )
 
 
 # --- termination -------------------------------------------------------------

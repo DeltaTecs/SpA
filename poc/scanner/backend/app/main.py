@@ -19,7 +19,11 @@ from llm import configure_logging
 from .config import settings
 from .jobs.runner import store, submit_job
 from .jobs.serialization import build_job_status
-from .mcp_catalog import build_catalog, terminate_tool_processes
+from .mcp_catalog import (
+    build_catalog,
+    list_selectable_tool_specs,
+    terminate_tool_processes,
+)
 from .pentest import store as pentest_store
 from .pentest import submit_pentest_job
 from .pentest.serialization import build_pentest_status
@@ -169,7 +173,7 @@ def get_pentest_tools() -> McpToolsResponse:
     toolsets = []
     for entry in build_catalog(settings):
         try:
-            specs = entry.toolset.list_tool_specs()
+            specs = list_selectable_tool_specs(entry)
             tools = [McpToolInfo(name=spec.name, description=spec.description) for spec in specs]
         except Exception as exc:  # noqa: BLE001 - one unreachable server must not 500
             logger.warning("Could not list tools for toolset '%s': %s", entry.name, exc)

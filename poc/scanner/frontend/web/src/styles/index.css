@@ -1572,6 +1572,11 @@ body {
   font-weight: 600;
 }
 
+.tool-group__actions {
+  display: flex;
+  gap: 6px;
+}
+
 .tool-group__toggle {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -1580,6 +1585,20 @@ body {
   cursor: pointer;
   font-size: 11px;
   color: var(--text);
+}
+
+.tool-group__toggle:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.tool-subgroup + .tool-subgroup {
+  margin-top: 8px;
+}
+
+.tool-subgroup__title {
+  margin-bottom: 3px;
+  font-size: 11px;
 }
 
 .tool-group__empty {

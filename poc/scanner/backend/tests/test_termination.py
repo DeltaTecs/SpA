@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import sys
 import unittest
-from dataclasses import replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -26,6 +25,7 @@ from app.mcp_catalog import (  # noqa: E402
 def _settings(**overrides) -> Settings:
     base = dict(
         mcp_packet_db_url="http://packet-db/mcp",
+        db_api_url=None,
         tavily_url="http://tavily/mcp",
         hexstrike_bash_url="http://hexstrike:8766/mcp",
         hexstrike_tools_url="http://hexstrike:8767/mcp",

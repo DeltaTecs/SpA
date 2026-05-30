@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -25,6 +26,7 @@ except ImportError:  # pragma: no cover - older mcp package compatibility
 PYTHON = os.environ.get("HEXSTRIKE_VENV_PYTHON", "/opt/hexstrike-venv/bin/python")
 HEXSTRIKE_HOME = Path(os.environ.get("HEXSTRIKE_HOME", "/opt/hexstrike-ai"))
 BASH_MCP_SCRIPT = Path("/usr/local/bin/hexstrike-bash-mcp")
+HTTP_MCP_BRIDGE_SCRIPT = Path("/usr/local/bin/hexstrike-http-mcp")
 HEXSTRIKE_MCP_SCRIPT = HEXSTRIKE_HOME / "hexstrike_mcp.py"
 HEXSTRIKE_SERVER_SCRIPT = HEXSTRIKE_HOME / "hexstrike_server.py"
 HEXSTRIKE_FILE_ROOT = Path("/tmp/hexstrike_files")
@@ -66,6 +68,31 @@ def _wait_for_json(url: str, timeout_seconds: float = 60) -> dict[str, Any]:
         time.sleep(0.5)
 
     raise RuntimeError(f"Timed out waiting for JSON response from {url}: {last_error}")
+
+
+def _wait_for_active_process(server_url: str, timeout_seconds: float = 20) -> int:
+    deadline = time.time() + timeout_seconds
+    last_error: Exception | None = None
+
+    while time.time() < deadline:
+        try:
+            response = requests.get(f"{server_url}/api/processes/dashboard", timeout=5)
+            response.raise_for_status()
+            processes = response.json().get("processes", [])
+            if processes:
+                return int(processes[0]["pid"])
+        except (KeyError, TypeError, ValueError, requests.RequestException) as exc:
+            last_error = exc
+        time.sleep(0.2)
+
+    raise RuntimeError(f"Timed out waiting for an active HexStrike process: {last_error}")
+
+
+def _parse_sse_json(text: str) -> dict[str, Any]:
+    for line in text.splitlines():
+        if line.startswith("data:"):
+            return json.loads(line[len("data:") :].strip())
+    return json.loads(text)
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
@@ -360,6 +387,50 @@ class TestHexStrikeMcpTools(HexStrikeProcessTestCase):
             cache_text = _result_text(results["cache"])
             self.assertIn("hit_rate", cache_text)
             self.assertIn("size", cache_text)
+
+    def test_http_bridge_stop_terminates_hexstrike_managed_process(self) -> None:
+        bridge_port = _free_port()
+        bridge_url = f"http://127.0.0.1:{bridge_port}"
+        bridge_process = self._start_process(
+            [PYTHON, str(HTTP_MCP_BRIDGE_SCRIPT)],
+            env={
+                "HEXSTRIKE_MCP_HTTP_HOST": "127.0.0.1",
+                "HEXSTRIKE_MCP_HTTP_PORT": str(bridge_port),
+                "HEXSTRIKE_SERVER_URL": self.server_url,
+            },
+            log_name="hexstrike-http-mcp.log",
+        )
+        _wait_for_tcp("127.0.0.1", bridge_port)
+        self.assertIsNone(bridge_process.poll(), "HexStrike HTTP MCP bridge exited early")
+
+        command_response: dict[str, Any] = {}
+
+        def run_command() -> None:
+            try:
+                command_response["response"] = requests.post(
+                    f"{self.server_url}/api/command",
+                    json={"command": "sleep 30", "use_cache": False},
+                    timeout=40,
+                )
+            except Exception as exc:  # noqa: BLE001 - asserted below in the test thread
+                command_response["error"] = exc
+
+        command_thread = threading.Thread(target=run_command, daemon=True)
+        command_thread.start()
+        pid = _wait_for_active_process(self.server_url)
+
+        response = requests.post(
+            f"{bridge_url}/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/stop"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        managed = _parse_sse_json(response.text)["result"]["managed_processes"]
+
+        command_thread.join(timeout=10)
+        self.assertFalse(command_thread.is_alive(), "Terminated command request did not return")
+        self.assertNotIn("error", command_response)
+        self.assertIn(pid, managed["stopped"])
 
 
 if __name__ == "__main__":

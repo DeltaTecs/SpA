@@ -126,6 +126,7 @@ class JobStoreTests(unittest.TestCase):
     def test_create_and_get_returns_pending_tasks(self):
         s = JobStore()
         job_id = s.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -140,6 +141,7 @@ class JobStoreTests(unittest.TestCase):
     def test_get_returns_isolated_copy(self):
         s = JobStore()
         job_id = s.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -153,6 +155,7 @@ class JobStoreTests(unittest.TestCase):
     def test_update_task(self):
         s = JobStore()
         job_id = s.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -169,6 +172,7 @@ class JobStoreTests(unittest.TestCase):
 class RunExchangeTests(unittest.TestCase):
     def test_success_records_done_result(self):
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -183,6 +187,7 @@ class RunExchangeTests(unittest.TestCase):
 
     def test_failure_records_error(self):
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -196,6 +201,7 @@ class RunExchangeTests(unittest.TestCase):
 
     def test_prompt_overrides_are_sent_to_provider(self):
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -220,6 +226,7 @@ class RunExchangeTests(unittest.TestCase):
     def test_concurrent_runs_all_complete(self):
         ids = [f"e{i}" for i in range(8)]
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -247,6 +254,7 @@ class RunExchangeTests(unittest.TestCase):
 class JobCancellationTests(unittest.TestCase):
     def _job(self, s, ids=("a", "b")):
         return s.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -286,6 +294,7 @@ class JobCancellationTests(unittest.TestCase):
 class RunExchangeCancellationTests(unittest.TestCase):
     def test_skips_when_cancelled_before_start(self):
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,
@@ -298,6 +307,7 @@ class RunExchangeCancellationTests(unittest.TestCase):
 
     def test_midrun_cancellation_records_cancelled(self):
         job_id = store.create(
+            recording_id=1,
             provider="local",
             model="m",
             reasoning_effort=None,

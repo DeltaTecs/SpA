@@ -16,6 +16,7 @@ from app.tasks.vulnerability_checks import VulnerabilityChecksTask  # noqa: E402
 def _settings(*, tavily_url=None):
     return Settings(
         mcp_packet_db_url="http://mcp-packet-db:8765/mcp",
+        db_api_url=None,
         tavily_url=tavily_url,
         hexstrike_bash_url=None,
         hexstrike_tools_url=None,

@@ -11,6 +11,7 @@ const CATEGORY_LABELS: Record<ToolCategory, string> = {
   bash: "Bash",
   hexstrike: "HexStrike tools",
 };
+const CATEGORY_ORDER: ToolCategory[] = ["db", "search", "bash", "hexstrike"];
 
 interface McpToolConfigProps {
   value: PentestUiConfig;
@@ -33,6 +34,10 @@ export function McpToolConfig({
 }: McpToolConfigProps) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const allowed = new Set(value.allowedTools);
+  const categoryGroups = CATEGORY_ORDER.map((category) => ({
+    category,
+    toolsets: toolsets?.filter((toolset) => toolset.category === category) ?? [],
+  })).filter((group) => group.toolsets.length > 0);
 
   function setAllowed(next: Set<string>) {
     onChange({ ...value, allowedTools: [...next] });
@@ -83,43 +88,62 @@ export function McpToolConfig({
           <div className="tool-list">
             {toolsLoading && <Loading label="Discovering MCP tools..." />}
             {toolsError && <ErrorBanner message={toolsError} />}
-            {toolsets?.map((toolset) => {
-              const names = toolset.tools.map((tool) => tool.name);
+            {categoryGroups.map(({ category, toolsets: categoryToolsets }) => {
+              const names = [
+                ...new Set(
+                  categoryToolsets.flatMap((toolset) => toolset.tools.map((tool) => tool.name)),
+                ),
+              ];
               const allOn = names.length > 0 && names.every((name) => allowed.has(name));
+              const anyOn = names.some((name) => allowed.has(name));
               return (
-                <div key={toolset.name} className="tool-group">
+                <div key={category} className="tool-group">
                   <div className="tool-group__head">
-                    <span className="tool-group__title">
-                      {CATEGORY_LABELS[toolset.category]}{" "}
-                      <span className="muted">({toolset.name})</span>
-                    </span>
+                    <span className="tool-group__title">{CATEGORY_LABELS[category]}</span>
                     {names.length > 0 && (
-                      <button
-                        type="button"
-                        className="tool-group__toggle"
-                        disabled={disabled}
-                        onClick={() => setGroup(names, !allOn)}
-                      >
-                        {allOn ? "Clear" : "Select all"}
-                      </button>
+                      <div className="tool-group__actions">
+                        <button
+                          type="button"
+                          className="tool-group__toggle"
+                          disabled={disabled || allOn}
+                          onClick={() => setGroup(names, true)}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="tool-group__toggle"
+                          disabled={disabled || !anyOn}
+                          onClick={() => setGroup(names, false)}
+                        >
+                          Clear
+                        </button>
+                      </div>
                     )}
                   </div>
-                  {names.length === 0 && (
-                    <p className="muted tool-group__empty">No tools available (server unreachable?).</p>
-                  )}
-                  {toolset.tools.map((tool) => (
-                    <label key={tool.name} className="tool-row">
-                      <input
-                        type="checkbox"
-                        disabled={disabled}
-                        checked={allowed.has(tool.name)}
-                        onChange={() => toggleTool(tool.name)}
-                      />
-                      <span className="tool-row__name">{tool.name}</span>
-                      {tool.description && (
-                        <span className="tool-row__desc">{tool.description}</span>
+                  {categoryToolsets.map((toolset) => (
+                    <div key={toolset.name} className="tool-subgroup">
+                      <div className="muted tool-subgroup__title">{toolset.name}</div>
+                      {toolset.tools.length === 0 && (
+                        <p className="muted tool-group__empty">
+                          No selectable tools available (server unreachable or no permitted tools).
+                        </p>
                       )}
-                    </label>
+                      {toolset.tools.map((tool) => (
+                        <label key={tool.name} className="tool-row">
+                          <input
+                            type="checkbox"
+                            disabled={disabled}
+                            checked={allowed.has(tool.name)}
+                            onChange={() => toggleTool(tool.name)}
+                          />
+                          <span className="tool-row__name">{tool.name}</span>
+                          {tool.description && (
+                            <span className="tool-row__desc">{tool.description}</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
                   ))}
                 </div>
               );
