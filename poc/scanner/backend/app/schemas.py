@@ -302,6 +302,69 @@ class ReviewDecisionRequest(BaseModel):
     hint: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)
 
 
+# --- guided analysis (interactive chat) --------------------------------------
+
+
+MAX_GUIDED_MESSAGES = 200
+MAX_GUIDED_MESSAGE_CHARS = 20000
+MAX_GUIDED_SYSTEM_PROMPT_CHARS = 12000
+
+
+class GuidedChatMessage(BaseModel):
+    """One turn of the guided-analysis conversation (final content only; the
+    intermediate tool-call rounds within a turn are not echoed back as history)."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., max_length=MAX_GUIDED_MESSAGE_CHARS)
+
+
+class StartGuidedTurnRequest(BaseModel):
+    """Run one agentic chat turn over the supplied conversation.
+
+    ``messages`` is the full prior conversation including the new user message
+    (which must be last). A blank ``system_prompt`` defers to the runner's
+    default pretext.
+    """
+
+    provider: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
+    max_iterations: int = Field(10, ge=1, le=50)
+    system_prompt: str = Field("", max_length=MAX_GUIDED_SYSTEM_PROMPT_CHARS)
+    messages: List[GuidedChatMessage] = Field(default_factory=list)
+    tool_config: ToolConfig = Field(default_factory=ToolConfig)
+
+    @field_validator("messages")
+    @classmethod
+    def validate_messages(cls, value: List[GuidedChatMessage]) -> List[GuidedChatMessage]:
+        if not value:
+            raise ValueError("At least one message is required to start a guided turn.")
+        if len(value) > MAX_GUIDED_MESSAGES:
+            raise ValueError(f"At most {MAX_GUIDED_MESSAGES} messages are allowed.")
+        if value[-1].role != "user":
+            raise ValueError("The final message must be from the user.")
+        return value
+
+
+class StartGuidedTurnResponse(BaseModel):
+    job_id: str
+
+
+class GuidedTurnStatus(BaseModel):
+    """Status and result of one agentic chat turn (poll until terminal)."""
+
+    job_id: str
+    status: JobLifecycle
+    #: The assistant's final reply once the turn is done (None while running).
+    content: Optional[str] = None
+    error: Optional[str] = None
+    iterations: Optional[int] = None
+    stopped_on_limit: Optional[bool] = None
+    #: Human-readable current phase while running (None when not running).
+    activity: Optional[str] = None
+    pending_reviews: List[PendingReview] = Field(default_factory=list)
+
+
 # --- termination -------------------------------------------------------------
 
 

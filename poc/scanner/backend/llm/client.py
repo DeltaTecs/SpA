@@ -132,16 +132,29 @@ class McpLlmClient:
         )
 
     def run(self, prompt: str, *, system: str | None = None) -> RunResult:
-        """Execute the agentic loop and return the final result."""
+        """Execute the agentic loop for a single prompt and return the result.
 
-        tool_specs, dispatch = self._collect_tools()
-        logger.info("Starting run with %d aggregated tool(s)", len(tool_specs))
-
+        Convenience wrapper around :meth:`run_messages` that seeds the loop with
+        an optional system message followed by the user prompt.
+        """
         messages: list[ChatMessage] = []
         if system:
             messages.append(ChatMessage(role="system", content=system))
         messages.append(ChatMessage(role="user", content=prompt))
+        return self.run_messages(messages)
 
+    def run_messages(self, messages: list[ChatMessage]) -> RunResult:
+        """Execute the agentic loop over a seeded conversation and return the result.
+
+        ``messages`` is the full prior conversation (e.g. ``[system?, user,
+        assistant, user, ...]``). The list is copied before being mutated, so the
+        caller's list is left untouched and can be reused for the next turn.
+        """
+
+        tool_specs, dispatch = self._collect_tools()
+        logger.info("Starting run with %d aggregated tool(s)", len(tool_specs))
+
+        messages = list(messages)
         executed_calls: list[ToolCall] = []
 
         for iteration in range(1, self.max_iterations + 1):

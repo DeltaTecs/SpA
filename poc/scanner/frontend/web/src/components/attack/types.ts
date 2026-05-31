@@ -43,6 +43,16 @@ export interface PentestUiConfig {
   concurrent: boolean;
 }
 
+/**
+ * Guided Analysis config: the same agent + tool-review configuration as the
+ * pentest tab, plus an editable system-prompt pretext for the chat. The
+ * `concurrent` flag is unused here (one turn at a time) but kept for reuse of the
+ * shared config form/helpers.
+ */
+export interface GuidedUiConfig extends PentestUiConfig {
+  systemPrompt: string;
+}
+
 /** Drop the UI-only `selected` flag before posting an exchange to the backend. */
 export function toExchange({ selected, ...rest }: EditableExchange): Exchange {
   void selected;

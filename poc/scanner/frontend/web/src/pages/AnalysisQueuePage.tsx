@@ -1,19 +1,39 @@
+import { useNavigate } from "react-router-dom";
 import { LlmProviderFields } from "../components/attack/LlmProviderFields";
 import { McpToolConfig } from "../components/attack/McpToolConfig";
 import { ReportCard } from "../components/attack/ReportCard";
 import { ReviewPanel, type ReviewEntry } from "../components/attack/ReviewPanel";
+import {
+  describeCompletedEntry,
+  describeTarget,
+  exportCompletedToText,
+} from "../components/attack/describeResult";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
 import {
   type ActiveEntry,
+  type CompletedEntry,
   type QueueEntry,
   useAnalysisQueue,
 } from "../state/AnalysisQueueContext";
+import { useGuidedAnalysis } from "../state/GuidedAnalysisContext";
 
+/** A descriptive target line (full HTTP URL incl. domain, plus ip:port). */
 function entryTarget(entry: QueueEntry): string {
-  const remote = entry.item.exchange.remote;
-  if (remote) return `${remote.ip ?? "?"}:${remote.port ?? "?"}`;
-  return "recorded endpoint";
+  return describeTarget(entry.item.exchange);
+}
+
+/** Download `text` as a file the browser saves to the user's downloads. */
+function downloadText(filename: string, text: string): void {
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function AnalysisQueuePage() {
@@ -31,14 +51,23 @@ export function AnalysisQueuePage() {
     toolsLoading,
     toolsError,
     evict,
+    removeCompleted,
     clearCompleted,
     runAll,
     pauseAfterCurrent,
     stopNow,
   } = useAnalysisQueue();
+  const { stageInput } = useGuidedAnalysis();
+  const navigate = useNavigate();
 
   const configDisabled = runState !== "idle";
   const canRun = !!config && pending.length > 0 && runState !== "running";
+
+  // Push a result's description into the Guided Analysis chat, then switch tabs.
+  function sendToGuided(entry: CompletedEntry) {
+    stageInput(describeCompletedEntry(entry));
+    navigate("/guided-analysis");
+  }
 
   return (
     <div className="page">
@@ -144,9 +173,19 @@ export function AnalysisQueuePage() {
               Completed <span className="analysis-queue__count">{completed.length}</span>
             </span>
             {completed.length > 0 && (
-              <button type="button" onClick={clearCompleted}>
-                Clear
-              </button>
+              <div className="analysis-queue__completed-actions">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadText("analysis-results.txt", exportCompletedToText(completed))
+                  }
+                >
+                  Export all
+                </button>
+                <button type="button" onClick={clearCompleted}>
+                  Clear
+                </button>
+              </div>
             )}
           </div>
           {completed.length === 0 && <div className="muted">No completed analyses yet.</div>}
@@ -156,6 +195,18 @@ export function AnalysisQueuePage() {
                 {entry.label} · {entryTarget(entry)}
               </p>
               <ReportCard item={entry.result} />
+              <div className="analysis-queue__result-actions">
+                <button type="button" onClick={() => sendToGuided(entry)}>
+                  Send to Guided Analysis
+                </button>
+                <button
+                  type="button"
+                  className="analysis-queue__result-delete"
+                  onClick={() => removeCompleted(entry.id)}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           ))}
         </section>

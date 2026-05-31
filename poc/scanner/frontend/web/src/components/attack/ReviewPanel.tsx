@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { submitReview } from "../../api/pentest";
-import type { PendingReview } from "../../api/types";
+import type { PendingReview, ReviewDecisionRequest } from "../../api/types";
 import { ToolCallArguments } from "./ToolCallArguments";
 
 export interface ReviewEntry {
@@ -8,12 +8,21 @@ export interface ReviewEntry {
   itemTitle: string;
 }
 
+/** Resolve a parked tool review. Defaults to the pentest endpoint; the Guided
+ *  Analysis page passes its own (`submitGuidedReview`) to target /guided/*. */
+export type SubmitReview = (
+  jobId: string,
+  reviewId: string,
+  decision: ReviewDecisionRequest,
+) => Promise<{ resolved: boolean }>;
+
 interface ReviewPanelProps {
   jobId: string;
   entries: ReviewEntry[];
+  submit?: SubmitReview;
 }
 
-export function ReviewPanel({ jobId, entries }: ReviewPanelProps) {
+export function ReviewPanel({ jobId, entries, submit = submitReview }: ReviewPanelProps) {
   if (entries.length === 0) return null;
   return (
     <section className="panel review-panel">
@@ -21,13 +30,21 @@ export function ReviewPanel({ jobId, entries }: ReviewPanelProps) {
         Tool reviews pending <span className="review-panel__count">{entries.length}</span>
       </h2>
       {entries.map((entry) => (
-        <ReviewCard key={entry.review.review_id} jobId={jobId} entry={entry} />
+        <ReviewCard key={entry.review.review_id} jobId={jobId} entry={entry} submit={submit} />
       ))}
     </section>
   );
 }
 
-function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
+function ReviewCard({
+  jobId,
+  entry,
+  submit,
+}: {
+  jobId: string;
+  entry: ReviewEntry;
+  submit: SubmitReview;
+}) {
   const { review, itemTitle } = entry;
   const [hint, setHint] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,7 +57,7 @@ function ReviewCard({ jobId, entry }: { jobId: string; entry: ReviewEntry }) {
     setBusy(true);
     setError(null);
     try {
-      await submitReview(jobId, review.review_id, {
+      await submit(jobId, review.review_id, {
         approved,
         hint: overrideHint ?? hint,
       });

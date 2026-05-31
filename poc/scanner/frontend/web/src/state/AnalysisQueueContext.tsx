@@ -80,6 +80,8 @@ interface AnalysisQueueValue {
   enqueue: (items: Array<Omit<QueueEntry, "id">>) => void;
   /** Drop a not-yet-started entry from the pending queue. */
   evict: (id: string) => void;
+  /** Permanently remove a single completed analysis from the list. */
+  removeCompleted: (id: string) => void;
   clearCompleted: () => void;
   /** Start processing the pending queue. */
   runAll: () => void;
@@ -330,6 +332,11 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     setPending((prev) => prev.filter((entry) => entry.id !== id));
   }, []);
 
+  const removeCompleted = useCallback(
+    (id: string) => setCompleted((prev) => prev.filter((entry) => entry.id !== id)),
+    [],
+  );
+
   const clearCompleted = useCallback(() => setCompleted([]), []);
 
   // Drop the saved config and rebuild it from provider + tool defaults, exactly
@@ -380,6 +387,7 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
     toolsError: tools.error,
     enqueue,
     evict,
+    removeCompleted,
     clearCompleted,
     runAll,
     pauseAfterCurrent,

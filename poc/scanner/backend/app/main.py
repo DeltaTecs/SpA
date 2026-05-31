@@ -17,6 +17,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from llm import configure_logging
 
 from .config import settings
+from .guided import store as guided_store
+from .guided import submit_guided_turn
+from .guided.serialization import build_guided_status
 from .jobs.runner import store, submit_job
 from .jobs.serialization import build_job_status
 from .mcp_catalog import (
@@ -29,6 +32,7 @@ from .pentest import submit_pentest_job
 from .pentest.serialization import build_pentest_status
 from .providers import list_providers
 from .schemas import (
+    GuidedTurnStatus,
     JobStatus,
     McpToolInfo,
     McpToolsetInfo,
@@ -37,6 +41,8 @@ from .schemas import (
     PromptPartInfo,
     ProviderList,
     ReviewDecisionRequest,
+    StartGuidedTurnRequest,
+    StartGuidedTurnResponse,
     StartJobRequest,
     StartJobResponse,
     StartPentestJobRequest,
@@ -227,4 +233,55 @@ def cancel_pentest_job(job_id: str) -> TerminationResult:
     """
     if not pentest_store.cancel(job_id):
         raise HTTPException(status_code=404, detail=f"Unknown pentest job '{job_id}'.")
+    return _terminate_tools(job_id)
+
+
+# --- guided analysis ---------------------------------------------------------
+
+
+@app.post(
+    "/guided/turns",
+    response_model=StartGuidedTurnResponse,
+    status_code=202,
+    tags=["guided"],
+)
+def start_guided_turn(request: StartGuidedTurnRequest) -> StartGuidedTurnResponse:
+    """Start one agentic chat turn over the supplied conversation."""
+    try:
+        job_id = submit_guided_turn(request, settings)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return StartGuidedTurnResponse(job_id=job_id)
+
+
+@app.get("/guided/turns/{job_id}", response_model=GuidedTurnStatus, tags=["guided"])
+def get_guided_turn(job_id: str) -> GuidedTurnStatus:
+    """Return a guided turn's status, reply, and pending tool reviews."""
+    turn = guided_store.get(job_id)
+    if turn is None:
+        raise HTTPException(status_code=404, detail=f"Unknown guided turn '{job_id}'.")
+    return build_guided_status(turn)
+
+
+@app.post("/guided/turns/{job_id}/reviews/{review_id}", tags=["guided"])
+def resolve_guided_review(
+    job_id: str, review_id: str, decision: ReviewDecisionRequest
+) -> dict:
+    """Approve or deny a pending tool call, unblocking the turn's session."""
+    resolved = guided_store.resolve_review(
+        job_id, review_id, decision.approved, decision.hint
+    )
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Unknown or already-resolved review.")
+    return {"resolved": True}
+
+
+@app.post("/guided/turns/{job_id}/cancel", response_model=TerminationResult, tags=["guided"])
+def cancel_guided_turn(job_id: str) -> TerminationResult:
+    """Terminate a guided turn and kill all MCP tools and their tool processes.
+
+    Also releases the session if it is blocked awaiting a manual tool review.
+    """
+    if not guided_store.cancel(job_id):
+        raise HTTPException(status_code=404, detail=f"Unknown guided turn '{job_id}'.")
     return _terminate_tools(job_id)

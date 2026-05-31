@@ -363,6 +363,45 @@ export interface PentestReportPayload {
   parse_warning?: string;
 }
 
+// --- guided analysis (scanner-backend, via /api/plan/guided/*) -------------
+
+export type GuidedChatRole = "user" | "assistant";
+
+/** One turn of the guided-analysis conversation (final content only). */
+export interface GuidedChatMessage {
+  role: GuidedChatRole;
+  content: string;
+}
+
+export interface StartGuidedTurnRequest {
+  provider: string;
+  model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
+  max_iterations: number;
+  /** System pretext; blank defers to the backend default. */
+  system_prompt: string;
+  /** Full prior conversation incl. the new user message (which must be last). */
+  messages: GuidedChatMessage[];
+  tool_config: ToolConfig;
+}
+
+export interface StartGuidedTurnResponse {
+  job_id: string;
+}
+
+export interface GuidedTurnStatus {
+  job_id: string;
+  status: JobStatusValue;
+  /** The assistant's final reply once the turn is done (null while running). */
+  content: string | null;
+  error: string | null;
+  iterations: number | null;
+  stopped_on_limit: boolean | null;
+  /** Human-readable current phase while running (null when not running). */
+  activity: string | null;
+  pending_reviews: PendingReview[];
+}
+
 // --- persisted scan results (db-api /recordings/{id}/scans) ----------------
 
 export interface ScanResultSummary {

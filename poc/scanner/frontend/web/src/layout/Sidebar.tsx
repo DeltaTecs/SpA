@@ -5,6 +5,7 @@ const NAV_ITEMS = [
   { to: "/explorer", label: "Packet Explorer", end: false },
   { to: "/test-planner", label: "Test Planner", end: false },
   { to: "/analysis-queue", label: "Analysis Queue", end: false },
+  { to: "/guided-analysis", label: "Guided Analysis", end: false },
 ];
 
 export function Sidebar() {

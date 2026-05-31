@@ -9,6 +9,11 @@ import { taskPromptDefaults } from "./types";
  */
 export const ANALYSIS_QUEUE_CONFIG_KEY = "spa.analysisQueue.config.v1";
 export const TEST_PLANNER_CONFIG_KEY = "spa.testPlanner.config.v1";
+export const GUIDED_ANALYSIS_CONFIG_KEY = "spa.guidedAnalysis.config.v1";
+
+/** Persisted Guided Analysis chat (messages + draft input), so the conversation
+ *  survives a refresh. */
+export const GUIDED_ANALYSIS_CHAT_KEY = "spa.guidedAnalysis.chat.v1";
 
 /** Persisted handle to the Test Planner's live job, so progress survives a
  *  refresh. Scoped to the recording + task type it was launched for, so it only
@@ -53,10 +58,10 @@ function reconcileLlmFields(values: LlmFieldValues, providers: ProviderOption[])
  * reconciles both the agent and reviewer providers to a valid choice. Pure /
  * idempotent: returns an equivalent config when nothing drifted.
  */
-export function reconcileConfig(
-  config: PentestUiConfig,
+export function reconcileConfig<T extends PentestUiConfig>(
+  config: T,
   providers: ProviderOption[],
-): PentestUiConfig {
+): T {
   if (providers.length === 0) return config;
   return {
     ...config,
