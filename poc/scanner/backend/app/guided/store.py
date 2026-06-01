@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-from llm import CancellationToken
+from llm import CallBudget, CancellationToken
 
 
 @dataclass
@@ -71,6 +71,8 @@ class GuidedStore:
         # Per-turn cancellation token (shared with the turn's session). Kept out of
         # the turn objects so ``get`` can deep-copy freely.
         self._tokens: Dict[str, CancellationToken] = {}
+        # Per-turn tool-call budget (a guided turn is its own job).
+        self._budgets: Dict[str, CallBudget] = {}
 
     def create(
         self,
@@ -78,6 +80,7 @@ class GuidedStore:
         provider: str,
         model: Optional[str],
         reasoning_effort: Optional[str],
+        call_budget: int = 0,
     ) -> str:
         """Create a turn and return its id."""
         job_id = uuid4().hex
@@ -90,6 +93,8 @@ class GuidedStore:
         with self._lock:
             self._turns[job_id] = turn
             self._tokens[job_id] = CancellationToken()
+            # Per-turn budget for the turn's session (<= 0 = unlimited).
+            self._budgets[job_id] = CallBudget(call_budget)
         return job_id
 
     def get(self, job_id: str) -> Optional[GuidedTurn]:
@@ -102,6 +107,11 @@ class GuidedStore:
         """Return the turn's cancellation token (shared with its session)."""
         with self._lock:
             return self._tokens.get(job_id)
+
+    def budget_for(self, job_id: str) -> Optional[CallBudget]:
+        """Return the turn's tool-call budget (or ``None`` if unknown)."""
+        with self._lock:
+            return self._budgets.get(job_id)
 
     def update(self, job_id: str, **fields: Any) -> None:
         """Patch turn fields, unless the turn was frozen by cancellation."""

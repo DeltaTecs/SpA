@@ -88,6 +88,7 @@ def submit_guided_turn(request: StartGuidedTurnRequest, cfg: Settings = settings
         provider=request.provider,
         model=provider.model,
         reasoning_effort=provider.reasoning_effort,
+        call_budget=cfg.tavily_call_budget_per_job,
     )
     logger.info(
         "Guided turn %s: provider=%s, model=%s, review=%s, messages=%d, "
@@ -130,7 +131,7 @@ def run_turn(
         # Only connect to toolsets that actually hold a selected tool.
         toolsets = [
             entry.toolset
-            for entry in build_catalog(cfg)
+            for entry in build_catalog(cfg, budget=store.budget_for(job_id))
             if entry.category in needed_categories
         ]
         approver = PentestApprover(

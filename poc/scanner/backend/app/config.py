@@ -22,6 +22,14 @@ def _optional(name: str) -> Optional[str]:
     return value or None
 
 
+def _flag(name: str, default: bool) -> bool:
+    """Parse a boolean env var; unset/blank falls back to ``default``."""
+    value = _optional(name)
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class Settings:
     """Backend configuration. See ``from_env`` for the environment variables."""
@@ -40,6 +48,26 @@ class Settings:
     default_max_iterations: int
     mcp_timeout: float
     llm_timeout: float
+
+    # --- Tavily cost controls (web-search MCP) -------------------------------
+    # Defaults here are the *safe* values used when a Settings is constructed
+    # directly (e.g. in tests): caching on but in-memory only, conservative
+    # parameters, unlimited budget. ``from_env`` applies the production defaults
+    # (notably a persistent SQLite cache path).
+    tavily_cache_enabled: bool = True
+    #: Local SQLite file for the persistent cache tier; ``None`` = memory only.
+    tavily_cache_path: Optional[str] = None
+    tavily_cache_ttl_seconds: float = 604800.0  # 7 days
+    tavily_cache_max_entries: int = 1000
+    #: Forced search depth (``basic`` = 1 credit vs ``advanced`` = 2).
+    tavily_search_depth: str = "basic"
+    #: Cap on ``max_results`` per search (<= 0 disables the cap).
+    tavily_max_results: int = 5
+    tavily_allow_extract: bool = True
+    tavily_allow_crawl: bool = False
+    tavily_include_raw_content: bool = False
+    #: Max billable Tavily calls per job (<= 0 = unlimited).
+    tavily_call_budget_per_job: int = 0
 
     @staticmethod
     def from_env() -> "Settings":
@@ -69,6 +97,27 @@ class Settings:
             default_max_iterations=int(os.environ.get("PLAN_MAX_ITERATIONS", "10")),
             mcp_timeout=float(os.environ.get("PLAN_MCP_TIMEOUT", "60")),
             llm_timeout=float(os.environ.get("PLAN_LLM_TIMEOUT", "120")),
+            tavily_cache_enabled=_flag("TAVILY_CACHE_ENABLED", True),
+            # Unset -> persistent local SQLite; explicit empty string -> memory only.
+            tavily_cache_path=os.environ.get(
+                "TAVILY_CACHE_PATH", ".cache/tavily.sqlite"
+            ).strip()
+            or None,
+            tavily_cache_ttl_seconds=float(
+                os.environ.get("TAVILY_CACHE_TTL_SECONDS", "604800")
+            ),
+            tavily_cache_max_entries=int(
+                os.environ.get("TAVILY_CACHE_MAX_ENTRIES", "1000")
+            ),
+            tavily_search_depth=os.environ.get("TAVILY_SEARCH_DEPTH", "basic").strip()
+            or "basic",
+            tavily_max_results=int(os.environ.get("TAVILY_MAX_RESULTS", "5")),
+            tavily_allow_extract=_flag("TAVILY_ALLOW_EXTRACT", True),
+            tavily_allow_crawl=_flag("TAVILY_ALLOW_CRAWL", False),
+            tavily_include_raw_content=_flag("TAVILY_INCLUDE_RAW_CONTENT", False),
+            tavily_call_budget_per_job=int(
+                os.environ.get("TAVILY_CALL_BUDGET_PER_JOB", "0")
+            ),
         )
 
     def api_key_for(self, provider_type: str) -> Optional[str]:

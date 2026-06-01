@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from llm import CancellationToken
+from llm import CallBudget, CancellationToken
 
 
 @dataclass
@@ -66,6 +66,7 @@ class JobStore:
         self._lock = threading.Lock()
         self._jobs: Dict[str, Job] = {}
         self._tokens: Dict[str, CancellationToken] = {}
+        self._budgets: Dict[str, CallBudget] = {}
 
     def create(
         self,
@@ -76,6 +77,7 @@ class JobStore:
         reasoning_effort: Optional[str],
         task_type: str,
         exchange_ids: List[str],
+        call_budget: int = 0,
     ) -> str:
         job_id = uuid4().hex
         job = Job(
@@ -90,6 +92,8 @@ class JobStore:
         with self._lock:
             self._jobs[job_id] = job
             self._tokens[job_id] = CancellationToken()
+            # One budget shared by the job's exchange workers (<= 0 = unlimited).
+            self._budgets[job_id] = CallBudget(call_budget)
         return job_id
 
     def get(self, job_id: str) -> Optional[Job]:
@@ -102,6 +106,11 @@ class JobStore:
         """Return the job's cancellation token (shared with its workers)."""
         with self._lock:
             return self._tokens.get(job_id)
+
+    def budget_for(self, job_id: str) -> Optional[CallBudget]:
+        """Return the job's shared tool-call budget (or ``None`` if unknown)."""
+        with self._lock:
+            return self._budgets.get(job_id)
 
     def update_task(self, job_id: str, exchange_id: str, **fields: Any) -> None:
         with self._lock:

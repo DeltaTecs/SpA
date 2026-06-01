@@ -73,6 +73,7 @@ def submit_job(request: StartJobRequest, cfg: Settings = settings) -> str:
         reasoning_effort=provider.reasoning_effort,
         task_type=request.task_type,
         exchange_ids=[exchange.id for exchange in request.exchanges],
+        call_budget=cfg.tavily_call_budget_per_job,
     )
     logger.info(
         "Job %s: recording=%s, %d exchange(s), task=%s, provider=%s, model=%s, reasoning_effort=%s",
@@ -144,7 +145,7 @@ def run_exchange(
         lambda phrase: store.update_task(job_id, exchange.id, activity=phrase)
     )
     try:
-        toolsets = task.select_toolsets(cfg)
+        toolsets = task.select_toolsets(cfg, budget=store.budget_for(job_id))
         client = McpLlmClient(
             provider, toolsets, max_iterations=max_iterations, cancel_token=token, activity=activity
         )

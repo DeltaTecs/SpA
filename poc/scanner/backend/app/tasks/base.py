@@ -14,10 +14,11 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Dict, List, Literal, Mapping
 
-from llm import McpToolset
+from llm import CallBudget, McpToolset
 
 from ..config import Settings
 from ..schemas import Exchange, TaskResult
+from ..toolsets import build_tavily_toolset
 
 PromptPartScope = Literal["system", "user"]
 PromptOverrideMap = Mapping[str, str]
@@ -34,20 +35,22 @@ class TaskPromptPart:
     description: str = ""
 
 
-def build_default_toolsets(settings: Settings) -> List[object]:
+def build_default_toolsets(
+    settings: Settings, *, budget: CallBudget | None = None
+) -> List[object]:
     """The default toolset bundle: packet-db (always) + Tavily web search (if set).
 
-    A fresh :class:`McpToolset` is built per call so each concurrent worker owns
-    its own connections. Tavily is only included when ``TAVILY_API_KEY`` was
-    configured; otherwise the model still has the packet tools.
+    A fresh packet-db :class:`McpToolset` is built per call so each concurrent
+    worker owns its own connections. Tavily is only included when
+    ``TAVILY_API_KEY`` was configured, and is assembled with cost controls
+    (caching, parameter clamping, optional per-job ``budget``) via
+    :func:`app.toolsets.build_tavily_toolset`.
     """
     toolsets: List[object] = [
         McpToolset(settings.mcp_packet_db_url, name="packet-db", timeout=settings.mcp_timeout)
     ]
     if settings.tavily_url:
-        toolsets.append(
-            McpToolset(settings.tavily_url, name="tavily", timeout=settings.mcp_timeout)
-        )
+        toolsets.append(build_tavily_toolset(settings, budget=budget))
     return toolsets
 
 
@@ -104,9 +107,15 @@ class AnalysisTask(ABC):
         self.normalize_prompt_overrides(prompt_overrides)
         return self.build_user_prompt(exchange)
 
-    def select_toolsets(self, settings: Settings) -> List[object]:
-        """Toolsets exposed to the model for this task (override to add/restrict)."""
-        return build_default_toolsets(settings)
+    def select_toolsets(
+        self, settings: Settings, *, budget: CallBudget | None = None
+    ) -> List[object]:
+        """Toolsets exposed to the model for this task (override to add/restrict).
+
+        ``budget`` is an optional per-job ceiling threaded into any billable
+        toolset (e.g. Tavily web search); ``None`` means unlimited.
+        """
+        return build_default_toolsets(settings, budget=budget)
 
     @abstractmethod
     def parse_output(self, raw: str) -> TaskResult:

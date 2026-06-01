@@ -23,9 +23,11 @@ from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
-from llm import McpToolset, ToolSpec
+from llm import CallBudget, McpToolset, ToolSpec
+from llm.client import Toolset
 
 from .config import Settings
+from .toolsets import build_tavily_toolset
 
 logger = logging.getLogger(__name__)
 
@@ -128,17 +130,27 @@ class CatalogEntry:
 
     name: str
     category: str  # db | search | bash | hexstrike
-    toolset: McpToolset
+    #: The toolset. Usually a raw :class:`~llm.McpToolset`, but the ``search``
+    #: (Tavily) entry is the cost-controlled wrapper from
+    #: :func:`app.toolsets.build_tavily_toolset`. Only stop-capable entries
+    #: (hexstrike) are accessed via ``.url`` in :func:`terminate_tool_processes`,
+    #: and those are always raw ``McpToolset`` — so the wider type is safe.
+    toolset: Toolset
     #: How to kill this server's tool processes on termination (``None`` if the
     #: server only serves quick, read-only calls with nothing to stop).
     stop: Optional[StopSpec] = None
 
 
-def build_catalog(settings: Settings) -> List[CatalogEntry]:
+def build_catalog(
+    settings: Settings, *, budget: CallBudget | None = None
+) -> List[CatalogEntry]:
     """Build every MCP toolset that is configured, tagged with its category.
 
     ``packet-db`` is always present; the others appear only when their URL/key is
-    configured (Tavily search, hexstrike bash, hexstrike tools).
+    configured (Tavily search, hexstrike bash, hexstrike tools). The Tavily entry
+    is assembled with cost controls (caching, parameter clamping, optional
+    per-job ``budget``) via :func:`app.toolsets.build_tavily_toolset`; tool
+    availability still follows the operator's selection (``restrict_tools=False``).
     """
     entries: List[CatalogEntry] = [
         CatalogEntry(
@@ -152,7 +164,7 @@ def build_catalog(settings: Settings) -> List[CatalogEntry]:
             CatalogEntry(
                 "tavily",
                 "search",
-                McpToolset(settings.tavily_url, name="tavily", timeout=settings.mcp_timeout),
+                build_tavily_toolset(settings, budget=budget, restrict_tools=False),
             )
         )
     if settings.hexstrike_bash_url:

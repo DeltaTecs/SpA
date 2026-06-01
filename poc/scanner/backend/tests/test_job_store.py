@@ -49,7 +49,7 @@ class _EchoTask(AnalysisTask):
     def build_user_prompt(self, exchange: Exchange):
         return f"user:{exchange.id}"
 
-    def select_toolsets(self, cfg):
+    def select_toolsets(self, cfg, *, budget=None):
         return []  # no MCP toolsets -> no network
 
     def parse_output(self, raw: str):
@@ -118,7 +118,7 @@ class _ToolTask(_EchoTask):
     def __init__(self, toolset):
         self._toolset = toolset
 
-    def select_toolsets(self, cfg):
+    def select_toolsets(self, cfg, *, budget=None):
         return [self._toolset]
 
 

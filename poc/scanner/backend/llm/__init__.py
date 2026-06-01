@@ -19,7 +19,18 @@ from __future__ import annotations
 from .cancellation import CancellationToken, OperationCancelled
 from .client import ActivityReporter, McpLlmClient, RunResult, ToolApprover, ToolDecision
 from .logging_config import configure_logging
-from .mcp.toolset import McpToolset
+from .mcp import (
+    BudgetToolset,
+    CacheBackend,
+    CachingToolset,
+    CallBudget,
+    InMemoryTTLCache,
+    LayeredCache,
+    McpToolset,
+    PolicyToolset,
+    SqliteCache,
+    make_cache_key,
+)
 from .provider import (
     BaseProvider,
     ChatMessage,
@@ -41,6 +52,15 @@ __all__ = [
     "CancellationToken",
     "OperationCancelled",
     "McpToolset",
+    "BudgetToolset",
+    "CachingToolset",
+    "PolicyToolset",
+    "CallBudget",
+    "CacheBackend",
+    "InMemoryTTLCache",
+    "SqliteCache",
+    "LayeredCache",
+    "make_cache_key",
     "ProviderFactory",
     "BaseProvider",
     "OpenAIProvider",

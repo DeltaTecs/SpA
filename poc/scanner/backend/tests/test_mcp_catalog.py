@@ -14,7 +14,9 @@ from app.mcp_catalog import (  # noqa: E402
     enumerate_catalog,
     list_selectable_tool_specs,
 )
-from llm import McpToolset, ToolSpec  # noqa: E402
+from app.toolsets import tavily as tavily_mod  # noqa: E402
+from llm import CallBudget, McpToolset, ToolSpec  # noqa: E402
+from llm.mcp import toolset as toolset_mod  # noqa: E402
 
 
 def _settings() -> Settings:
@@ -83,6 +85,68 @@ class SelectableCatalogTests(unittest.TestCase):
         )
         self.assertEqual(tools.needed_categories, {"db", "search", "bash", "hexstrike"})
         self.assertEqual(tools.exempt_names, {"packet_lookup", "tavily_search", "tavily_crawl"})
+
+
+class CatalogTavilyCostControlTests(unittest.TestCase):
+    """The catalogue's Tavily entry is the cost-controlled wrapper, not a raw toolset.
+
+    The MCP network is stubbed at the module level and the process-wide Tavily
+    cache is reset per test for isolation.
+    """
+
+    def setUp(self):
+        tavily_mod._cache = None  # fresh in-memory cache singleton
+        self._orig_list = toolset_mod._list_tools_async
+        self._orig_call = toolset_mod._call_tool_async
+        self.calls = []
+
+        async def fake_list(url, transport):
+            return {
+                "tools": [
+                    {"name": "tavily_search", "inputSchema": {}},
+                    {"name": "tavily_crawl", "inputSchema": {}},
+                ]
+            }
+
+        async def fake_call(url, transport, name, arguments, timeout):
+            self.calls.append((name, arguments))
+            return {"content": [{"type": "text", "text": "result"}]}
+
+        toolset_mod._list_tools_async = fake_list
+        toolset_mod._call_tool_async = fake_call
+
+    def tearDown(self):
+        toolset_mod._list_tools_async = self._orig_list
+        toolset_mod._call_tool_async = self._orig_call
+        tavily_mod._cache = None
+
+    def _tavily_toolset(self, **kwargs):
+        entries = {entry.name: entry for entry in build_catalog(_settings(), **kwargs)}
+        return entries["tavily"].toolset
+
+    def test_search_entry_advertises_all_tools(self):
+        # restrict_tools=False -> operator selection governs; crawl stays visible.
+        names = {spec.name for spec in self._tavily_toolset().list_tool_specs()}
+        self.assertEqual(names, {"tavily_search", "tavily_crawl"})
+
+    def test_search_entry_caches_and_clamps(self):
+        ts = self._tavily_toolset()
+        ts.call_tool("tavily_search", {"query": "nginx", "search_depth": "advanced"})
+        ts.call_tool("tavily_search", {"query": "nginx", "search_depth": "advanced"})
+
+        self.assertEqual(len(self.calls), 1)  # repeat served from the shared cache
+        self.assertEqual(self.calls[0][1]["search_depth"], "basic")  # clamped to basic
+
+    def test_budget_shared_across_catalog_rebuilds(self):
+        budget = CallBudget(1)
+        # Each item session rebuilds the catalogue but shares the job's budget.
+        self._tavily_toolset(budget=budget).call_tool("tavily_search", {"query": "a"})
+        blocked = self._tavily_toolset(budget=budget).call_tool(
+            "tavily_search", {"query": "b"}
+        )
+
+        self.assertIn("budget", blocked.lower())
+        self.assertEqual(len(self.calls), 1)
 
 
 if __name__ == "__main__":
