@@ -302,6 +302,60 @@ class ReviewDecisionRequest(BaseModel):
     hint: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)
 
 
+# --- exploit -----------------------------------------------------------------
+
+
+ExploitVerdict = Literal["exploited", "not_exploitable", "inconclusive"]
+
+
+class ExploitFinding(BaseModel):
+    """The carried-over analysis result an exploit item starts from.
+
+    Populated from a completed Analysis Queue report (the ``pentest`` task
+    payload). All fields are optional so a partial finding is still accepted.
+    """
+
+    verdict: str = ""
+    summary: str = ""
+    evidence: List[str] = Field(default_factory=list)
+
+
+class ExploitItem(BaseModel):
+    """One issue to exploit: a check, its exchange context, and the prior finding."""
+
+    id: str
+    exchange: Exchange
+    check: VulnerabilityCheck
+    finding: ExploitFinding = Field(default_factory=ExploitFinding)
+
+
+class StartExploitJobRequest(BaseModel):
+    recording_id: int
+    provider: str
+    model: Optional[str] = None
+    reasoning_effort: Optional[ReasoningEffort] = None
+    max_iterations: int = Field(10, ge=1, le=50)
+    items: List[ExploitItem] = Field(default_factory=list)
+    concurrent: bool = False
+    tool_config: ToolConfig = Field(default_factory=ToolConfig)
+    #: Persist the finished job snapshot to the db-api. Disabled by callers (e.g.
+    #: the Exploit Queue) that manage their own session-only result lifecycle.
+    persist: bool = False
+
+    @field_validator("items")
+    @classmethod
+    def validate_items(cls, value: List[ExploitItem]) -> List[ExploitItem]:
+        if not value:
+            raise ValueError("At least one item is required to start an exploit job.")
+        if len(value) > MAX_PENTEST_ITEMS:
+            raise ValueError(f"At most {MAX_PENTEST_ITEMS} items are allowed.")
+        return value
+
+
+class StartExploitJobResponse(BaseModel):
+    job_id: str
+
+
 # --- guided analysis (interactive chat) --------------------------------------
 
 

@@ -1,22 +1,26 @@
 import { Outlet } from "react-router-dom";
 import { AnalysisQueueProvider } from "../state/AnalysisQueueContext";
+import { ExploitQueueProvider } from "../state/ExploitQueueContext";
 import { GuidedAnalysisProvider } from "../state/GuidedAnalysisContext";
 import { Sidebar } from "./Sidebar";
 
 export function Layout() {
   return (
-    // Both providers live here (outside the routed Outlet) so the queue's
-    // in-flight investigations and the guided chat (and any staged input) survive
-    // navigation between pages.
+    // All queue/chat providers live here (outside the routed Outlet) so their
+    // in-flight work and any staged input survive navigation between pages. The
+    // Exploit Queue provider also wraps the Analysis Queue page, which enqueues
+    // into it via "Send to Exploit Queue".
     <AnalysisQueueProvider>
-      <GuidedAnalysisProvider>
-        <div className="app-shell">
-          <Sidebar />
-          <main className="app-main">
-            <Outlet />
-          </main>
-        </div>
-      </GuidedAnalysisProvider>
+      <ExploitQueueProvider>
+        <GuidedAnalysisProvider>
+          <div className="app-shell">
+            <Sidebar />
+            <main className="app-main">
+              <Outlet />
+            </main>
+          </div>
+        </GuidedAnalysisProvider>
+      </ExploitQueueProvider>
     </AnalysisQueueProvider>
   );
 }

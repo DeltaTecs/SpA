@@ -363,6 +363,53 @@ export interface PentestReportPayload {
   parse_warning?: string;
 }
 
+// --- exploit (scanner-backend, via /api/plan/exploit/*) --------------------
+
+export type ExploitVerdict = "exploited" | "not_exploitable" | "inconclusive";
+
+/** The carried-over analysis finding an exploit item starts from (from a
+ *  completed Analysis Queue `pentest` report). */
+export interface ExploitFinding {
+  verdict: string;
+  summary: string;
+  evidence: string[];
+}
+
+export interface ExploitItemInput {
+  id: string;
+  exchange: Exchange;
+  check: VulnerabilityCheck;
+  finding: ExploitFinding;
+}
+
+export interface StartExploitJobRequest {
+  recording_id: number;
+  provider: string;
+  model?: string | null;
+  reasoning_effort?: ReasoningEffort | null;
+  max_iterations: number;
+  items: ExploitItemInput[];
+  concurrent: boolean;
+  tool_config: ToolConfig;
+  /** Persist the finished snapshot to db-api. The Exploit Queue sends false. */
+  persist?: boolean;
+}
+
+export interface StartExploitJobResponse {
+  job_id: string;
+}
+
+/** The `exploit` task payload shape. */
+export interface ExploitReportPayload {
+  verdict: ExploitVerdict;
+  applicability: string;
+  exploitability: string;
+  business_impact: string;
+  proof_of_concept: string;
+  evidence: string[];
+  parse_warning?: string;
+}
+
 // --- guided analysis (scanner-backend, via /api/plan/guided/*) -------------
 
 export type GuidedChatRole = "user" | "assistant";

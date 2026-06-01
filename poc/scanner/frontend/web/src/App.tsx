@@ -3,6 +3,7 @@ import { Layout } from "./layout/Layout";
 import { AnalysisQueuePage } from "./pages/AnalysisQueuePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ExplorerPage } from "./pages/ExplorerPage";
+import { ExploitQueuePage } from "./pages/ExploitQueuePage";
 import { GuidedAnalysisPage } from "./pages/GuidedAnalysisPage";
 import { TestPlannerPage } from "./pages/TestPlannerPage";
 
@@ -15,6 +16,7 @@ export function App() {
           <Route path="explorer" element={<ExplorerPage />} />
           <Route path="test-planner" element={<TestPlannerPage />} />
           <Route path="analysis-queue" element={<AnalysisQueuePage />} />
+          <Route path="exploit-queue" element={<ExploitQueuePage />} />
           <Route path="guided-analysis" element={<GuidedAnalysisPage />} />
         </Route>
       </Routes>

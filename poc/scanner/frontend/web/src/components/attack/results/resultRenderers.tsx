@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { TaskResult } from "../../../api/types";
+import { ExploitReport } from "./ExploitReport";
 import { PentestReport } from "./PentestReport";
 import { VulnerabilityChecksResult } from "./VulnerabilityChecksResult";
 
@@ -11,6 +12,7 @@ type ResultRenderer = (result: TaskResult) => ReactNode;
 const RENDERERS: Record<string, ResultRenderer> = {
   vulnerability_checks: (result) => <VulnerabilityChecksResult result={result} />,
   pentest: (result) => <PentestReport result={result} />,
+  exploit: (result) => <ExploitReport result={result} />,
 };
 
 export function renderTaskResult(result: TaskResult): ReactNode {

@@ -8,6 +8,7 @@ import { taskPromptDefaults } from "./types";
  * cleanly discarding incompatible stored data instead of crashing.
  */
 export const ANALYSIS_QUEUE_CONFIG_KEY = "spa.analysisQueue.config.v1";
+export const EXPLOIT_QUEUE_CONFIG_KEY = "spa.exploitQueue.config.v1";
 export const TEST_PLANNER_CONFIG_KEY = "spa.testPlanner.config.v1";
 export const GUIDED_ANALYSIS_CONFIG_KEY = "spa.guidedAnalysis.config.v1";
 
@@ -23,6 +24,10 @@ export const TEST_PLANNER_JOB_KEY = "spa.testPlanner.job.v1";
 /** Persisted snapshot of the Analysis Queue (pending/active/completed lists and
  *  run state), so in-flight investigations resume after a refresh. */
 export const ANALYSIS_QUEUE_STATE_KEY = "spa.analysisQueue.state.v1";
+
+/** Persisted snapshot of the Exploit Queue (pending/active/completed lists and
+ *  run state), so in-flight exploit sessions resume after a refresh. */
+export const EXPLOIT_QUEUE_STATE_KEY = "spa.exploitQueue.state.v1";
 
 /** A reference to a launched Test Planner job and the view it belongs to. */
 export interface ActiveJobRef {

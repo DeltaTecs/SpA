@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from llm import configure_logging
 
 from .config import settings
+from .exploit import store as exploit_store
+from .exploit import submit_exploit_job
 from .guided import store as guided_store
 from .guided import submit_guided_turn
 from .guided.serialization import build_guided_status
@@ -41,6 +43,8 @@ from .schemas import (
     PromptPartInfo,
     ProviderList,
     ReviewDecisionRequest,
+    StartExploitJobRequest,
+    StartExploitJobResponse,
     StartGuidedTurnRequest,
     StartGuidedTurnResponse,
     StartJobRequest,
@@ -233,6 +237,60 @@ def cancel_pentest_job(job_id: str) -> TerminationResult:
     """
     if not pentest_store.cancel(job_id):
         raise HTTPException(status_code=404, detail=f"Unknown pentest job '{job_id}'.")
+    return _terminate_tools(job_id)
+
+
+# --- exploit -----------------------------------------------------------------
+
+# Exploit jobs reuse the pentest tool catalogue (GET /pentest/tools) and the
+# generic PentestJobStatus envelope; only the task/prompt and item shape differ.
+
+
+@app.post(
+    "/exploit/jobs",
+    response_model=StartExploitJobResponse,
+    status_code=202,
+    tags=["exploit"],
+)
+def start_exploit_job(request: StartExploitJobRequest) -> StartExploitJobResponse:
+    """Start one exploitation/impact-demonstration session per found issue."""
+    try:
+        job_id = submit_exploit_job(request, settings)
+    except (KeyError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return StartExploitJobResponse(job_id=job_id)
+
+
+@app.get("/exploit/jobs/{job_id}", response_model=PentestJobStatus, tags=["exploit"])
+def get_exploit_job(job_id: str) -> PentestJobStatus:
+    """Return an exploit job's status, per-item reports, and pending tool reviews."""
+    job = exploit_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Unknown exploit job '{job_id}'.")
+    return build_pentest_status(job)
+
+
+@app.post("/exploit/jobs/{job_id}/reviews/{review_id}", tags=["exploit"])
+def resolve_exploit_review(
+    job_id: str, review_id: str, decision: ReviewDecisionRequest
+) -> dict:
+    """Approve or deny a pending tool call, unblocking its session."""
+    resolved = exploit_store.resolve_review(
+        job_id, review_id, decision.approved, decision.hint
+    )
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Unknown or already-resolved review.")
+    return {"resolved": True}
+
+
+@app.post("/exploit/jobs/{job_id}/cancel", response_model=TerminationResult, tags=["exploit"])
+def cancel_exploit_job(job_id: str) -> TerminationResult:
+    """Terminate an exploit job and kill all MCP tools and their tool processes.
+
+    Also releases any sessions blocked awaiting a manual tool review.
+    """
+    if not exploit_store.cancel(job_id):
+        raise HTTPException(status_code=404, detail=f"Unknown exploit job '{job_id}'.")
     return _terminate_tools(job_id)
 
 
