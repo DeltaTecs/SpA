@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.scans.repository import MAX_HISTORY_PER_TYPE, ScanRepository
-from app.scans.router import delete_scan
+from app.scans.router import delete_scan, list_all_scans
 from app.scans.schemas import ScanResultCreate, ScanResultRecord, ScanResultSummary
 
 
@@ -74,6 +74,82 @@ class TestScanRepositoryDelete(unittest.TestCase):
         dict_cursor.return_value.__enter__.return_value = cursor
 
         self.assertFalse(ScanRepository().delete(7))
+
+
+class TestScanRepositoryListAll(unittest.TestCase):
+    @staticmethod
+    def _summary_row():
+        return {
+            "scan_result_id": 1,
+            "recording_id": 2,
+            "scan_type": "pentest",
+            "created_at": 123,
+            "provider": None,
+            "model": None,
+        }
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_no_filters_omits_where_clause(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchall.return_value = [self._summary_row()]
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        rows = ScanRepository().list_all()
+
+        self.assertEqual(len(rows), 1)
+        self.assertIsInstance(rows[0], ScanResultSummary)
+        sql, params = cursor.execute.call_args.args
+        self.assertNotIn("WHERE", sql)
+        self.assertEqual(params, ())
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_scan_type_only_filters_on_type_across_recordings(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchall.return_value = []
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        ScanRepository().list_all(scan_type="exploit")
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("scan_type = %s", sql)
+        self.assertNotIn("recording_id = %s", sql)
+        self.assertEqual(params, ("exploit",))
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_both_filters_combined(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchall.return_value = []
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        ScanRepository().list_all(scan_type="pentest", recording_id=5)
+
+        sql, params = cursor.execute.call_args.args
+        self.assertIn("recording_id = %s AND scan_type = %s", sql)
+        self.assertEqual(params, (5, "pentest"))
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_list_delegates_to_list_all(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchall.return_value = []
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        ScanRepository().list(9, "pentest")
+
+        _, params = cursor.execute.call_args.args
+        self.assertEqual(params, (9, "pentest"))
+
+
+class TestListAllScansRoute(unittest.TestCase):
+    @patch("app.scans.router.repository.list_all", return_value=[])
+    def test_route_forwards_both_filters(self, list_all):
+        self.assertEqual(list_all_scans(scan_type="exploit", recording_id=3), [])
+        list_all.assert_called_once_with(scan_type="exploit", recording_id=3)
+
+    @patch("app.scans.router.repository.list_all", return_value=[])
+    def test_route_forwards_none_filters(self, list_all):
+        # Explicit Nones (FastAPI supplies these when the query params are absent).
+        list_all_scans(scan_type=None, recording_id=None)
+        list_all.assert_called_once_with(scan_type=None, recording_id=None)
 
 
 class TestDeleteScanRoute(unittest.TestCase):

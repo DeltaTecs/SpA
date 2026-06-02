@@ -72,16 +72,30 @@ class ScanRepository:
 
     def list(self, recording_id: int, scan_type: Optional[str] = None) -> List[ScanResultSummary]:
         """List stored scans (metadata only) for a recording, newest first."""
-        clause = "WHERE recording_id = %s"
-        params: List[Any] = [recording_id]
+        return self.list_all(scan_type=scan_type, recording_id=recording_id)
+
+    def list_all(
+        self, scan_type: Optional[str] = None, recording_id: Optional[int] = None
+    ) -> List[ScanResultSummary]:
+        """List stored scans (metadata only) across recordings, newest first.
+
+        Both filters are optional: omit ``recording_id`` to list a scan type
+        across every recording (used by the queue's Saved reports browser).
+        """
+        clauses: List[str] = []
+        params: List[Any] = []
+        if recording_id is not None:
+            clauses.append("recording_id = %s")
+            params.append(recording_id)
         if scan_type is not None:
-            clause += " AND scan_type = %s"
+            clauses.append("scan_type = %s")
             params.append(scan_type)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         with dict_cursor() as cursor:
             cursor.execute(
                 f"""
                 SELECT {_SUMMARY_COLUMNS} FROM scan_result
-                {clause}
+                {where}
                 ORDER BY created_at DESC, scan_result_id DESC
                 """,
                 tuple(params),

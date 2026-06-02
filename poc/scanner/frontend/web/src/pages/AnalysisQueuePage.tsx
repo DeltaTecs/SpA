@@ -9,6 +9,8 @@ import { LlmProviderFields } from "../components/attack/LlmProviderFields";
 import { McpToolConfig } from "../components/attack/McpToolConfig";
 import { ReportCard } from "../components/attack/ReportCard";
 import { ReviewPanel, type ReviewEntry } from "../components/attack/ReviewPanel";
+import { SavedReportsPanel } from "../components/attack/SavedReportsPanel";
+import { PENTEST_SCAN_TYPE } from "../api/scans";
 import {
   describeCompletedEntry,
   describeTarget,
@@ -248,6 +250,8 @@ export function AnalysisQueuePage() {
           ))}
         </section>
       </div>
+
+      <SavedReportsPanel scanType={PENTEST_SCAN_TYPE} refreshToken={completed.length} />
     </div>
   );
 }

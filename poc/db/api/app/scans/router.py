@@ -51,6 +51,19 @@ def list_scans(
     return repository.list(recording_id, scan_type)
 
 
+@router.get("/scans", response_model=List[ScanResultSummary])
+def list_all_scans(
+    scan_type: Optional[str] = Query(None, description="Optional filter by scan type."),
+    recording_id: Optional[int] = Query(None, description="Optional filter by recording."),
+) -> List[ScanResultSummary]:
+    """List stored scan snapshots (metadata only) across recordings, newest first.
+
+    Used by the Analysis/Exploit queue Saved-reports browser, whose reports span
+    recordings; filter by ``scan_type`` ('pentest'/'exploit') to scope a queue.
+    """
+    return repository.list_all(scan_type=scan_type, recording_id=recording_id)
+
+
 @router.get("/scans/{scan_result_id}", response_model=ScanResultRecord)
 def get_scan(scan_result_id: int) -> ScanResultRecord:
     """Return a single stored scan snapshot, including its payload (404 if unknown)."""

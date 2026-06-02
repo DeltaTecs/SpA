@@ -4,6 +4,7 @@ import type { ScanResultRecord, ScanResultSummary } from "./types";
 /** Scan types persisted by the scanner-backend (see db-api scan_result.scan_type). */
 export const VULNERABILITY_SCAN_TYPE = "vulnerability_checks";
 export const PENTEST_SCAN_TYPE = "pentest";
+export const EXPLOIT_SCAN_TYPE = "exploit";
 
 /** Most recent stored scan of a type for a recording, or null when none exists. */
 export async function getLatestScan(
@@ -28,6 +29,12 @@ export function listScans(
   return apiGet<ScanResultSummary[]>(
     `/recordings/${recordingId}/scans?scan_type=${encodeURIComponent(scanType)}`,
   );
+}
+
+/** Stored scan history (metadata only) of a type across all recordings, newest
+ *  first. Used by the queue Saved-reports browser, whose reports span recordings. */
+export function listAllScans(scanType: string): Promise<ScanResultSummary[]> {
+  return apiGet<ScanResultSummary[]>(`/scans?scan_type=${encodeURIComponent(scanType)}`);
 }
 
 /** A single stored scan, including its full snapshot payload. */

@@ -233,7 +233,9 @@ export function AnalysisQueueProvider({ children }: { children: ReactNode }) {
       items: [next.item],
       concurrent: false,
       tool_config: buildToolConfig(config),
-      persist: false,
+      // Persist the finished report to the db-api so it survives a localStorage
+      // reset (the Saved reports panel reads it back). See SavedReportsPanel.
+      persist: true,
     })
       .then((response) => {
         setActive((prev) => [...prev, { ...next, jobId: response.job_id, status: null }]);
