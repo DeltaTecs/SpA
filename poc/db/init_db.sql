@@ -123,6 +123,15 @@ CREATE INDEX IF NOT EXISTS idx_packet_recording ON packet(recording_id);
 CREATE INDEX IF NOT EXISTS idx_packet_protocol_ids ON packet USING GIN (protocol_ids);
 -- Index for conversation lookup
 CREATE INDEX IF NOT EXISTS idx_packet_conversation ON packet(conversation_id);
+-- Indexes for per-packet header enrichment lookups
+CREATE INDEX IF NOT EXISTS idx_ip_header_information_header_id
+  ON ip_header_information(header_information_id);
+CREATE INDEX IF NOT EXISTS idx_tcp_header_information_header_id
+  ON tcp_header_information(header_information_id);
+CREATE INDEX IF NOT EXISTS idx_udp_header_information_header_id
+  ON udp_header_information(header_information_id);
+CREATE INDEX IF NOT EXISTS idx_http_header_information_header_id
+  ON http_header_information(header_information_id);
 -- Newest-first lookup of stored scans per recording and type
 CREATE INDEX IF NOT EXISTS idx_scan_result_recording_type
   ON scan_result(recording_id, scan_type, created_at DESC, scan_result_id DESC);
