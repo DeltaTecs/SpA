@@ -6,7 +6,7 @@ import { ExplorerPage } from "./pages/ExplorerPage";
 import { ExploitQueuePage } from "./pages/ExploitQueuePage";
 import { GuidedAnalysisPage } from "./pages/GuidedAnalysisPage";
 import { TestPlannerPage } from "./pages/TestPlannerPage";
-import { ToolScriptPage } from "./pages/ToolScriptPage";
+import { ToolTranscriptPage } from "./pages/ToolTranscriptPage";
 
 export function App() {
   return (
@@ -20,9 +20,9 @@ export function App() {
           <Route path="exploit-queue" element={<ExploitQueuePage />} />
           <Route path="guided-analysis" element={<GuidedAnalysisPage />} />
         </Route>
-        {/* Standalone, sidebar-less document opened in a new tab from a result's
-            "Tool script" button. */}
-        <Route path="tool-script" element={<ToolScriptPage />} />
+        {/* Standalone, sidebar-less document opened from a result's
+            "Tool Transcript" button. */}
+        <Route path="tool-transcript" element={<ToolTranscriptPage />} />
       </Routes>
     </BrowserRouter>
   );

@@ -4,7 +4,7 @@ import { McpToolConfig } from "../components/attack/McpToolConfig";
 import { ReviewPanel, type ReviewEntry } from "../components/attack/ReviewPanel";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
-import { openToolScript } from "../components/toolscript/openToolScript";
+import { openToolTranscript } from "../components/tooltranscript/openToolTranscript";
 import { turnReviews, useGuidedAnalysis } from "../state/GuidedAnalysisContext";
 
 export function GuidedAnalysisPage() {
@@ -123,8 +123,8 @@ export function GuidedAnalysisPage() {
         onSend={sendMessage}
         onStop={stopTurn}
         onClear={clearChat}
-        toolScriptEnabled={turnJobIds.length > 0}
-        onToolScript={() => openToolScript({ source: "guided", jobIds: turnJobIds })}
+        toolTranscriptEnabled={turnJobIds.length > 0}
+        onToolTranscript={() => openToolTranscript({ source: "guided", jobIds: turnJobIds })}
       />
     </div>
   );
@@ -141,9 +141,9 @@ interface ChatPanelProps {
   onSend: () => void;
   onStop: () => void;
   onClear: () => void;
-  /** True once at least one turn has run, enabling the "Tool script" view. */
-  toolScriptEnabled: boolean;
-  onToolScript: () => void;
+  /** True once at least one turn has run, enabling the "Tool Transcript" view. */
+  toolTranscriptEnabled: boolean;
+  onToolTranscript: () => void;
 }
 
 function ChatPanel({
@@ -157,8 +157,8 @@ function ChatPanel({
   onSend,
   onStop,
   onClear,
-  toolScriptEnabled,
-  onToolScript,
+  toolTranscriptEnabled,
+  onToolTranscript,
 }: ChatPanelProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -181,8 +181,8 @@ function ChatPanel({
       <div className="panel__title chat__head">
         <span>Conversation</span>
         <div className="chat__head-actions">
-          <button type="button" disabled={!toolScriptEnabled} onClick={onToolScript}>
-            Tool script
+          <button type="button" disabled={!toolTranscriptEnabled} onClick={onToolTranscript}>
+            Tool Transcript
           </button>
           <button type="button" disabled={busy || messages.length === 0} onClick={onClear}>
             Clear chat

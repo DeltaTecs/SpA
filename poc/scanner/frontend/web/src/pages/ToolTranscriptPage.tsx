@@ -8,7 +8,7 @@ import {
   getScanTranscript,
 } from "../api/transcript";
 import type { TranscriptDoc, TranscriptStep } from "../api/types";
-import { TranscriptStepView } from "../components/toolscript/TranscriptStepView";
+import { TranscriptStepView } from "../components/tooltranscript/TranscriptStepView";
 
 type Source = "pentest" | "exploit" | "scan" | "guided";
 
@@ -28,7 +28,7 @@ const SOURCE_TITLES: Record<Source, string> = {
 
 function describeError(err: unknown): string {
   if (err instanceof ApiError && err.status === 404) {
-    return "Transcript not available — the analysis may have been cleared or the backend restarted.";
+    return "Transcript not available - the analysis may have been cleared or the backend restarted.";
   }
   return err instanceof Error ? err.message : String(err);
 }
@@ -56,7 +56,7 @@ async function loadSegments(params: URLSearchParams): Promise<Segment[]> {
     case "guided": {
       const jobIds = (params.get("jobIds") ?? "").split(",").filter(Boolean);
       if (jobIds.length === 0) throw new Error("No chat turns to show yet.");
-      // Each turn is fetched independently so one lost turn doesn't blank the page.
+      // Each turn is fetched independently so one lost turn does not blank the page.
       return Promise.all(
         jobIds.map(async (id, index): Promise<Segment> => {
           const title = `Turn ${index + 1}`;
@@ -69,7 +69,7 @@ async function loadSegments(params: URLSearchParams): Promise<Segment[]> {
       );
     }
     default:
-      throw new Error(`Unknown tool-script source '${source}'.`);
+      throw new Error(`Unknown tool transcript source '${source}'.`);
   }
 }
 
@@ -83,7 +83,7 @@ function visibleSteps(steps: TranscriptStep[], hideDb: boolean, hideSearch: bool
   });
 }
 
-export function ToolScriptPage() {
+export function ToolTranscriptPage() {
   const [params] = useSearchParams();
   const source = (params.get("source") ?? "") as Source;
   const [segments, setSegments] = useState<Segment[] | null>(null);
@@ -107,28 +107,28 @@ export function ToolScriptPage() {
   }, [query]);
 
   useEffect(() => {
-    document.title = `Tool script · ${SOURCE_TITLES[source] ?? "Transcript"}`;
+    document.title = `Tool Transcript - ${SOURCE_TITLES[source] ?? "Transcript"}`;
   }, [source]);
 
   const subtitle = useMemo(() => {
     const itemId = params.get("itemId");
-    if (source === "scan") return `Scan #${params.get("scanResultId")} · item ${itemId}`;
+    if (source === "scan") return `Scan #${params.get("scanResultId")} - item ${itemId}`;
     if (source === "guided") return `${(params.get("jobIds") ?? "").split(",").filter(Boolean).length} turn(s)`;
     if (itemId) return `Item ${itemId}`;
     return "";
   }, [params, source]);
 
   return (
-    <div className="tool-script-page">
-      <header className="tool-script-page__header">
-        <h1>Tool script — {SOURCE_TITLES[source] ?? "Transcript"}</h1>
+    <div className="tool-transcript-page">
+      <header className="tool-transcript-page__header">
+        <h1>Tool Transcript - {SOURCE_TITLES[source] ?? "Transcript"}</h1>
         {subtitle && <p className="muted">{subtitle}</p>}
-        <p className="muted tool-script-page__intro">
-          The MCP tools the agent used to reach this result — each call's arguments and output, the
-          reviewer's decision, and the model's reasoning in between. A documented record of every
-          step taken.
+        <p className="muted tool-transcript-page__intro">
+          The MCP tools the agent used to reach this result: each call's arguments and output, the
+          reviewer's decision, and the model's reasoning in between. Python code is shown exactly as
+          the tool received or wrote it.
         </p>
-        <div className="tool-script-page__filters">
+        <div className="tool-transcript-page__filters">
           <label>
             <input type="checkbox" checked={hideDb} onChange={(e) => setHideDb(e.target.checked)} />
             <span>Hide database access</span>
@@ -144,11 +144,11 @@ export function ToolScriptPage() {
         </div>
       </header>
 
-      {error && <div className="tool-script-page__notice tool-script-page__notice--error">{error}</div>}
-      {!error && segments === null && <p className="muted">Loading transcript…</p>}
+      {error && <div className="tool-transcript-page__notice tool-transcript-page__notice--error">{error}</div>}
+      {!error && segments === null && <p className="muted">Loading transcript...</p>}
 
       {segments?.map((segment, index) => (
-        <ToolScriptSegment
+        <ToolTranscriptSegment
           key={segment.title ?? index}
           segment={segment}
           hideDb={hideDb}
@@ -159,7 +159,7 @@ export function ToolScriptPage() {
   );
 }
 
-function ToolScriptSegment({
+function ToolTranscriptSegment({
   segment,
   hideDb,
   hideSearch,
@@ -172,9 +172,9 @@ function ToolScriptSegment({
   const shown = visibleSteps(steps, hideDb, hideSearch);
 
   return (
-    <section className="tool-script-page__segment">
-      {segment.title && <h2 className="tool-script-page__segment-title">{segment.title}</h2>}
-      {segment.error && <div className="tool-script-page__notice">{segment.error}</div>}
+    <section className="tool-transcript-page__segment">
+      {segment.title && <h2 className="tool-transcript-page__segment-title">{segment.title}</h2>}
+      {segment.error && <div className="tool-transcript-page__notice">{segment.error}</div>}
       {!segment.error && steps.length === 0 && (
         <p className="muted">No tool calls were recorded for this analysis.</p>
       )}

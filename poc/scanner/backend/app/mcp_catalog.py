@@ -40,7 +40,7 @@ HEXSTRIKE_TOOLS_TOOLSET = "hexstrike-tools"
 
 #: Coarse category of each toolset (``db | search | bash | hexstrike``). Drives UI
 #: grouping, approval exemption (db + search are read-only), and the classification
-#: of a captured transcript step so the Tool-script page can filter DB/search noise.
+#: of a captured transcript step so the Tool Transcript page can filter DB/search noise.
 TOOLSET_CATEGORIES: dict[str, str] = {
     PACKET_DB_TOOLSET: "db",
     TAVILY_TOOLSET: "search",

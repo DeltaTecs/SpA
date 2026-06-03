@@ -4,7 +4,7 @@
 *toolset name* but knows nothing about pentest tool *categories*. This module is the
 single place that turns a run's transcript into the dicts the stores keep, the
 db-api persists, and the frontend renders, attaching the coarse ``category`` of each
-tool call (so the Tool-script page can filter out DB-access and web-search steps).
+tool call (so the Tool Transcript page can filter out DB-access and web-search steps).
 
 Keeping the shape in one function guarantees the live (in-memory) and persisted
 (db-api) transcripts a user opens are byte-identical.

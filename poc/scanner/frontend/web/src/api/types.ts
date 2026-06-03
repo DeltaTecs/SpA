@@ -467,7 +467,7 @@ export interface ScanResultRecord extends ScanResultSummary {
   payload: Record<string, unknown>;
 }
 
-// --- tool-use transcript (Tool script page) --------------------------------
+// --- tool-use transcript (Tool Transcript page) -----------------------------
 
 export type TranscriptStepKind = "reasoning" | "tool_call";
 /** Tool categories plus "other" for an unrecognised toolset. */

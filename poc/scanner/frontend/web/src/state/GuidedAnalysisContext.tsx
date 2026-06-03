@@ -40,7 +40,7 @@ export interface ChatMessage {
   id: string;
   role: GuidedChatRole;
   content: string;
-  /** For assistant messages: the turn (job) that produced it, so the "Tool script"
+  /** For assistant messages: the turn (job) that produced it, so the "Tool Transcript"
    *  button can fetch this turn's recorded tool use. Absent on user messages. */
   turnJobId?: string;
 }
@@ -62,7 +62,7 @@ interface GuidedAnalysisValue {
   toolsLoading: boolean;
   toolsError: string | null;
   messages: ChatMessage[];
-  /** Ordered job ids of the chat's completed turns, for the "Tool script" button. */
+  /** Ordered job ids of the chat's completed turns, for the "Tool Transcript" button. */
   turnJobIds: string[];
   draft: string;
   setDraft: (draft: string) => void;

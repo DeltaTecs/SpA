@@ -1,13 +1,13 @@
 import { buildQuery } from "../../api/client";
 
-/** Where a "Tool script" button points: a live queue item, a saved report, or a chat. */
-export type ToolScriptTarget =
+/** Where a "Tool Transcript" button points: a live queue item, a saved report, or a chat. */
+export type ToolTranscriptTarget =
   | { source: "pentest" | "exploit"; jobId: string; itemId: string }
   | { source: "scan"; scanResultId: number; itemId: string }
   | { source: "guided"; jobIds: string[] };
 
-/** Open the standalone Tool-script page for a target in a new browser tab. */
-export function openToolScript(target: ToolScriptTarget): void {
+/** Open the standalone Tool Transcript page for a target in a new browser tab. */
+export function openToolTranscript(target: ToolTranscriptTarget): void {
   let params: Record<string, string>;
   if (target.source === "guided") {
     params = { source: "guided", jobIds: target.jobIds.join(",") };
@@ -16,5 +16,5 @@ export function openToolScript(target: ToolScriptTarget): void {
   } else {
     params = { source: target.source, jobId: target.jobId, itemId: target.itemId };
   }
-  window.open(`/tool-script${buildQuery(params)}`, "_blank", "noopener");
+  window.open(`/tool-transcript${buildQuery(params)}`, "_blank", "noopener");
 }

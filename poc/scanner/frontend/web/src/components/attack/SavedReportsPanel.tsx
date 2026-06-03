@@ -7,7 +7,7 @@ import type {
   ScanResultSummary,
 } from "../../api/types";
 import { ReportCard } from "./ReportCard";
-import { openToolScript } from "../toolscript/openToolScript";
+import { openToolTranscript } from "../tooltranscript/openToolTranscript";
 
 interface SavedReportsPanelProps {
   /** db-api scan_type that scopes this queue's reports ("pentest" / "exploit"). */
@@ -159,14 +159,14 @@ export function SavedReportsPanel({ scanType, refreshToken }: SavedReportsPanelP
               <button
                 type="button"
                 onClick={() =>
-                  openToolScript({
+                  openToolTranscript({
                     source: "scan",
                     scanResultId: selectedId,
                     itemId: report.item_id,
                   })
                 }
               >
-                Tool script
+                Tool Transcript
               </button>
             )}
           </div>
