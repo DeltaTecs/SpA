@@ -285,6 +285,86 @@ class TestMcpLlmClient(unittest.TestCase):
         self.assertEqual(reporter.events, ["thinking", "thinking"])
         self.assertEqual(toolset.calls, [])
 
+    def test_transcript_records_reasoning_tool_call_and_decision(self):
+        # One reasoning+tool round (approved) then a final answer. The transcript
+        # must hold the interim reasoning, the executed call with its owning
+        # toolset and output, and the reviewer's approval verdict.
+        provider = ScriptedProvider(
+            [
+                ChatResult(
+                    content="let me look that up",
+                    reasoning_content="need the packet",
+                    tool_calls=[ToolCall(id="c1", name="lookup", arguments={"q": "x"})],
+                ),
+                ChatResult(content="final answer"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], name="packet-db", outputs={"lookup": "looked-up"})
+
+        class AllowApprover:
+            def review(self, call):
+                return ToolDecision(True, "looks safe")
+
+        result = McpLlmClient(provider, [toolset], approver=AllowApprover()).run("q")
+
+        self.assertEqual([s.kind for s in result.transcript], ["reasoning", "tool_call"])
+        reasoning, tool = result.transcript
+        self.assertEqual(reasoning.text, "let me look that up")
+        self.assertEqual(reasoning.reasoning, "need the packet")
+        self.assertEqual(tool.tool_name, "lookup")
+        self.assertEqual(tool.toolset_name, "packet-db")
+        self.assertEqual(tool.arguments, {"q": "x"})
+        self.assertEqual(tool.output, "looked-up")
+        self.assertTrue(tool.approved)
+        self.assertEqual(tool.review_feedback, "looks safe")
+
+    def test_transcript_records_denied_call(self):
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="adjusted"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "secret"})
+
+        class DenyApprover:
+            def review(self, call):
+                return ToolDecision(False, "out of scope")
+
+        result = McpLlmClient(provider, [toolset], approver=DenyApprover()).run("q")
+
+        tool = next(s for s in result.transcript if s.kind == "tool_call")
+        self.assertFalse(tool.approved)
+        self.assertEqual(tool.review_feedback, "out of scope")
+        self.assertIn("DENIED by reviewer: out of scope", tool.output)
+
+    def test_transcript_decision_none_without_approver(self):
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="done"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "v"})
+        result = McpLlmClient(provider, [toolset]).run("q")
+
+        tool = next(s for s in result.transcript if s.kind == "tool_call")
+        self.assertIsNone(tool.approved)
+        self.assertIsNone(tool.review_feedback)
+
+    def test_transcript_skips_empty_reasoning(self):
+        # An assistant turn with tool calls but no text/thinking yields no reasoning step.
+        provider = ScriptedProvider(
+            [
+                ChatResult(tool_calls=[ToolCall(id="c1", name="lookup", arguments={})]),
+                ChatResult(content="done"),
+            ]
+        )
+        toolset = FakeToolset([_spec("lookup")], outputs={"lookup": "v"})
+        result = McpLlmClient(provider, [toolset]).run("q")
+
+        self.assertEqual([s.kind for s in result.transcript], ["tool_call"])
+
     def test_stops_on_max_iterations(self):
         # Provider always asks for another tool call -> never terminates on its own.
         looping = [

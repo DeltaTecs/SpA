@@ -40,6 +40,9 @@ export interface ChatMessage {
   id: string;
   role: GuidedChatRole;
   content: string;
+  /** For assistant messages: the turn (job) that produced it, so the "Tool script"
+   *  button can fetch this turn's recorded tool use. Absent on user messages. */
+  turnJobId?: string;
 }
 
 /** The in-flight turn: its job id and latest polled status (null until first poll). */
@@ -59,6 +62,8 @@ interface GuidedAnalysisValue {
   toolsLoading: boolean;
   toolsError: string | null;
   messages: ChatMessage[];
+  /** Ordered job ids of the chat's completed turns, for the "Tool script" button. */
+  turnJobIds: string[];
   draft: string;
   setDraft: (draft: string) => void;
   /** Append text to the chat input (used by "Send to Guided Analysis"). */
@@ -181,7 +186,10 @@ export function GuidedAnalysisProvider({ children }: { children: ReactNode }) {
 
     const finish = (assistant: string | null, failure: string | null) => {
       if (assistant && assistant.trim()) {
-        setMessages((prev) => [...prev, { id: nextMessageId(), role: "assistant", content: assistant }]);
+        setMessages((prev) => [
+          ...prev,
+          { id: nextMessageId(), role: "assistant", content: assistant, turnJobId: jobId },
+        ]);
       }
       if (failure) setError(failure);
       setActiveTurn(null);
@@ -304,6 +312,7 @@ export function GuidedAnalysisProvider({ children }: { children: ReactNode }) {
     toolsLoading: tools.loading,
     toolsError: tools.error,
     messages,
+    turnJobIds: messages.flatMap((m) => (m.turnJobId ? [m.turnJobId] : [])),
     draft,
     setDraft,
     stageInput,

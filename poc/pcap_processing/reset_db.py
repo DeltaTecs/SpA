@@ -43,31 +43,23 @@ def reset_db(
 
         print(f"Connected to {dbname} at {host}:{port} as admin user {admin_user}")
 
-        # Drop tables to clear everything
-        # We drop in an order that respects dependencies, or just use CASCADE.
-        # Since we are resetting to init_db.sql, we want to wipe everything clean.
-        tables_to_drop = [
-            "packet_processing_tag",
-            "recording_processing_tag",
-            "packet_header_information",
-            "packet",
-            "ip_header_information",
-            "http_header_information",
-            "tcp_header_information",
-            "udp_header_information",
-            "header_information",
-            "conversation",
-            "recording",
-            "protocol"
-        ]
-
+        # Drop every table in the public schema so the reset wipes everything
+        # clean before re-applying init_db.sql. The list is queried from the
+        # catalog rather than hardcoded so it never goes stale as new tables are
+        # added (e.g. scan_result, scan_transcript). CASCADE handles foreign keys
+        # and inheritance children; IF EXISTS tolerates a child already removed by
+        # a parent's CASCADE, so drop order does not matter.
         print("Dropping existing tables...")
-        for table in tables_to_drop:
+        cur.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        existing_tables = [row[0] for row in cur.fetchall()]
+        for table in existing_tables:
             cur.execute(
-                sql.SQL("DROP TABLE IF EXISTS {} CASCADE;").format(sql.Identifier(table))
+                sql.SQL("DROP TABLE IF EXISTS public.{} CASCADE;").format(
+                    sql.Identifier(table)
+                )
             )
-        
-        print("Tables dropped.")
+
+        print(f"Tables dropped ({len(existing_tables)}).")
 
         # Read init_db.sql
         if not os.path.exists(init_sql_path):

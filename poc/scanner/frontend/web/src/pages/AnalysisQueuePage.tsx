@@ -16,6 +16,7 @@ import {
   describeTarget,
   exportCompletedToText,
 } from "../components/attack/describeResult";
+import { openToolScript } from "../components/toolscript/openToolScript";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
 import {
@@ -232,6 +233,20 @@ export function AnalysisQueuePage() {
               </p>
               <ReportCard item={entry.result} />
               <div className="analysis-queue__result-actions">
+                {entry.jobId && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      openToolScript({
+                        source: "pentest",
+                        jobId: entry.jobId!,
+                        itemId: entry.item.id,
+                      })
+                    }
+                  >
+                    Tool script
+                  </button>
+                )}
                 <button type="button" onClick={() => sendToGuided(entry)}>
                   Send to Guided Analysis
                 </button>

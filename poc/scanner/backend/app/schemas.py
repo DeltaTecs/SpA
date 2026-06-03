@@ -302,6 +302,42 @@ class ReviewDecisionRequest(BaseModel):
     hint: str = Field("", max_length=MAX_TOOL_CONSTRAINTS_CHARS)
 
 
+# --- tool-use transcript -----------------------------------------------------
+
+#: Like ``ToolCategory`` but with ``"other"`` for a toolset we don't recognise.
+TranscriptToolCategory = Literal["db", "search", "bash", "hexstrike", "other"]
+
+
+class TranscriptStep(BaseModel):
+    """One step of a recorded agentic run (see :class:`llm.TranscriptStep`).
+
+    ``kind="reasoning"`` carries the model's interim ``text`` / ``reasoning``
+    between tool calls. ``kind="tool_call"`` carries one executed call: its
+    ``arguments``, the owning ``toolset_name`` and coarse ``category``, the
+    reviewer's verdict (``approved`` is null when no approver gated the call, with
+    ``review_feedback``), and the tool ``output`` fed back to the model.
+    """
+
+    kind: Literal["reasoning", "tool_call"]
+    text: Optional[str] = None
+    reasoning: Optional[str] = None
+    call_id: Optional[str] = None
+    tool_name: Optional[str] = None
+    toolset_name: Optional[str] = None
+    category: Optional[TranscriptToolCategory] = None
+    arguments: Optional[Dict[str, Any]] = None
+    output: Optional[str] = None
+    approved: Optional[bool] = None
+    review_feedback: Optional[str] = None
+
+
+class TranscriptResponse(BaseModel):
+    """A recorded tool-use transcript for one analysis item or guided turn."""
+
+    item_id: Optional[str] = None
+    steps: List[TranscriptStep] = Field(default_factory=list)
+
+
 # --- exploit -----------------------------------------------------------------
 
 

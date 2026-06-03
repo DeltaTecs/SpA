@@ -10,7 +10,7 @@ swallowed so it never affects the result returned to the user — and a no-op wh
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -31,8 +31,14 @@ def persist_scan(
     provider: Optional[str],
     model: Optional[str],
     payload: Dict[str, Any],
+    transcripts: Optional[List[Dict[str, Any]]] = None,
 ) -> None:
-    """Best-effort POST of a finished scan snapshot to the db-api. Never raises."""
+    """Best-effort POST of a finished scan snapshot to the db-api. Never raises.
+
+    ``transcripts`` (``[{"item_id", "steps"}, ...]``) are the per-item tool-use
+    transcripts; the db-api stores them in a side table linked to the new
+    scan_result, in the same transaction.
+    """
     base_url = settings.db_api_url
     if not base_url:
         logger.debug(
@@ -42,7 +48,13 @@ def persist_scan(
         )
         return
     url = f"{base_url.rstrip('/')}/recordings/{recording_id}/scans"
-    body = {"scan_type": scan_type, "provider": provider, "model": model, "payload": payload}
+    body = {
+        "scan_type": scan_type,
+        "provider": provider,
+        "model": model,
+        "payload": payload,
+        "transcripts": transcripts or [],
+    }
     try:
         response = httpx.post(url, json=body, timeout=_TIMEOUT)
         response.raise_for_status()

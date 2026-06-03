@@ -49,6 +49,10 @@ class GuidedTurn:
     stopped_on_limit: Optional[bool] = None
     #: Current phase of the running turn ("thinking", "running tool X", ...).
     activity: Optional[str] = None
+    #: Serialized tool-use transcript of this turn (see
+    #: :func:`app.transcript.serialize_transcript`). Ephemeral — never persisted;
+    #: retrievable while the turn lives in memory.
+    transcript: Optional[List[Dict[str, Any]]] = None
     pending_reviews: List[ReviewRecord] = field(default_factory=list)
 
 

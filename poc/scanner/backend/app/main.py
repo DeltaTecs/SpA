@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from llm import configure_logging
@@ -55,6 +55,7 @@ from .schemas import (
     TaskTypeList,
     TerminationResult,
     ToolTerminationInfo,
+    TranscriptResponse,
 )
 from .tasks import available as available_tasks
 
@@ -170,6 +171,19 @@ def _terminate_tools(job_id: str) -> TerminationResult:
     return TerminationResult(job_id=job_id, cancelled=True, tools=tools)
 
 
+def _item_transcript(job_store, job_id: str, item_id: str, label: str) -> TranscriptResponse:
+    """Return the recorded transcript for one item of a pentest/exploit job (404 if unknown)."""
+    job = job_store.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Unknown {label} '{job_id}'.")
+    item = next((i for i in job.items if i.item_id == item_id), None)
+    if item is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown item '{item_id}' in {label} '{job_id}'."
+        )
+    return TranscriptResponse(item_id=item_id, steps=item.transcript or [])
+
+
 # --- pentest -----------------------------------------------------------------
 
 
@@ -240,6 +254,18 @@ def cancel_pentest_job(job_id: str) -> TerminationResult:
     return _terminate_tools(job_id)
 
 
+@app.get("/pentest/jobs/{job_id}/transcript", response_model=TranscriptResponse, tags=["pentest"])
+def get_pentest_transcript(
+    job_id: str,
+    item_id: str = Query(..., description="Item whose tool-use transcript to fetch."),
+) -> TranscriptResponse:
+    """Return one pentest item's recorded tool-use transcript (reasoning, calls, decisions).
+
+    ``item_id`` is a query param because item ids are opaque strings (may contain '/').
+    """
+    return _item_transcript(pentest_store, job_id, item_id, "pentest job")
+
+
 # --- exploit -----------------------------------------------------------------
 
 # Exploit jobs reuse the pentest tool catalogue (GET /pentest/tools) and the
@@ -294,6 +320,18 @@ def cancel_exploit_job(job_id: str) -> TerminationResult:
     return _terminate_tools(job_id)
 
 
+@app.get("/exploit/jobs/{job_id}/transcript", response_model=TranscriptResponse, tags=["exploit"])
+def get_exploit_transcript(
+    job_id: str,
+    item_id: str = Query(..., description="Item whose tool-use transcript to fetch."),
+) -> TranscriptResponse:
+    """Return one exploit item's recorded tool-use transcript (reasoning, calls, decisions).
+
+    ``item_id`` is a query param because item ids are opaque strings (may contain '/').
+    """
+    return _item_transcript(exploit_store, job_id, item_id, "exploit job")
+
+
 # --- guided analysis ---------------------------------------------------------
 
 
@@ -343,3 +381,12 @@ def cancel_guided_turn(job_id: str) -> TerminationResult:
     if not guided_store.cancel(job_id):
         raise HTTPException(status_code=404, detail=f"Unknown guided turn '{job_id}'.")
     return _terminate_tools(job_id)
+
+
+@app.get("/guided/turns/{job_id}/transcript", response_model=TranscriptResponse, tags=["guided"])
+def get_guided_transcript(job_id: str) -> TranscriptResponse:
+    """Return the current turn's recorded tool-use transcript (ephemeral; not persisted)."""
+    turn = guided_store.get(job_id)
+    if turn is None:
+        raise HTTPException(status_code=404, detail=f"Unknown guided turn '{job_id}'.")
+    return TranscriptResponse(steps=turn.transcript or [])

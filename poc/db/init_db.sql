@@ -108,6 +108,18 @@ CREATE TABLE IF NOT EXISTS scan_result (
   payload jsonb NOT NULL
 );
 
+-- Tool-use transcript for one analysed item of a scan_result: the ordered MCP
+-- tool calls (arguments + output), the model's reasoning between them, and the
+-- reviewer's approve/deny decisions. Kept in a side table (not in scan_result's
+-- payload) so it is fetched only on demand and pruned with its parent via CASCADE.
+-- Provides the strict, auditable documentation of every step taken to a finding.
+CREATE TABLE IF NOT EXISTS scan_transcript (
+  scan_transcript_id bigserial PRIMARY KEY,
+  scan_result_id bigint NOT NULL REFERENCES scan_result(scan_result_id) ON DELETE CASCADE,
+  item_id text NOT NULL,
+  steps jsonb NOT NULL
+);
+
 -- Seed default protocol names
 INSERT INTO protocol (name) VALUES
   ('IP'),('IPv6'),('UDP'), ('TCP'), ('DNS'), ('TLS'), ('QUIC'), ('DTLS'), ('STUN'), ('TURN'),('RTP'),('RTCP'), ('HTTP'), ('Websocket')
@@ -135,3 +147,6 @@ CREATE INDEX IF NOT EXISTS idx_http_header_information_header_id
 -- Newest-first lookup of stored scans per recording and type
 CREATE INDEX IF NOT EXISTS idx_scan_result_recording_type
   ON scan_result(recording_id, scan_type, created_at DESC, scan_result_id DESC);
+-- One transcript per (scan_result, item); also the lookup path for the Tool-script page
+CREATE UNIQUE INDEX IF NOT EXISTS idx_scan_transcript_result_item
+  ON scan_transcript(scan_result_id, item_id);

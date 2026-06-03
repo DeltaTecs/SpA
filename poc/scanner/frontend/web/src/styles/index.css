@@ -2191,6 +2191,11 @@ body {
   gap: 12px;
 }
 
+.chat__head-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .chat__head button {
   border: 1px solid var(--border);
   background: var(--surface);
@@ -2281,4 +2286,237 @@ body {
 .chat__actions {
   display: flex;
   gap: 10px;
+}
+
+/* ---- Tool script page --------------------------------------------------- */
+.tool-script-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 28px 24px 64px;
+}
+
+.tool-script-page__header h1 {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.tool-script-page__intro {
+  font-size: 13px;
+  margin: 10px 0 0;
+  max-width: 680px;
+}
+
+.tool-script-page__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  margin: 16px 0 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.tool-script-page__filters label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.tool-script-page__notice {
+  background: #f3ede2;
+  color: #8a6d3b;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 10px 0;
+}
+
+.tool-script-page__notice--error {
+  background: #fbe6e9;
+  color: #b00020;
+}
+
+.tool-script-page__segment {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.tool-script-page__segment-title {
+  font-size: 15px;
+  margin: 8px 0 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-soft);
+}
+
+.tool-script__step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  background: var(--surface);
+}
+
+/* Reasoning reads as a quiet aside between the tool cards. */
+.tool-script__reasoning {
+  background: #f8fafc;
+  border-style: dashed;
+}
+
+.tool-script__step-label,
+.tool-script__field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+
+/* Real newlines in tool output / reasoning render as line breaks. */
+.tool-script__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tool-script__text--muted {
+  color: var(--text-soft);
+  margin-top: 8px;
+}
+
+.tool-script__tool-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tool-script__tool-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.tool-script__cat {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: #eef1f4;
+  color: var(--text-soft);
+}
+
+.tool-script__cat--db {
+  background: #e6f0fd;
+  color: var(--accent);
+}
+
+.tool-script__cat--search {
+  background: #efeafd;
+  color: #6a4fd0;
+}
+
+.tool-script__cat--bash,
+.tool-script__cat--hexstrike {
+  background: #fdeede;
+  color: #b5651d;
+}
+
+.tool-script__decision {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.tool-script__verdict {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.tool-script__verdict--approved {
+  background: #e3f6ea;
+  color: #1f9254;
+}
+
+.tool-script__verdict--denied {
+  background: #fbe6e9;
+  color: #b00020;
+}
+
+.tool-script__verdict--auto {
+  background: #eef1f4;
+  color: var(--text-soft);
+}
+
+.tool-script__decision-reason {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.tool-script__field + .tool-script__field {
+  margin-top: 12px;
+}
+
+.tool-script__args {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-script__arg {
+  display: grid;
+  grid-template-columns: minmax(110px, 200px) 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.tool-script__arg dt {
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.tool-script__arg dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.tool-script__arg-value {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.tool-script__code {
+  margin: 0;
+  background: #0f202e;
+  color: #e6edf3;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.tool-script__empty {
+  font-size: 13px;
+  margin: 0;
+}
+
+/* The small "Tool script" action button reused across result lists. */
+.tool-script-link {
+  cursor: pointer;
 }

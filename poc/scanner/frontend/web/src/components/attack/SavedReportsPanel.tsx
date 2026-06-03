@@ -7,6 +7,7 @@ import type {
   ScanResultSummary,
 } from "../../api/types";
 import { ReportCard } from "./ReportCard";
+import { openToolScript } from "../toolscript/openToolScript";
 
 interface SavedReportsPanelProps {
   /** db-api scan_type that scopes this queue's reports ("pentest" / "exploit"). */
@@ -151,7 +152,27 @@ export function SavedReportsPanel({ scanType, refreshToken }: SavedReportsPanelP
       )}
 
       {error && <span className="scan-history__error">{error}</span>}
-      {report && <ReportCard item={report} />}
+      {report && (
+        <>
+          <div className="analysis-queue__result-actions">
+            {selectedId !== null && (
+              <button
+                type="button"
+                onClick={() =>
+                  openToolScript({
+                    source: "scan",
+                    scanResultId: selectedId,
+                    itemId: report.item_id,
+                  })
+                }
+              >
+                Tool script
+              </button>
+            )}
+          </div>
+          <ReportCard item={report} />
+        </>
+      )}
     </section>
   );
 }

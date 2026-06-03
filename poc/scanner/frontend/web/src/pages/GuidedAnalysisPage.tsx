@@ -4,6 +4,7 @@ import { McpToolConfig } from "../components/attack/McpToolConfig";
 import { ReviewPanel, type ReviewEntry } from "../components/attack/ReviewPanel";
 import { ErrorBanner } from "../components/common/ErrorBanner";
 import { Loading } from "../components/common/Loading";
+import { openToolScript } from "../components/toolscript/openToolScript";
 import { turnReviews, useGuidedAnalysis } from "../state/GuidedAnalysisContext";
 
 export function GuidedAnalysisPage() {
@@ -17,6 +18,7 @@ export function GuidedAnalysisPage() {
     toolsLoading,
     toolsError,
     messages,
+    turnJobIds,
     draft,
     setDraft,
     activeTurn,
@@ -121,6 +123,8 @@ export function GuidedAnalysisPage() {
         onSend={sendMessage}
         onStop={stopTurn}
         onClear={clearChat}
+        toolScriptEnabled={turnJobIds.length > 0}
+        onToolScript={() => openToolScript({ source: "guided", jobIds: turnJobIds })}
       />
     </div>
   );
@@ -137,6 +141,9 @@ interface ChatPanelProps {
   onSend: () => void;
   onStop: () => void;
   onClear: () => void;
+  /** True once at least one turn has run, enabling the "Tool script" view. */
+  toolScriptEnabled: boolean;
+  onToolScript: () => void;
 }
 
 function ChatPanel({
@@ -150,6 +157,8 @@ function ChatPanel({
   onSend,
   onStop,
   onClear,
+  toolScriptEnabled,
+  onToolScript,
 }: ChatPanelProps) {
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -171,9 +180,14 @@ function ChatPanel({
     <section className="panel chat">
       <div className="panel__title chat__head">
         <span>Conversation</span>
-        <button type="button" disabled={busy || messages.length === 0} onClick={onClear}>
-          Clear chat
-        </button>
+        <div className="chat__head-actions">
+          <button type="button" disabled={!toolScriptEnabled} onClick={onToolScript}>
+            Tool script
+          </button>
+          <button type="button" disabled={busy || messages.length === 0} onClick={onClear}>
+            Clear chat
+          </button>
+        </div>
       </div>
 
       <div className="chat__messages" ref={listRef}>

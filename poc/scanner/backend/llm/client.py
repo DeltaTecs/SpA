@@ -85,6 +85,43 @@ class ActivityReporter(Protocol):
 
 
 @dataclass(frozen=True)
+class TranscriptStep:
+    """One ordered step of an agentic run, for after-the-fact inspection.
+
+    A run's transcript is a flat, chronological list of these. Two kinds:
+
+    * ``kind="reasoning"`` — the model's interim text/thinking emitted *before* a
+      batch of tool calls (``text`` is the assistant content, ``reasoning`` the
+      extended-thinking content). This is the reasoning *between* the tools.
+    * ``kind="tool_call"`` — one executed tool call: its ``arguments``, the
+      owning ``toolset_name`` (so the app layer can classify it), the reviewer's
+      verdict (``approved`` is ``None`` when no approver gated the call), and the
+      tool ``output`` fed back to the model.
+
+    The structure is provider- and app-neutral and trivially JSON-serialisable.
+    """
+
+    kind: str
+    text: str | None = None
+    reasoning: str | None = None
+    call_id: str | None = None
+    tool_name: str | None = None
+    toolset_name: str | None = None
+    arguments: dict | None = None
+    output: str | None = None
+    approved: bool | None = None
+    review_feedback: str | None = None
+
+
+@dataclass(frozen=True)
+class _CallOutcome:
+    """Result of handling one tool call: its output plus the reviewer's verdict."""
+
+    output: str
+    decision: ToolDecision | None = None
+
+
+@dataclass(frozen=True)
 class RunResult:
     """The outcome of :meth:`McpLlmClient.run`."""
 
@@ -92,6 +129,8 @@ class RunResult:
     iterations: int
     tool_calls: list[ToolCall] = field(default_factory=list)
     stopped_on_limit: bool = False
+    #: Chronological transcript of reasoning + tool steps (see :class:`TranscriptStep`).
+    transcript: list[TranscriptStep] = field(default_factory=list)
 
 
 class McpLlmClient:
@@ -156,6 +195,7 @@ class McpLlmClient:
 
         messages = list(messages)
         executed_calls: list[ToolCall] = []
+        transcript: list[TranscriptStep] = []
 
         for iteration in range(1, self.max_iterations + 1):
             self._check_cancelled()
@@ -167,9 +207,16 @@ class McpLlmClient:
             if not result.tool_calls:
                 output = result.content or ""
                 logger.info("Run complete after %d iteration(s)", iteration)
-                return RunResult(output=output, iterations=iteration, tool_calls=executed_calls)
+                return RunResult(
+                    output=output,
+                    iterations=iteration,
+                    tool_calls=executed_calls,
+                    transcript=transcript,
+                )
 
-            # Record the assistant's tool-call turn, then answer each call.
+            # Record the assistant's interim reasoning (the text it emits alongside a
+            # batch of tool calls), then the assistant turn itself, then each call.
+            self._record_reasoning(transcript, result)
             messages.append(
                 ChatMessage(
                     role="assistant",
@@ -181,11 +228,12 @@ class McpLlmClient:
             for call in result.tool_calls:
                 self._check_cancelled()
                 executed_calls.append(call)
-                output = self._handle_call(call, dispatch)
+                outcome = self._handle_call(call, dispatch)
+                transcript.append(self._tool_step(call, dispatch, outcome))
                 messages.append(
                     ChatMessage(
                         role="tool",
-                        content=output,
+                        content=outcome.output,
                         tool_call_id=call.id,
                         name=call.name,
                     )
@@ -204,6 +252,7 @@ class McpLlmClient:
             iterations=self.max_iterations,
             tool_calls=executed_calls,
             stopped_on_limit=True,
+            transcript=transcript,
         )
 
     # -- helpers ------------------------------------------------------------
@@ -238,12 +287,45 @@ class McpLlmClient:
                 specs.append(spec)
         return specs, dispatch
 
-    def _handle_call(self, call: ToolCall, dispatch: dict[str, Toolset]) -> str:
+    @staticmethod
+    def _record_reasoning(transcript: list[TranscriptStep], result) -> None:
+        """Append a reasoning step for an assistant turn's interim text, if any."""
+        text = (result.content or "").strip()
+        reasoning = (result.reasoning_content or "").strip()
+        if text or reasoning:
+            transcript.append(
+                TranscriptStep(
+                    kind="reasoning",
+                    text=result.content or None,
+                    reasoning=result.reasoning_content or None,
+                )
+            )
+
+    @staticmethod
+    def _tool_step(
+        call: ToolCall, dispatch: dict[str, Toolset], outcome: "_CallOutcome"
+    ) -> TranscriptStep:
+        """Build the transcript step for one executed tool call."""
+        owner = dispatch.get(call.name)
+        decision = outcome.decision
+        return TranscriptStep(
+            kind="tool_call",
+            call_id=call.id,
+            tool_name=call.name,
+            toolset_name=owner.name if owner is not None else None,
+            arguments=call.arguments,
+            output=outcome.output,
+            approved=decision.approved if decision is not None else None,
+            review_feedback=decision.feedback if decision is not None else None,
+        )
+
+    def _handle_call(self, call: ToolCall, dispatch: dict[str, Toolset]) -> _CallOutcome:
         """Gate a tool call through the optional approver, then dispatch it.
 
-        On a denial the tool is not executed; the reviewer's/operator's feedback
-        is returned to the model as the tool result so it can adjust within its
-        remaining iteration budget.
+        Returns the tool output together with the reviewer's :class:`ToolDecision`
+        (``None`` when no approver gated the call). On a denial the tool is not
+        executed; the reviewer's/operator's feedback is returned to the model as
+        the tool result so it can adjust within its remaining iteration budget.
         """
 
         if self.approver is not None:
@@ -251,13 +333,17 @@ class McpLlmClient:
             if not decision.approved:
                 feedback = decision.feedback or "no reason provided"
                 logger.info("Tool call '%s' denied by approver: %s", call.name, feedback)
-                return (
+                return _CallOutcome(
                     f"DENIED by reviewer: {feedback}. "
-                    "Do not retry this exact call; adjust your approach."
+                    "Do not retry this exact call; adjust your approach.",
+                    decision,
                 )
+            if self.activity is not None:
+                self.activity.on_tool_call(call.name)
+            return _CallOutcome(self._dispatch(call, dispatch), decision)
         if self.activity is not None:
             self.activity.on_tool_call(call.name)
-        return self._dispatch(call, dispatch)
+        return _CallOutcome(self._dispatch(call, dispatch), None)
 
     def _dispatch(self, call: ToolCall, dispatch: dict[str, Toolset]) -> str:
         """Execute a single tool call, returning text (errors are returned, not raised).

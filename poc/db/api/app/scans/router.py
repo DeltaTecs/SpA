@@ -5,7 +5,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from .repository import ScanRepository
-from .schemas import ScanResultCreate, ScanResultRecord, ScanResultSummary
+from .schemas import ScanResultCreate, ScanResultRecord, ScanResultSummary, TranscriptRecord
 
 router = APIRouter(tags=["scans"])
 repository = ScanRepository()
@@ -70,6 +70,25 @@ def get_scan(scan_result_id: int) -> ScanResultRecord:
     record = repository.get(scan_result_id)
     if record is None:
         raise HTTPException(status_code=404, detail=f"Unknown scan result '{scan_result_id}'.")
+    return record
+
+
+@router.get("/scans/{scan_result_id}/transcript", response_model=TranscriptRecord)
+def get_scan_transcript(
+    scan_result_id: int,
+    item_id: str = Query(..., description="Item whose tool-use transcript to fetch."),
+) -> TranscriptRecord:
+    """Return one item's stored tool-use transcript for a saved scan (404 if none).
+
+    Powers the Tool-script page for persisted Analysis/Exploit reports. ``item_id``
+    is a query param because item ids are opaque strings (may contain '/').
+    """
+    record = repository.get_transcript(scan_result_id, item_id)
+    if record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No transcript for item '{item_id}' of scan result '{scan_result_id}'.",
+        )
     return record
 
 

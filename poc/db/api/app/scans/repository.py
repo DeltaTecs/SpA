@@ -7,7 +7,13 @@ from typing import Any, List, Optional
 from psycopg2.extras import Json
 
 from ..db import dict_cursor
-from .schemas import ScanResultCreate, ScanResultRecord, ScanResultSummary
+from .schemas import (
+    ScanResultCreate,
+    ScanResultRecord,
+    ScanResultSummary,
+    TranscriptCreate,
+    TranscriptRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +29,7 @@ class ScanRepository:
     """Persists and retrieves scan-result snapshots."""
 
     def create(self, recording_id: int, body: ScanResultCreate) -> ScanResultRecord:
-        """Insert a snapshot and prune history beyond the cap, in one transaction."""
+        """Insert a snapshot (and its transcripts) and prune history, in one transaction."""
         created_at = body.created_at if body.created_at is not None else int(time.time() * 1000)
         with dict_cursor() as cursor:
             cursor.execute(
@@ -36,8 +42,35 @@ class ScanRepository:
                 (recording_id, body.scan_type, created_at, body.provider, body.model, Json(body.payload)),
             )
             row = cursor.fetchone()
+            self._insert_transcripts(cursor, row["scan_result_id"], body.transcripts)
             self._prune(cursor, recording_id, body.scan_type)
         return ScanResultRecord(**row)
+
+    def _insert_transcripts(
+        self, cursor: Any, scan_result_id: int, transcripts: List[TranscriptCreate]
+    ) -> None:
+        """Persist each item's tool-use transcript linked to the new scan_result."""
+        for transcript in transcripts:
+            cursor.execute(
+                """
+                INSERT INTO scan_transcript (scan_result_id, item_id, steps)
+                VALUES (%s, %s, %s)
+                """,
+                (scan_result_id, transcript.item_id, Json(transcript.steps)),
+            )
+
+    def get_transcript(self, scan_result_id: int, item_id: str) -> Optional[TranscriptRecord]:
+        """Return one item's stored tool-use transcript, or ``None`` if absent."""
+        with dict_cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT item_id, steps FROM scan_transcript
+                WHERE scan_result_id = %s AND item_id = %s
+                """,
+                (scan_result_id, item_id),
+            )
+            row = cursor.fetchone()
+        return TranscriptRecord(**row) if row else None
 
     def _prune(self, cursor: Any, recording_id: int, scan_type: str) -> None:
         """Delete all but the newest ``MAX_HISTORY_PER_TYPE`` rows for this key."""

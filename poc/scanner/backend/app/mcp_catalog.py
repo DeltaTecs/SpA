@@ -31,10 +31,35 @@ from .toolsets import build_tavily_toolset
 
 logger = logging.getLogger(__name__)
 
+#: Stable toolset names. Defined once so :func:`build_catalog` and the
+#: name -> category map below can never drift apart.
+PACKET_DB_TOOLSET = "packet-db"
+TAVILY_TOOLSET = "tavily"
+HEXSTRIKE_BASH_TOOLSET = "hexstrike-bash"
+HEXSTRIKE_TOOLS_TOOLSET = "hexstrike-tools"
+
+#: Coarse category of each toolset (``db | search | bash | hexstrike``). Drives UI
+#: grouping, approval exemption (db + search are read-only), and the classification
+#: of a captured transcript step so the Tool-script page can filter DB/search noise.
+TOOLSET_CATEGORIES: dict[str, str] = {
+    PACKET_DB_TOOLSET: "db",
+    TAVILY_TOOLSET: "search",
+    HEXSTRIKE_BASH_TOOLSET: "bash",
+    HEXSTRIKE_TOOLS_TOOLSET: "hexstrike",
+}
+
 #: Categories considered read-only / low-risk. Tools in these categories may be
 #: exempted from approval via the "allow DB tools & web search without approval"
 #: option.
 EXEMPT_CATEGORIES = frozenset({"db", "search"})
+
+
+def category_for_toolset(name: Optional[str]) -> str:
+    """Coarse category for a toolset name (``"other"`` for anything unrecognised).
+
+    Used to classify a recorded transcript step by the toolset that owned the call.
+    """
+    return TOOLSET_CATEGORIES.get(name or "", "other")
 
 #: HexStrike's MCP server exposes a broad toolbox. Keep the pentest surface
 #: intentionally smaller so operators only select tools supported by this flow.
@@ -154,26 +179,30 @@ def build_catalog(
     """
     entries: List[CatalogEntry] = [
         CatalogEntry(
-            "packet-db",
-            "db",
-            McpToolset(settings.mcp_packet_db_url, name="packet-db", timeout=settings.mcp_timeout),
+            PACKET_DB_TOOLSET,
+            TOOLSET_CATEGORIES[PACKET_DB_TOOLSET],
+            McpToolset(
+                settings.mcp_packet_db_url, name=PACKET_DB_TOOLSET, timeout=settings.mcp_timeout
+            ),
         )
     ]
     if settings.tavily_url:
         entries.append(
             CatalogEntry(
-                "tavily",
-                "search",
+                TAVILY_TOOLSET,
+                TOOLSET_CATEGORIES[TAVILY_TOOLSET],
                 build_tavily_toolset(settings, budget=budget, restrict_tools=False),
             )
         )
     if settings.hexstrike_bash_url:
         entries.append(
             CatalogEntry(
-                "hexstrike-bash",
-                "bash",
+                HEXSTRIKE_BASH_TOOLSET,
+                TOOLSET_CATEGORIES[HEXSTRIKE_BASH_TOOLSET],
                 McpToolset(
-                    settings.hexstrike_bash_url, name="hexstrike-bash", timeout=settings.mcp_timeout
+                    settings.hexstrike_bash_url,
+                    name=HEXSTRIKE_BASH_TOOLSET,
+                    timeout=settings.mcp_timeout,
                 ),
                 # The bash server exposes a `stop_active_bash` MCP tool that kills
                 # any running command process groups it started.
@@ -183,11 +212,11 @@ def build_catalog(
     if settings.hexstrike_tools_url:
         entries.append(
             CatalogEntry(
-                "hexstrike-tools",
-                "hexstrike",
+                HEXSTRIKE_TOOLS_TOOLSET,
+                TOOLSET_CATEGORIES[HEXSTRIKE_TOOLS_TOOLSET],
                 McpToolset(
                     settings.hexstrike_tools_url,
-                    name="hexstrike-tools",
+                    name=HEXSTRIKE_TOOLS_TOOLSET,
                     timeout=settings.mcp_timeout,
                 ),
                 # The admin endpoint terminates managed scanners and their

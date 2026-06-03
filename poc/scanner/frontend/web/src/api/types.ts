@@ -467,6 +467,37 @@ export interface ScanResultRecord extends ScanResultSummary {
   payload: Record<string, unknown>;
 }
 
+// --- tool-use transcript (Tool script page) --------------------------------
+
+export type TranscriptStepKind = "reasoning" | "tool_call";
+/** Tool categories plus "other" for an unrecognised toolset. */
+export type TranscriptCategory = ToolCategory | "other";
+
+/** One recorded step of an agentic run (mirrors the backend TranscriptStep). */
+export interface TranscriptStep {
+  kind: TranscriptStepKind;
+  /** reasoning: the assistant's interim text emitted between tool calls. */
+  text?: string | null;
+  /** reasoning: the model's extended-thinking content, when the provider returns it. */
+  reasoning?: string | null;
+  // tool_call fields:
+  call_id?: string | null;
+  tool_name?: string | null;
+  toolset_name?: string | null;
+  category?: TranscriptCategory | null;
+  arguments?: Record<string, unknown> | null;
+  output?: string | null;
+  /** Reviewer verdict: true/false, or null when no approver gated the call. */
+  approved?: boolean | null;
+  review_feedback?: string | null;
+}
+
+/** A recorded tool-use transcript for one analysis item or guided turn. */
+export interface TranscriptDoc {
+  item_id?: string | null;
+  steps: TranscriptStep[];
+}
+
 // --- termination -----------------------------------------------------------
 
 /** Per-server outcome of killing MCP tool processes during termination. */

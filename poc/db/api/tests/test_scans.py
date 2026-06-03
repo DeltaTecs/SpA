@@ -5,8 +5,13 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.scans.repository import MAX_HISTORY_PER_TYPE, ScanRepository
-from app.scans.router import delete_scan, list_all_scans
-from app.scans.schemas import ScanResultCreate, ScanResultRecord, ScanResultSummary
+from app.scans.router import delete_scan, get_scan_transcript, list_all_scans
+from app.scans.schemas import (
+    ScanResultCreate,
+    ScanResultRecord,
+    ScanResultSummary,
+    TranscriptRecord,
+)
 
 
 class TestScanResultCreate(unittest.TestCase):
@@ -29,6 +34,15 @@ class TestScanResultCreate(unittest.TestCase):
         payload = {"status": "done", "tasks": [{"exchange_id": "a", "status": "done"}]}
         body = ScanResultCreate(scan_type="vulnerability_checks", payload=payload)
         self.assertEqual(body.payload, payload)
+
+    def test_transcripts_default_empty_and_accept_items(self):
+        self.assertEqual(ScanResultCreate(scan_type="pentest").transcripts, [])
+        body = ScanResultCreate(
+            scan_type="pentest",
+            transcripts=[{"item_id": "i1", "steps": [{"kind": "reasoning", "text": "hi"}]}],
+        )
+        self.assertEqual(body.transcripts[0].item_id, "i1")
+        self.assertEqual(body.transcripts[0].steps[0]["text"], "hi")
 
 
 class TestScanResultRecord(unittest.TestCase):
@@ -74,6 +88,98 @@ class TestScanRepositoryDelete(unittest.TestCase):
         dict_cursor.return_value.__enter__.return_value = cursor
 
         self.assertFalse(ScanRepository().delete(7))
+
+
+class TestScanRepositoryCreateAndTranscript(unittest.TestCase):
+    @staticmethod
+    def _record_row():
+        return {
+            "scan_result_id": 42,
+            "recording_id": 2,
+            "scan_type": "pentest",
+            "created_at": 123,
+            "provider": None,
+            "model": None,
+            "payload": {"items": []},
+        }
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_create_inserts_transcripts_linked_to_new_scan(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchone.return_value = self._record_row()
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        body = ScanResultCreate(
+            scan_type="pentest",
+            created_at=123,
+            payload={"items": []},
+            transcripts=[{"item_id": "i1", "steps": [{"kind": "tool_call"}]}],
+        )
+        record = ScanRepository().create(2, body)
+
+        self.assertEqual(record.scan_result_id, 42)
+        inserts = [
+            call
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO scan_transcript" in call.args[0]
+        ]
+        self.assertEqual(len(inserts), 1)
+        params = inserts[0].args[1]
+        self.assertEqual(params[0], 42)  # references the just-created scan_result
+        self.assertEqual(params[1], "i1")
+        self.assertEqual(params[2].adapted, [{"kind": "tool_call"}])  # Json-wrapped steps
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_create_without_transcripts_inserts_none(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchone.return_value = self._record_row()
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        ScanRepository().create(2, ScanResultCreate(scan_type="pentest", payload={"items": []}))
+
+        self.assertFalse(
+            any("scan_transcript" in call.args[0] for call in cursor.execute.call_args_list)
+        )
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_get_transcript_returns_record(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchone.return_value = {
+            "item_id": "i1",
+            "steps": [{"kind": "reasoning", "text": "hi"}],
+        }
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        record = ScanRepository().get_transcript(42, "i1")
+
+        self.assertIsInstance(record, TranscriptRecord)
+        self.assertEqual(record.item_id, "i1")
+        self.assertEqual(record.steps[0]["text"], "hi")
+        _, params = cursor.execute.call_args.args
+        self.assertEqual(params, (42, "i1"))
+
+    @patch("app.scans.repository.dict_cursor")
+    def test_get_transcript_none_when_absent(self, dict_cursor):
+        cursor = Mock()
+        cursor.fetchone.return_value = None
+        dict_cursor.return_value.__enter__.return_value = cursor
+
+        self.assertIsNone(ScanRepository().get_transcript(42, "missing"))
+
+
+class TestGetScanTranscriptRoute(unittest.TestCase):
+    @patch("app.scans.router.repository.get_transcript")
+    def test_returns_transcript(self, get_transcript):
+        get_transcript.return_value = TranscriptRecord(item_id="i1", steps=[])
+        result = get_scan_transcript(42, item_id="i1")
+        self.assertEqual(result.item_id, "i1")
+        get_transcript.assert_called_once_with(42, "i1")
+
+    @patch("app.scans.router.repository.get_transcript", return_value=None)
+    def test_404_when_transcript_absent(self, _get_transcript):
+        with self.assertRaises(HTTPException) as ctx:
+            get_scan_transcript(42, item_id="i1")
+        self.assertEqual(ctx.exception.status_code, 404)
 
 
 class TestScanRepositoryListAll(unittest.TestCase):

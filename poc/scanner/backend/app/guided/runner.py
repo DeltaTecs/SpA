@@ -25,6 +25,7 @@ from ..config import Settings, settings
 from ..mcp_catalog import build_catalog, enumerate_catalog
 from ..pentest.approver import PentestApprover, ReviewerClient
 from ..schemas import StartGuidedTurnRequest
+from ..transcript import serialize_transcript
 from .store import GuidedStore
 
 logger = logging.getLogger(__name__)
@@ -162,6 +163,7 @@ def run_turn(
             content=run_result.output,
             iterations=run_result.iterations,
             stopped_on_limit=run_result.stopped_on_limit,
+            transcript=serialize_transcript(run_result.transcript),
             activity=None,
         )
     except OperationCancelled:
