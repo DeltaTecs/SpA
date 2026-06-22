@@ -117,9 +117,14 @@ ARG HEXSTRIKE_ARCHIVE_BASE=https://github.com/0x4m4/hexstrike-ai/archive
 ARG HEXSTRIKE_REF=9b8c780f324ce5145a322bfa23c98886f8424ba3
 ARG DIRSEARCH_REPO=https://github.com/maurosoria/dirsearch.git
 ARG DIRSEARCH_REF=v0.4.3
+ARG PARAMSPIDER_REF=v1.0.1
+ARG SPIDERFOOT_REPO=https://github.com/smicallef/spiderfoot.git
+ARG SPIDERFOOT_REF=v4.0
 
 ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_VENV=/opt/hexstrike-venv \
+    SPIDERFOOT_HOME=/opt/spiderfoot \
+    SPIDERFOOT_VENV=/opt/spiderfoot-venv \
     PIPX_HOME=/opt/pipx \
     PIPX_BIN_DIR=/opt/secbin \
     PATH=/opt/secbin:/opt/hexstrike-venv/bin:${PATH}
@@ -175,7 +180,7 @@ RUN python -m pip install --no-cache-dir pipx
 
 RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps arjun
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps paramspider
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps "git+https://github.com/devanshbatham/ParamSpider.git@${PARAMSPIDER_REF}"
 
 RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps wafw00f
 
@@ -201,7 +206,17 @@ RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx insta
 
 RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps social-analyzer
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps spiderfoot
+RUN set -eux; \
+    git clone --depth 1 --branch "${SPIDERFOOT_REF}" "${SPIDERFOOT_REPO}" "${SPIDERFOOT_HOME}"; \
+    python -m venv "${SPIDERFOOT_VENV}"; \
+    "${SPIDERFOOT_VENV}/bin/pip" install --no-cache-dir --upgrade pip "setuptools<81" wheel; \
+    sed -i 's/^pyyaml>=5\.4\.1,<6$/pyyaml>=6,<7/' "${SPIDERFOOT_HOME}/requirements.txt"; \
+    "${SPIDERFOOT_VENV}/bin/pip" install --no-cache-dir -r "${SPIDERFOOT_HOME}/requirements.txt"; \
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'exec /opt/spiderfoot-venv/bin/python /opt/spiderfoot/sf.py "$@"' \
+      > "${PIPX_BIN_DIR}/spiderfoot"; \
+    chmod +x "${PIPX_BIN_DIR}/spiderfoot"
 
 RUN set -eux; \
     find "${PIPX_HOME}" -type d -name "__pycache__" -prune -exec rm -rf {} +; \
@@ -210,6 +225,8 @@ RUN set -eux; \
 FROM python:3.11-slim-bookworm
 
 ARG DEBIAN_FRONTEND=noninteractive
+ARG NIKTO_VERSION=2.6.0
+ARG NIKTO_SHA256=3057fce7574168e036715ae7ccf2c04fe9a21864514c69fa0644d02de57ca8c8
 
 ENV HEXSTRIKE_HOME=/opt/hexstrike-ai \
     HEXSTRIKE_VENV=/opt/hexstrike-venv \
@@ -247,18 +264,35 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      nmap masscan amass fierce dnsenum theharvester responder enum4linux-ng arp-scan nbtscan \
-      samba-common-bin smbmap gobuster feroxbuster dirsearch ffuf dirb nikto sqlmap wpscan \
-      arjun wafw00f whatweb wfuzz commix testssl.sh sslscan sslyze \
-      john hashcat hashid hash-identifier \
-      recon-ng spiderfoot sherlock trufflehog \
-      trivy kube-hunter kube-bench checkov terrascan awscli kubectl helm \
-      seclists wordlists; \
+      nmap masscan fierce dnsenum arp-scan nbtscan \
+      samba-common-bin smbmap hydra gobuster ffuf dirb sqlmap \
+      arjun wafw00f whatweb wfuzz testssl.sh sslscan \
+      john hashcat hashid recon-ng awscli kubernetes-client \
+      binutils file perl libjson-perl libnet-ssleay-perl libwhisker2-perl libwww-perl; \
     rm -rf /var/lib/apt/lists/*
+
+RUN set -eux; \
+    tmp_dir="$(mktemp -d)"; \
+    cd "${tmp_dir}"; \
+    curl -fsSLo nikto.zip "https://github.com/sullo/nikto/releases/download/${NIKTO_VERSION}/nikto-main.zip"; \
+    echo "${NIKTO_SHA256}  nikto.zip" | sha256sum -c -; \
+    unzip -q nikto.zip; \
+    mkdir -p /opt/nikto; \
+    cp -a nikto-main/program/. /opt/nikto/; \
+    printf '%s\n' \
+      '#!/usr/bin/env bash' \
+      'exec perl /opt/nikto/nikto.pl "$@"' \
+      > /usr/local/bin/nikto; \
+    chmod +x /usr/local/bin/nikto; \
+    nikto -Version >/dev/null; \
+    cd /; \
+    rm -rf "${tmp_dir}"
 
 COPY --from=builder /opt/hexstrike-ai /opt/hexstrike-ai
 COPY --from=builder /opt/hexstrike-venv /opt/hexstrike-venv
 COPY --from=builder /opt/dirsearch /opt/dirsearch
+COPY --from=builder /opt/spiderfoot /opt/spiderfoot
+COPY --from=builder /opt/spiderfoot-venv /opt/spiderfoot-venv
 COPY --from=builder /opt/pipx /opt/pipx
 COPY --from=builder /opt/secbin /opt/secbin
 COPY --from=go-tools /opt/secbin /opt/secbin
@@ -266,6 +300,28 @@ COPY bash_mcp_server.py /usr/local/bin/hexstrike-bash-mcp
 COPY http_mcp_bridge.py /usr/local/bin/hexstrike-http-mcp
 COPY entrypoint.sh /usr/local/bin/hexstrike-entrypoint
 COPY test/ /app/test/
+
+RUN set -eux; \
+    if command -v hashid >/dev/null && ! command -v hash-identifier >/dev/null; then \
+      ln -s "$(command -v hashid)" /usr/local/bin/hash-identifier; \
+    fi; \
+    if command -v shodan >/dev/null && ! command -v shodan-cli >/dev/null; then \
+      ln -s "$(command -v shodan)" /usr/local/bin/shodan-cli; \
+    fi; \
+    if command -v censys >/dev/null && ! command -v censys-cli >/dev/null; then \
+      ln -s "$(command -v censys)" /usr/local/bin/censys-cli; \
+    fi; \
+    if command -v scout >/dev/null && ! command -v scout-suite >/dev/null; then \
+      ln -s "$(command -v scout)" /usr/local/bin/scout-suite; \
+    fi; \
+    command -v nmap; \
+    command -v gobuster; \
+    command -v dirb; \
+    command -v nikto; \
+    command -v sqlmap; \
+    command -v hydra; \
+    command -v john; \
+    command -v hashcat
 
 # HexStrike defaults come from Kali-style wordlist paths, while Debian packages
 # install the same bundled dictionaries under tool-specific directories.
