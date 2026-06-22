@@ -47,7 +47,7 @@ You can skip this stage if you have a database dump at the ready, which contains
 ```
 You can proceed with stage 4-8.
 
-Without a database dump, you need to generate your own traffic and secrets. Setup a VM with the application under test. Pick an application that has a public bug bounty program! Test only within bug bounty or explicit permission! If you use VirtualBox under Linux, you can use the `/poc/profiling/vm-capture/vm_traffic_monitor.py` script to obtain RAM dumps.
+Without a database dump, you need to generate your own traffic and secrets. Setup a VM with the application under test. Pick an application that has a public bug bounty program! Test only within bug bounty or explicit permission! Any application traffic will be persistently stored in plain test so only use test accounts with test data! If you use VirtualBox under Linux, you can use the `/poc/profiling/vm-capture/vm_traffic_monitor.py` script to obtain RAM dumps.
 The `/poc/profiling/key-extraction/dumps2keylog.py` can then be used in combination with a VoSeS binary on a machine with an Nvidia GPU to extract the secret material from the RAM dumps.
 Refer to [VoSeS](https://github.com/DeltaTecs/VoSeS) for compilation. 
 
