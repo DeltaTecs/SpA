@@ -39,15 +39,24 @@ The user can access an LLM agent with all implemented tools to perform a free-fo
 - ProtonVPN key for VPN tunneling of pentest tool traffic (not to get flagged by the ISP)
 - Docker
 
+### Choosing a Target
+Pick an application that has a public bug bounty program! Test only within bug bounty or explicit permission! Any application traffic will be persistently stored in plain test so only use test accounts with test data! Maybe test your own webpage first.
+
 ### Traffic Generation and Secret Extraction
 
 You can skip this stage if you have a database dump at the ready, which contains prior recorded traffic
 ```bash
 ./db/dump_load_db.sh load <dump-file>
 ```
+You can also skip this stage by examining a browser application. Simply run a Wireshark recording of you, using the application under test in a browser such as Chrome. Make sure to set the SSLKEYLOGFILE environment variable before starting the browser in the terminal. e.g.
+```bash
+export SSLKEYLOGFILE=~/keylog.txt
+google-chrome
+```
+Your Wireshark recording should capture the application under test's traffic as isolated as possible. Ideally, run the browser and the recording in a virtual machine with little noise, e.g., Ubuntu, and start the recording right before opening the services' first page.
 You can proceed with stage 4-8.
 
-Without a database dump, you need to generate your own traffic and secrets. Setup a VM with the application under test. Pick an application that has a public bug bounty program! Test only within bug bounty or explicit permission! Any application traffic will be persistently stored in plain test so only use test accounts with test data! If you use VirtualBox under Linux, you can use the `/poc/profiling/vm-capture/vm_traffic_monitor.py` script to obtain RAM dumps.
+Without a database dump, you need to generate your own traffic and secrets. Setup a VM with the application under test. If you use VirtualBox under Linux, you can use the `/poc/profiling/vm-capture/vm_traffic_monitor.py` script to obtain RAM dumps.
 The `/poc/profiling/key-extraction/dumps2keylog.py` can then be used in combination with a VoSeS binary on a machine with an Nvidia GPU to extract the secret material from the RAM dumps.
 Refer to [VoSeS](https://github.com/DeltaTecs/VoSeS) for compilation. 
 
@@ -71,7 +80,7 @@ At this point, make sure you have all API keys set in `/poc/.env`. It is possibl
 Stages 4-8 are facilitated through a web client. After the Docker setup is running, it should be available at `http://localhost:8093/`. The current flow is
 1. Go to Test Planner and inspect events. Check mark events that you want to investigate further. Configure an AI for attack vector analysis (recommended DeepSeek v4 pro, high effort, 35 max iterations), then press Launch Analysis.
 2. Inspect proposed vectors to each event and checkmark interesting ones (recommended 1-5 for testing, 10-100 for full-scale scan (expect up to 20$ cost))
-3. Go to Analysis Queue and configure AI (recommended deepseek v4 pro, max effort, 50 iterations, few tools (packet_info, packet_payload_hexdump, conversation_packets, tavily_search, tavily_extract, gobuster_scan, create_file, modify_file, delete_file, python, dirb, sqlmap, ffuf, graphql, jwt analyzer, wafw00f, fierce_scan, dnsenum), automatic review deepseek v4 flash, default effort, 4 iterations). Make sure to specify tool use constrains of the applications bug bounty program (f.e. rate limit, user agent).
+3. Go to Analysis Queue and configure AI (recommended deepseek v4 pro, max effort, 50 iterations, few tools (packet_info, packet_payload_hexdump, conversation_packets, tavily_search, tavily_extract, gobuster_scan, create_file, modify_file, delete_file, python, dirb, sqlmap, ffuf, graphql, jwt analyzer, wafw00f, fierce_scan, dnsenum), automatic review deepseek v4 flash, default effort, 4 iterations). Make sure to specify tool use constraints of the application's bug bounty program (f.e, rate limit, user agent).
 3. If you are superstitious, enable manual tool review. Run a (parallel) exploitability analysis. After an item has finished, evaluate if you want to investigate further and press "send to Exploit Queue" if so.
 4. In Exploit Queue, run a similar analysis to Analysis Queue and investigate findings
 
