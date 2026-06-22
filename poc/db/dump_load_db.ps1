@@ -99,6 +99,52 @@ function Test-ContainerRunning([string]$ContainerName) {
     }
 }
 
+function New-RestoreTargetKey([string]$Schema, [string]$Name) {
+    return "$Schema.$Name"
+}
+
+function Get-ExistingRestoreTargets {
+    $query = "SELECT n.nspname, c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r', 'p', 'f', 'S');"
+    $rows = Invoke-PostgresDocker @(
+        'psql',
+        '--host=127.0.0.1',
+        "--port=$DbPort",
+        "--username=$DbAdminUser",
+        "--dbname=$DbName",
+        '--tuples-only',
+        '--no-align',
+        '--field-separator=|',
+        "--command=$query"
+    ) 'query existing database relations'
+
+    $tables = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $sequences = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+
+    foreach ($row in $rows) {
+        if (-not $row) {
+            continue
+        }
+
+        $parts = $row -split '\|', 3
+        if ($parts.Count -ne 3) {
+            throw "Could not parse relation row from database: $row"
+        }
+
+        $key = New-RestoreTargetKey $parts[0] $parts[1]
+        if ($parts[2] -eq 'S') {
+            [void]$sequences.Add($key)
+        }
+        else {
+            [void]$tables.Add($key)
+        }
+    }
+
+    return [pscustomobject]@{
+        Tables = $tables
+        Sequences = $sequences
+    }
+}
+
 function Invoke-DumpDatabase {
     $dumpDir = [System.IO.Path]::GetDirectoryName($ResolvedDumpFile)
     if ($dumpDir) {
@@ -117,7 +163,6 @@ function Invoke-DumpDatabase {
         '--no-owner',
         '--no-privileges',
         '--exclude-table-data=protocol',
-        '--exclude-table-data=scan_type',
         "--file=$ContainerDump"
     ) 'pg_dump'
 
@@ -136,16 +181,62 @@ function New-RestoreList {
         throw "pg_restore list failed with exit code $LASTEXITCODE."
     }
 
-    # init_db.sql seeds these lookup tables; skip legacy dump rows to avoid duplicates.
+    $restoreTargets = Get-ExistingRestoreTargets
+    $missingTableDataCount = 0
+    $missingSequenceSetCount = 0
+    $missingTableDataTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $missingSequenceSetTargets = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+
+    # Skip data that the current schema cannot receive. init_db.sql seeds protocol
+    # values, so those rows are also skipped to avoid duplicates.
     $filteredToc = foreach ($line in $toc) {
         if (
-            $line -match ' TABLE DATA public (protocol|scan_type) ' -or
-            $line -match ' SEQUENCE SET public (protocol_protocol_id_seq|scan_type_scan_type_id_seq) '
+            $line -match ' TABLE DATA public protocol ' -or
+            $line -match ' SEQUENCE SET public protocol_protocol_id_seq '
         ) {
             ";$line"
         }
+        elseif ($line -match '^\d+;\s+\d+\s+\d+\s+TABLE DATA\s+(\S+)\s+(\S+)(?:\s+|$)') {
+            $key = New-RestoreTargetKey $Matches[1] $Matches[2]
+            if (-not $restoreTargets.Tables.Contains($key)) {
+                $missingTableDataCount += 1
+                [void]$missingTableDataTargets.Add($key)
+                ";$line"
+            }
+            else {
+                $line
+            }
+        }
+        elseif ($line -match '^\d+;\s+\d+\s+\d+\s+SEQUENCE SET\s+(\S+)\s+(\S+)(?:\s+|$)') {
+            $key = New-RestoreTargetKey $Matches[1] $Matches[2]
+            if (-not $restoreTargets.Sequences.Contains($key)) {
+                $missingSequenceSetCount += 1
+                [void]$missingSequenceSetTargets.Add($key)
+                ";$line"
+            }
+            else {
+                $line
+            }
+        }
         else {
             $line
+        }
+    }
+
+    if ($missingTableDataCount -gt 0 -or $missingSequenceSetCount -gt 0) {
+        Write-Host "Skipped $missingTableDataCount table data item(s) and $missingSequenceSetCount sequence set item(s) missing from the current database."
+        if ($missingTableDataTargets.Count -gt 0) {
+            Write-Host "Skipped table data for missing table(s):"
+            foreach ($target in ($missingTableDataTargets | Sort-Object)) {
+                Write-Host "  - $target"
+            }
+        }
+
+        if ($missingSequenceSetTargets.Count -gt 0) {
+            Write-Host "Skipped sequence set for missing sequence(s):"
+            foreach ($target in ($missingSequenceSetTargets | Sort-Object)) {
+                Write-Host "  - $target"
+            }
         }
     }
 

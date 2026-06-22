@@ -73,7 +73,7 @@ ensure_container_running() {
 }
 
 cleanup() {
-    docker exec "$DB_CONTAINER" rm -f "$CONTAINER_DUMP" "$CONTAINER_LIST" "$CONTAINER_LIST.raw" >/dev/null 2>&1 || true
+    docker exec "$DB_CONTAINER" rm -f "$CONTAINER_DUMP" "$CONTAINER_LIST" "$CONTAINER_LIST.raw" "$CONTAINER_LIST.relations" >/dev/null 2>&1 || true
 }
 
 dump_db() {
@@ -94,7 +94,6 @@ dump_db() {
         --no-owner \
         --no-privileges \
         --exclude-table-data=protocol \
-        --exclude-table-data=scan_type \
         --file="$CONTAINER_DUMP"
 
     docker cp "$DB_CONTAINER:$CONTAINER_DUMP" "$DUMP_FILE"
@@ -102,16 +101,81 @@ dump_db() {
 }
 
 create_restore_list() {
-    # init_db.sql seeds these lookup tables; skip legacy dump rows to avoid duplicates.
-    docker exec "$DB_CONTAINER" sh -c '
+    docker_exec_pg sh -c '
         set -eu
         pg_restore -l "$1" > "$2.raw"
-        sed -E \
-            -e "/ TABLE DATA public (protocol|scan_type) / s/^/;/" \
-            -e "/ SEQUENCE SET public (protocol_protocol_id_seq|scan_type_scan_type_id_seq) / s/^/;/" \
-            "$2.raw" > "$2"
-        rm -f "$2.raw"
-    ' sh "$CONTAINER_DUMP" "$CONTAINER_LIST"
+        psql \
+            --host=127.0.0.1 \
+            --port="$3" \
+            --username="$4" \
+            --dbname="$5" \
+            --tuples-only \
+            --no-align \
+            --field-separator="|" \
+            --command="SELECT n.nspname, c.relname, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('\''r'\'', '\''p'\'', '\''f'\'', '\''S'\'');" \
+            > "$2.relations"
+
+        awk -F "|" '\''
+            FNR == NR {
+                key = $1 "." $2
+                if ($3 == "S") {
+                    sequences[key] = 1
+                } else {
+                    tables[key] = 1
+                }
+                next
+            }
+
+            / TABLE DATA public protocol / || / SEQUENCE SET public protocol_protocol_id_seq / {
+                print ";" $0
+                next
+            }
+
+            {
+                split($0, parts, /[[:space:]]+/)
+
+                if (parts[4] == "TABLE" && parts[5] == "DATA") {
+                    key = parts[6] "." parts[7]
+                    if (!(key in tables)) {
+                        missing_tables += 1
+                        missing_table_names[key] = 1
+                        print ";" $0
+                        next
+                    }
+                } else if (parts[4] == "SEQUENCE" && parts[5] == "SET") {
+                    key = parts[6] "." parts[7]
+                    if (!(key in sequences)) {
+                        missing_sequences += 1
+                        missing_sequence_names[key] = 1
+                        print ";" $0
+                        next
+                    }
+                }
+
+                print
+            }
+
+            END {
+                if (missing_tables > 0 || missing_sequences > 0) {
+                    printf "Skipped %d table data item(s) and %d sequence set item(s) missing from the current database.\n", missing_tables, missing_sequences > "/dev/stderr"
+                    if (missing_tables > 0) {
+                        print "Skipped table data for missing table(s):" > "/dev/stderr"
+                        for (name in missing_table_names) {
+                            print "  - " name > "/dev/stderr"
+                        }
+                    }
+
+                    if (missing_sequences > 0) {
+                        print "Skipped sequence set for missing sequence(s):" > "/dev/stderr"
+                        for (name in missing_sequence_names) {
+                            print "  - " name > "/dev/stderr"
+                        }
+                    }
+                }
+            }
+        '\'' "$2.relations" "$2.raw" > "$2"
+        rm -f "$2.raw" "$2.relations"
+    ' sh "$CONTAINER_DUMP" "$CONTAINER_LIST" "$DB_PORT" "$DB_ADMIN_USER" "$DB_NAME"
 }
 
 load_db() {

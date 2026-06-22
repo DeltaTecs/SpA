@@ -1,6 +1,6 @@
 # Packet DB MCP Server
 
-MCP server that provides packet metadata/payload lookup tools and event persistence tools for the PoC PostgreSQL database.
+MCP server that provides packet metadata and payload lookup tools for the PoC PostgreSQL database.
 
 ## Tools
 
@@ -18,6 +18,9 @@ MCP server that provides packet metadata/payload lookup tools and event persiste
 - `packet_payload_hexdump(packet_id: int)`
   - Returns the **full** cleartext payload as hexdump (hex + ASCII)
 
+- `list_packet_ids(recording_id: int)`
+  - Returns all packet IDs for a recording, ordered by packet number
+
 - `conversation_packets(conversation_id: int, packet_id: int = 0, before: int = 5, after: int = 5)`
   - Returns rich `packet_info` output for packets in one conversation
   - If `packet_id` is provided, returns a conversation-local window around that packet
@@ -26,20 +29,6 @@ MCP server that provides packet metadata/payload lookup tools and event persiste
 - `packets_in_time_window(recording_id: int, start_ms: int, end_ms: int, max_packets: int = 40)`
   - Returns rich `packet_info` output for packets in a time window
   - `start_ms` and `end_ms` are recording-relative offsets; epoch millisecond values are also accepted
-
-- `events_for_recording(recording_id: int)`
-  - Returns persisted events that already have packets in the recording
-
-- `events()`
-  - Returns all persisted events with packet counts and associated recording IDs
-
-- `event_packets(event_id: int)`
-  - Returns event metadata plus assigned packet IDs, recording IDs, timestamps,
-    packet numbers, and conversation IDs
-
-- `create_event_and_assign_packet(packet_id: int, description: str)`
-  - Atomically creates a new event and assigns the packet to it
-  - Intended for orchestrators after validating an LLM decision
 
 ## Configuration
 
@@ -53,13 +42,13 @@ not the reset/bootstrap admin role.
 
 Transport:
 
-- `MCP_TRANSPORT` = `sse` (default) or `stdio`
+- `MCP_TRANSPORT` = `sse` (default), `streamable-http`, or `stdio`
 - `MCP_HOST` (default `0.0.0.0`)
 - `MCP_PORT` (default `8765`)
 
 ## Running with docker-compose
 
-This repo’s main compose file is in `poc/docker-compose.yml`.
+This repo's main compose file is in `poc/docker-compose.yml`.
 
 After the compose service is added, run:
 

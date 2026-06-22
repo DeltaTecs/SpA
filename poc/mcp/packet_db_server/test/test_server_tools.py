@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import random
-import re
 import sys
 import types
 import unittest
@@ -90,18 +89,11 @@ _install_dotenv_stub_if_needed()
 _install_fastmcp_stub_if_needed()
 
 from packet_db_server.server import (  # noqa: E402
-    assign_packet_to_event,
     conversation_packets,
-    create_event,
-    create_event_and_assign_packet,
-    event_packets,
-    events,
-    events_for_recording,
     list_packet_ids,
     packet_info,
     packet_payload_hexdump,
     packets_in_time_window,
-    update_event_description,
 )
 
 
@@ -112,7 +104,6 @@ class TestPacketDbServerTools(unittest.TestCase):
         cls.rng = random.Random(cls.token)
         cls.header_ids: List[int] = []
         cls.packet_ids: List[int] = []
-        cls.event_ids: List[int] = []
         cls.conversation_ids: List[int] = []
         cls.recording_id: int | None = None
         cls.other_recording_id: int | None = None
@@ -142,16 +133,6 @@ class TestPacketDbServerTools(unittest.TestCase):
     @classmethod
     def _cleanup_fixture(cls, conn) -> None:
         with conn.cursor() as cursor:
-            if cls.event_ids:
-                cursor.execute(
-                    "DELETE FROM packet_event WHERE event_id = ANY(%s::bigint[])",
-                    (cls.event_ids,),
-                )
-                cursor.execute(
-                    "DELETE FROM event WHERE event_id = ANY(%s::bigint[])",
-                    (cls.event_ids,),
-                )
-
             recording_ids = [
                 rid
                 for rid in [getattr(cls, "recording_id", None), getattr(cls, "other_recording_id", None)]
@@ -622,149 +603,6 @@ class TestPacketDbServerTools(unittest.TestCase):
         for packet in excluded:
             self.assertNotIn(f"packet_id:{packet['packet_id']}", text)
 
-    def test_events_can_be_created_assigned_and_listed_for_recording(self) -> None:
-        response = self.packets["response"]
-        datagram = self.packets["datagram"]
-        description = f"mcp-test-event-{self.token}-{self.rng.getrandbits(32):08x}"
-
-        create_result = create_event(description)
-        match = re.fullmatch(r"event_id:(\d+)", create_result)
-        self.assertIsNotNone(match, create_result)
-        event_id = int(match.group(1))
-        self.event_ids.append(event_id)
-
-        reason = f"response belongs to event {self.token}"
-        confidence = 0.82
-        self.assertEqual(
-            "ok",
-            assign_packet_to_event(
-                response["packet_id"],
-                event_id,
-                reason=reason,
-                confidence=confidence,
-            ),
-        )
-        mismatch = assign_packet_to_event(datagram["packet_id"], event_id)
-        self.assertIn("tuple mismatch", mismatch)
-        self.assertIn(f"packet_id {datagram['packet_id']}", mismatch)
-
-        text = events_for_recording(self.recording_id)
-
-        self.assertIn(f"event_id:{event_id}", text)
-        self.assertIn(f"description:{description}", text)
-        self.assertIn(f"start:{response['timestamp']}", text)
-        self.assertIn(f"end:{response['timestamp']}", text)
-        self.assertIn(f"packet_ids:{response['packet_id']}", text)
-        self.assertIn(f"confidence:{confidence:.2f}", text)
-        self.assertIn(f"reason:{reason}", text)
-        self.assertIn(
-            (
-                f"packet_id:{response['packet_id']} "
-                f"{response['src_ip']}:{response['src_port']} -> "
-                f"{response['dst_ip']}:{response['dst_port']} {response['transport']}"
-            ),
-            text,
-        )
-
-        with self.conn.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT reason, confidence
-                FROM packet_event
-                WHERE packet_id = %s AND event_id = %s
-                """,
-                (response["packet_id"], event_id),
-            )
-            row = cursor.fetchone()
-        self.assertEqual(reason, row[0])
-        self.assertAlmostEqual(confidence, row[1])
-
-    def test_events_for_recording_can_filter_by_packet_tuple(self) -> None:
-        response = self.packets["response"]
-        datagram = self.packets["datagram"]
-        description = f"mcp-test-filter-event-{self.token}-{self.rng.getrandbits(32):08x}"
-
-        create_result = create_event_and_assign_packet(
-            response["packet_id"],
-            description,
-            reason=f"filter reason {self.token}",
-            confidence=0.75,
-        )
-        match = re.fullmatch(r"event_id:(\d+)", create_result)
-        self.assertIsNotNone(match, create_result)
-        event_id = int(match.group(1))
-        self.event_ids.append(event_id)
-
-        matching_text = events_for_recording(
-            self.recording_id,
-            packet_id=response["packet_id"],
-        )
-        non_matching_text = events_for_recording(
-            self.recording_id,
-            packet_id=datagram["packet_id"],
-        )
-
-        self.assertIn(f"event_id:{event_id}", matching_text)
-        self.assertIn(f"packet_ids:{response['packet_id']}", matching_text)
-        self.assertNotIn(f"event_id:{event_id}", non_matching_text)
-        self.assertIn("no events match", non_matching_text)
-
-        event_text = event_packets(event_id)
-        self.assertIn(f"event_id:{event_id}", event_text)
-        self.assertIn(f"description:{description}", event_text)
-        self.assertIn("packets:1", event_text)
-        self.assertIn(f"packet_id:{response['packet_id']}", event_text)
-        self.assertNotIn(f"packet_id:{self.packets['request']['packet_id']}", event_text)
-
-        all_events_text = events()
-        self.assertIn(f"event_id:{event_id}", all_events_text)
-        self.assertIn(f"description:{description}", all_events_text)
-        self.assertIn("packets:1", all_events_text)
-        self.assertIn(f"recording_ids:{self.recording_id}", all_events_text)
-
-    def test_event_can_be_created_and_assigned_atomically(self) -> None:
-        packet = self.packets["request"]
-        description = f"mcp-test-atomic-event-{self.token}-{self.rng.getrandbits(32):08x}"
-        reason = f"atomic create reason {self.token}"
-        confidence = 0.91
-
-        create_result = create_event_and_assign_packet(
-            packet["packet_id"],
-            description,
-            reason=reason,
-            confidence=confidence,
-        )
-        match = re.fullmatch(r"event_id:(\d+)", create_result)
-        self.assertIsNotNone(match, create_result)
-        event_id = int(match.group(1))
-        self.event_ids.append(event_id)
-
-        text = events_for_recording(self.recording_id)
-
-        self.assertIn(f"event_id:{event_id}", text)
-        self.assertIn(f"description:{description}", text)
-        self.assertIn(f"start:{packet['timestamp']}", text)
-        self.assertIn(f"end:{packet['timestamp']}", text)
-        self.assertIn(f"confidence:{confidence:.2f}", text)
-        self.assertIn(f"reason:{reason}", text)
-
-    def test_event_description_can_be_updated(self) -> None:
-        packet = self.packets["request"]
-        description = f"mcp-test-update-event-{self.token}-{self.rng.getrandbits(32):08x}"
-        updated = f"{description} refined"
-
-        create_result = create_event_and_assign_packet(packet["packet_id"], description)
-        match = re.fullmatch(r"event_id:(\d+)", create_result)
-        self.assertIsNotNone(match, create_result)
-        event_id = int(match.group(1))
-        self.event_ids.append(event_id)
-
-        self.assertEqual("ok", update_event_description(event_id, updated))
-        text = events_for_recording(self.recording_id, packet_id=packet["packet_id"])
-
-        self.assertIn(f"event_id:{event_id}", text)
-        self.assertIn(f"description:{updated}", text)
-
     def test_missing_packet_returns_not_found_text(self) -> None:
         with self.conn.cursor() as cursor:
             cursor.execute("SELECT COALESCE(MAX(packet_id), 0) + 1000000000 FROM packet")
@@ -777,14 +615,6 @@ class TestPacketDbServerTools(unittest.TestCase):
         self.assertEqual(
             f"packet_id {missing_packet_id} not found",
             packet_payload_hexdump(missing_packet_id),
-        )
-        self.assertEqual(
-            f"packet_id {missing_packet_id} not found",
-            assign_packet_to_event(missing_packet_id, 1),
-        )
-        self.assertEqual(
-            f"packet_id {missing_packet_id} not found",
-            create_event_and_assign_packet(missing_packet_id, f"missing-{self.token}"),
         )
 
 

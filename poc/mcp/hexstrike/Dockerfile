@@ -145,7 +145,9 @@ RUN "${HEXSTRIKE_VENV}/bin/pip" install --no-cache-dir \
       "requests>=2.31.0,<3.0.0" \
       "psutil>=5.9.0,<6.0.0" \
       "fastmcp>=0.2.0,<1.0.0" \
-      "mcp>=1.2.0" \
+      "mcp>=1.27.1,<2.0.0" \
+      "starlette>=0.37.2,<2.0.0" \
+      "uvicorn>=0.29.0,<1.0.0" \
       "beautifulsoup4>=4.12.0,<5.0.0" \
       "selenium>=4.15.0,<5.0.0" \
       "webdriver-manager>=4.0.0,<5.0.0" \
@@ -171,35 +173,35 @@ RUN set -eux; \
 
 RUN python -m pip install --no-cache-dir pipx
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps arjun || echo "Skipped failed Python tool install: arjun"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps arjun
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps paramspider || echo "Skipped failed Python tool install: paramspider"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps paramspider
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps wafw00f || echo "Skipped failed Python tool install: wafw00f"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps wafw00f
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps uro || echo "Skipped failed Python tool install: uro"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps uro
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps shodan || echo "Skipped failed Python tool install: shodan"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps shodan
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps censys || echo "Skipped failed Python tool install: censys"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps censys
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps prowler || echo "Skipped failed Python tool install: prowler"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps prowler
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps ScoutSuite || echo "Skipped failed Python tool install: ScoutSuite"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps ScoutSuite
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps checkov || echo "Skipped failed Python tool install: checkov"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps checkov
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps kube-hunter || echo "Skipped failed Python tool install: kube-hunter"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps kube-hunter
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sslyze || echo "Skipped failed Python tool install: sslyze"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sslyze
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps hashid || echo "Skipped failed Python tool install: hashid"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps hashid
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sherlock-project || echo "Skipped failed Python tool install: sherlock-project"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps sherlock-project
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps social-analyzer || echo "Skipped failed Python tool install: social-analyzer"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps social-analyzer
 
-RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps spiderfoot || echo "Skipped failed Python tool install: spiderfoot"
+RUN PIPX_HOME="${PIPX_HOME}" PIPX_BIN_DIR="${PIPX_BIN_DIR}" python -m pipx install --include-deps spiderfoot
 
 RUN set -eux; \
     find "${PIPX_HOME}" -type d -name "__pycache__" -prune -exec rm -rf {} +; \
@@ -244,26 +246,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN set -eux; \
     apt-get update; \
-    category_tools=( \
+    apt-get install -y --no-install-recommends \
       nmap masscan amass fierce dnsenum theharvester responder enum4linux-ng arp-scan nbtscan \
       samba-common-bin smbmap gobuster feroxbuster dirsearch ffuf dirb nikto sqlmap wpscan \
       arjun wafw00f whatweb wfuzz commix testssl.sh sslscan sslyze \
       john hashcat hashid hash-identifier \
       recon-ng spiderfoot sherlock trufflehog \
       trivy kube-hunter kube-bench checkov terrascan awscli kubectl helm \
-      seclists wordlists \
-    ); \
-    installable=(); \
-    for pkg in "${category_tools[@]}"; do \
-      if apt-cache show "${pkg}" >/dev/null 2>&1; then \
-        installable+=("${pkg}"); \
-      else \
-        echo "Skipping unavailable apt package: ${pkg}"; \
-      fi; \
-    done; \
-    if ((${#installable[@]})); then \
-      apt-get install -y --no-install-recommends "${installable[@]}"; \
-    fi; \
+      seclists wordlists; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/hexstrike-ai /opt/hexstrike-ai
@@ -310,7 +300,7 @@ WORKDIR /workspace
 EXPOSE 8888 8766
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=45s --retries=3 \
-  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; mcp-http|http-mcp|streamable-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_MCP_HTTP_PORT}" ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
+  CMD case "${HEXSTRIKE_MODE}" in bash-mcp|shell-mcp|command-mcp) nc -z 127.0.0.1 "${HEXSTRIKE_BASH_MCP_PORT}" ;; mcp-http|http-mcp|streamable-mcp) curl -fsS "http://127.0.0.1:${HEXSTRIKE_MCP_HTTP_PORT}/health" >/dev/null ;; *) curl -fsS "http://127.0.0.1:${HEXSTRIKE_PORT}/health" >/dev/null ;; esac
 
 ENTRYPOINT ["tini", "--", "hexstrike-entrypoint"]
 CMD []

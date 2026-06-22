@@ -20,6 +20,8 @@ dist/
 
 # Test / coverage / tooling caches
 .pytest_cache/
+# Scanner-backend Tavily response cache (TAVILY_CACHE_PATH default).
+.cache/
 .coverage
 coverage.xml
 htmlcov/

@@ -10,15 +10,6 @@ except ImportError as e:  # pragma: no cover
     raise RuntimeError("psycopg2-binary is required") from e
 
 from .db import retry_connect_db
-from .event_queries import (
-    assign_packet_to_event_record,
-    create_event_and_assign_packet_with_metadata_record,
-    create_event_record,
-    event_packets_text,
-    events_for_recording_text,
-    events_text,
-    update_event_description_record,
-)
 from .packet_queries import (
     conversation_packets_text,
     list_packet_ids_text,
@@ -119,51 +110,6 @@ class DatabaseAccess:
             end_ms,
             max_packets=max_packets,
         )
-
-    def events_for_recording(self, recording_id: int, packet_id: int = 0) -> str:
-        return self.read(events_for_recording_text, recording_id, packet_id=packet_id)
-
-    def events(self) -> str:
-        return self.read(events_text)
-
-    def event_packets(self, event_id: int) -> str:
-        return self.read(event_packets_text, event_id)
-
-    def create_event(self, description: str) -> str:
-        return self.write(create_event_record, description, cursor_factory=None)
-
-    def create_event_and_assign_packet(
-        self,
-        packet_id: int,
-        description: str,
-        reason: str = "",
-        confidence: float | None = None,
-    ) -> str:
-        return self.write(
-            create_event_and_assign_packet_with_metadata_record,
-            packet_id,
-            description,
-            reason=reason,
-            confidence=confidence,
-        )
-
-    def assign_packet_to_event(
-        self,
-        packet_id: int,
-        event_id: int,
-        reason: str = "",
-        confidence: float | None = None,
-    ) -> str:
-        return self.write(
-            assign_packet_to_event_record,
-            packet_id,
-            event_id,
-            reason=reason,
-            confidence=confidence,
-        )
-
-    def update_event_description(self, event_id: int, description: str) -> str:
-        return self.write(update_event_description_record, event_id, description)
 
     def read_rows(
         self,

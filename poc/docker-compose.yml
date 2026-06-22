@@ -14,7 +14,8 @@ services:
       - "${DB_PORT_HOST}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
-      - ./db:/docker-entrypoint-initdb.d:ro
+      # Mount only the bootstrap SQL; mounting ./db here also runs helper scripts.
+      - ./db/init_db.sql:/docker-entrypoint-initdb.d/init_sb.sql:ro
     networks:
       - app-network
     healthcheck:
@@ -61,6 +62,109 @@ services:
       - db
     tty: true
 
+  # HTTP API for reading packet data from the database
+  db-api:
+    build: ./db/api
+    container_name: db-api
+    restart: unless-stopped
+    environment:
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - LOG_LEVEL=VERBOSE
+      - LOG_DIR=/app/logs
+    volumes:
+      # Centralise file logs under poc/logs alongside the other services.
+      - ./logs:/app/logs
+    ports:
+      - "8092:8000"
+    networks:
+      # app-network for reaching the database; db-api-network for consumers.
+      - app-network
+      - db-api-network
+    depends_on:
+      - db
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # Web frontend: serves the React SPA and proxies /api/* to db-api and
+  # /api/plan/* to the scanner-backend.
+  frontend:
+    build: ./scanner/frontend
+    container_name: scanner-frontend
+    restart: unless-stopped
+    environment:
+      - DB_API_URL=http://db-api:8000
+      - BACKEND_URL=http://scanner-backend:8000
+      - LOG_LEVEL=VERBOSE
+      - FRONTEND_LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8093:8000"
+    networks:
+      # Dedicated consumer network used to reach the db-api by service name.
+      - db-api-network
+    depends_on:
+      - db-api
+      - scanner-backend
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # LLM scan-planning backend: wraps scanner/backend/llm + MCP tools and runs
+  # concurrent analysis sessions. Reached by the frontend's /api/plan/* proxy.
+  scanner-backend:
+    build: ./scanner/backend
+    container_name: scanner-backend
+    restart: unless-stopped
+    environment:
+      - MCP_PACKET_DB_URL=http://mcp-packet-db:8765/mcp
+      # db-api (over db-api-network) for persisting finished scan results.
+      - DB_API_URL=http://db-api:8000
+      # Active-testing MCP tools (bash + hexstrike), reached over the hexstrike
+      # network via the mcp-hexstrike alias on hexstrike-vpn.
+      - HEXSTRIKE_BASH_MCP_URL=http://mcp-hexstrike:8766/mcp
+      - HEXSTRIKE_TOOLS_MCP_URL=http://mcp-hexstrike:8767/mcp
+      - HEXSTRIKE_TOOLS_ADMIN_TOKEN=${HEXSTRIKE_TOOLS_ADMIN_TOKEN:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
+      - PLAN_MAX_CONCURRENCY=${PLAN_MAX_CONCURRENCY:-4}
+      - LOG_LEVEL=VERBOSE
+      - LLM_LOG_DIR=/app/logs
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8094:8000"
+    networks:
+      # app-network reaches mcp-packet-db; db-api-network is reachable by frontend;
+      # scanner-hexstrike-network reaches the bash/hexstrike MCP tools.
+      - app-network
+      - db-api-network
+      - scanner-hexstrike-network
+    depends_on:
+      - mcp-packet-db
+      - mcp-hexstrike
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
   # service for exposing the packet database via MCP
   mcp-packet-db:
     build: ./mcp/packet_db_server
@@ -82,10 +186,9 @@ services:
     depends_on:
       - db
 
-  # VPN egress for active HexStrike scans. scanner-api still reaches the MCP
-  # servers over the internal scanner-hexstrike-network on ports 8766/8767.
-  # If PROTONVPN_WIREGUARD_PRIVATE_KEY is unset, this container stays up as a
-  # plain network namespace and HexStrike uses normal Docker egress.
+  # VPN egress for active HexStrike tooling. If PROTONVPN_WIREGUARD_PRIVATE_KEY
+  # is unset, this container stays up as a plain network namespace and
+  # HexStrike uses normal Docker egress.
   hexstrike-vpn:
     image: qmcgaw/gluetun:v3
     container_name: hexstrike-vpn
@@ -117,7 +220,7 @@ services:
         aliases:
           - mcp-hexstrike
 
-  # penetration testing MCP tools
+  # Penetration testing MCP tools.
   mcp-hexstrike:
     build: ./mcp/hexstrike
     container_name: mcp-hexstrike
@@ -135,181 +238,25 @@ services:
       - HEXSTRIKE_MCP_HTTP_HOST=0.0.0.0
       - HEXSTRIKE_MCP_HTTP_PORT=8767
       - HEXSTRIKE_MCP_HTTP_TIMEOUT=900
+      - HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS=${HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS:-mcp-hexstrike:8767,127.0.0.1:8767,localhost:8767}
+      - HEXSTRIKE_TOOLS_ADMIN_TOKEN=${HEXSTRIKE_TOOLS_ADMIN_TOKEN:-}
       - LOG_LEVEL=VERBOSE
     depends_on:
       - hexstrike-vpn
     tty: true
     stdin_open: true
-
-  # LLM based network packet grouping/aggregation into events
-  grouping:
-    build: ./grouping
-    container_name: grouping
-    command: ["bash", "-lc", "sleep infinity"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - MCP_URL=http://mcp-packet-db:8765
-      - PYTHONPATH=/app/src:/app/mcp_packet_db_server/src
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
-      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
-      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
-      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
-      - PROVIDER=${PROVIDER:-ollama}
-      - MODEL=${MODEL:-}
-      - API_KEY=${API_KEY:-}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-    volumes:
-      - ./grouping:/app
-      - ./mcp/packet_db_server/src:/app/mcp_packet_db_server/src:ro
-      - ollama_models:/root/.ollama
-    networks:
-      - app-network
-    depends_on:
-      - mcp-packet-db
-    tty: true
-    stdin_open: true
-
-  # container that solely hosts local LLM, if ollama is requested
-  scanner-llm:
-    build: ./vuln_scan/backend/llm
-    container_name: scanner-llm
-    command: ["bash", "-lc", "exec ollama serve"]
-    restart: unless-stopped
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-    volumes:
-      - ./vuln_scan/backend/llm:/app
-      - ./vuln_scan/data:/app/data
-      - ollama_models:/root/.ollama
-    networks:
-      - app-network
-    depends_on:
-      - mcp-packet-db
-    tty: true
-    stdin_open: true
-
-  # HTTP API for the vulnerability scanner frontend
-  scanner-api:
-    build:
-      context: ./vuln_scan
-      dockerfile: backend/api/Dockerfile
-    container_name: scanner-api
-    restart: unless-stopped
-    environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - MCP_URL=http://mcp-packet-db:8765
-      - OLLAMA_HOST=http://scanner-llm:11434
-      - APP_DETAILS=/data/app_details.txt
-      - USER_INTEND=/data/user_intend.txt
-      - TAVILY_API_KEY=${TAVILY_API_KEY:-}
-      - TAVILY_MCP_URL=${TAVILY_MCP_URL:-}
-      - SEARCH_MCP_URL=${SEARCH_MCP_URL:-}
-      - SEARCH_MCP_SERVERS=${SEARCH_MCP_SERVERS:-}
-      - SEARCH_MCP_TOOL_TIMEOUT_SECONDS=${SEARCH_MCP_TOOL_TIMEOUT_SECONDS:-60}
-      - SCANNER_PROVIDER=${SCANNER_PROVIDER:-}
-      - SCANNER_MODEL=${SCANNER_MODEL:-}
-      - SCANNER_OLLAMA_MODEL=${SCANNER_OLLAMA_MODEL:-}
-      - SCANNER_DEEPSEEK_MODEL=${SCANNER_DEEPSEEK_MODEL:-}
-      - SCANNER_OPENAI_MODEL=${SCANNER_OPENAI_MODEL:-}
-      - SCANNER_GEMINI_MODEL=${SCANNER_GEMINI_MODEL:-}
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-}
-      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-}
-      - OPENAI_MODEL=${OPENAI_MODEL:-}
-      - GEMINI_MODEL=${GEMINI_MODEL:-}
-      - SCANNER_OLLAMA_MODELS=${SCANNER_OLLAMA_MODELS:-}
-      - SCANNER_DEEPSEEK_MODELS=${SCANNER_DEEPSEEK_MODELS:-}
-      - SCANNER_OPENAI_MODELS=${SCANNER_OPENAI_MODELS:-}
-      - SCANNER_GEMINI_MODELS=${SCANNER_GEMINI_MODELS:-}
-      - OLLAMA_MODELS=${OLLAMA_MODELS:-}
-      - DEEPSEEK_MODELS=${DEEPSEEK_MODELS:-}
-      - OPENAI_MODELS=${OPENAI_MODELS:-}
-      - GEMINI_MODELS=${GEMINI_MODELS:-}
-      - PROVIDER=${PROVIDER:-}
-      - MODEL=${MODEL:-}
-      - API_KEY=${API_KEY:-}
-      - API_BASE_URL=${API_BASE_URL:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_API_BASE_URL=${DEEPSEEK_API_BASE_URL:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - PHASE2_MCP_SERVERS=packet=http://mcp-packet-db:8765,hexstrike=http://hexstrike-vpn:8767,bash=http://hexstrike-vpn:8766
-      - PHASE2_MCP_TOOL_TIMEOUT_SECONDS=900
-      - PHASE2_APPROVAL_TIMEOUT_SECONDS=3600
-      - LOG_LEVEL=VERBOSE
-      - SCAN_LOG_ROOT=/logs/vuln_scan
-      - PYTHONDONTWRITEBYTECODE=1
-    volumes:
-      - ./vuln_scan/backend/api:/app:ro
-      - ./vuln_scan/backend/llm:/llm:ro
-      - ./vuln_scan/data:/data:ro
-      - ./logs:/logs
-    ports:
-      - "8090:8000"
-    networks:
-      - app-network
-      - scanner-hexstrike-network
-    depends_on:
-      - mcp-packet-db
-      - hexstrike-vpn
-      - mcp-hexstrike
-      - scanner-llm
-
-  # Web UI for selecting events and running phase-one summaries
-  scanner-frontend:
-    build: ./vuln_scan/frontend
-    container_name: scanner-frontend
-    restart: unless-stopped
-    ports:
-      - "8091:80"
-    networks:
-      - app-network
-    depends_on:
-      - scanner-api
 
 volumes:
   db_data:
     driver: local
   gluetun_data:
     driver: local
-  ollama_models:
-    driver: local
 
 networks:
   app-network:
     driver: bridge
   scanner-hexstrike-network:
+    driver: bridge
+  # Dedicated network for consumers of the packet database read API.
+  db-api-network:
     driver: bridge

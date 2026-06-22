@@ -131,8 +131,7 @@ def format_packet_info_text(
     lines.append(f"app protocol: {app_protocol_disp}")
 
     if http_headers:
-        # Stream metadata is sparse but useful when available for optional
-        # HTTP stream summaries in the grouping phase.
+        # Stream metadata is sparse but useful when available during packet review.
         for header in http_headers:
             stream_id = header.get("stream_id")
             version = header.get("version")

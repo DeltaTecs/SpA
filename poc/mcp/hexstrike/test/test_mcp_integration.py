@@ -6,6 +6,7 @@ import os
 import socket
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 import uuid
@@ -25,9 +26,11 @@ except ImportError:  # pragma: no cover - older mcp package compatibility
 PYTHON = os.environ.get("HEXSTRIKE_VENV_PYTHON", "/opt/hexstrike-venv/bin/python")
 HEXSTRIKE_HOME = Path(os.environ.get("HEXSTRIKE_HOME", "/opt/hexstrike-ai"))
 BASH_MCP_SCRIPT = Path("/usr/local/bin/hexstrike-bash-mcp")
+HTTP_MCP_BRIDGE_SCRIPT = Path("/usr/local/bin/hexstrike-http-mcp")
 HEXSTRIKE_MCP_SCRIPT = HEXSTRIKE_HOME / "hexstrike_mcp.py"
 HEXSTRIKE_SERVER_SCRIPT = HEXSTRIKE_HOME / "hexstrike_server.py"
 HEXSTRIKE_FILE_ROOT = Path("/tmp/hexstrike_files")
+TOOLS_ADMIN_TOKEN = "test-admin-token"
 
 
 def _free_port() -> int:
@@ -66,6 +69,24 @@ def _wait_for_json(url: str, timeout_seconds: float = 60) -> dict[str, Any]:
         time.sleep(0.5)
 
     raise RuntimeError(f"Timed out waiting for JSON response from {url}: {last_error}")
+
+
+def _wait_for_active_process(server_url: str, timeout_seconds: float = 20) -> int:
+    deadline = time.time() + timeout_seconds
+    last_error: Exception | None = None
+
+    while time.time() < deadline:
+        try:
+            response = requests.get(f"{server_url}/api/processes/dashboard", timeout=5)
+            response.raise_for_status()
+            processes = response.json().get("processes", [])
+            if processes:
+                return int(processes[0]["pid"])
+        except (KeyError, TypeError, ValueError, requests.RequestException) as exc:
+            last_error = exc
+        time.sleep(0.2)
+
+    raise RuntimeError(f"Timed out waiting for an active HexStrike process: {last_error}")
 
 
 def _terminate_process(process: subprocess.Popen[str]) -> None:
@@ -333,6 +354,24 @@ class TestHexStrikeMcpTools(HexStrikeProcessTestCase):
         _wait_for_json(f"{self.server_url}/api/cache/stats")
         self.assertIsNone(self.server_process.poll(), "HexStrike server exited early")
 
+    def _start_http_bridge(self) -> tuple[str, subprocess.Popen[str]]:
+        bridge_port = _free_port()
+        bridge_url = f"http://127.0.0.1:{bridge_port}"
+        bridge_process = self._start_process(
+            [PYTHON, str(HTTP_MCP_BRIDGE_SCRIPT)],
+            env={
+                "HEXSTRIKE_MCP_HTTP_HOST": "127.0.0.1",
+                "HEXSTRIKE_MCP_HTTP_PORT": str(bridge_port),
+                "HEXSTRIKE_MCP_HTTP_ALLOWED_HOSTS": f"127.0.0.1:{bridge_port}",
+                "HEXSTRIKE_TOOLS_ADMIN_TOKEN": TOOLS_ADMIN_TOKEN,
+                "HEXSTRIKE_SERVER_URL": self.server_url,
+            },
+            log_name=f"hexstrike-http-mcp-{bridge_port}.log",
+        )
+        _wait_for_json(f"{bridge_url}/health")
+        self.assertIsNone(bridge_process.poll(), "HexStrike HTTP MCP bridge exited early")
+        return bridge_url, bridge_process
+
     def test_file_and_cache_tools_work_through_mcp_stdio(self) -> None:
         token = uuid.uuid4().hex
         results = asyncio.run(_exercise_hexstrike_stdio_tools(self.server_url, token))
@@ -360,6 +399,92 @@ class TestHexStrikeMcpTools(HexStrikeProcessTestCase):
             cache_text = _result_text(results["cache"])
             self.assertIn("hit_rate", cache_text)
             self.assertIn("size", cache_text)
+
+    def test_http_bridge_proxies_tools_through_streamable_http(self) -> None:
+        bridge_url, _bridge_process = self._start_http_bridge()
+
+        tool_names = asyncio.run(_list_streamable_tools(bridge_url))
+        self.assertIn("get_cache_stats", tool_names)
+
+        result = asyncio.run(_call_streamable_tool(bridge_url, "get_cache_stats", {}))
+        cache_text = _result_text(result)
+        self.assertIn("hit_rate", cache_text)
+        self.assertIn("size", cache_text)
+
+    def test_http_bridge_uses_stateless_streamable_http_semantics(self) -> None:
+        bridge_url, _bridge_process = self._start_http_bridge()
+        mcp_url = f"{bridge_url}/mcp"
+        headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+        }
+        initialize = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "integration-test", "version": "1.0"},
+            },
+        }
+
+        response = requests.post(mcp_url, json=initialize, headers=headers, timeout=10)
+        response.raise_for_status()
+        self.assertNotIn("Mcp-Session-Id", response.headers)
+        self.assertEqual(response.headers["Content-Type"].split(";")[0], "application/json")
+
+        notification = requests.post(
+            mcp_url,
+            json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+            headers=headers,
+            timeout=10,
+        )
+        self.assertEqual(notification.status_code, 202)
+        self.assertFalse(notification.content)
+
+        delete = requests.delete(mcp_url, timeout=10)
+        self.assertEqual(delete.status_code, 405)
+
+        invalid_host = requests.post(
+            mcp_url,
+            json=initialize,
+            headers={**headers, "Host": "invalid.example"},
+            timeout=10,
+        )
+        self.assertEqual(invalid_host.status_code, 421)
+
+    def test_http_bridge_stop_terminates_hexstrike_managed_process(self) -> None:
+        bridge_url, _bridge_process = self._start_http_bridge()
+
+        command_response: dict[str, Any] = {}
+
+        def run_command() -> None:
+            try:
+                command_response["response"] = requests.post(
+                    f"{self.server_url}/api/command",
+                    json={"command": "sleep 30", "use_cache": False},
+                    timeout=40,
+                )
+            except Exception as exc:  # noqa: BLE001 - asserted below in the test thread
+                command_response["error"] = exc
+
+        command_thread = threading.Thread(target=run_command, daemon=True)
+        command_thread.start()
+        pid = _wait_for_active_process(self.server_url)
+
+        response = requests.post(
+            f"{bridge_url}/admin/tools/stop",
+            headers={"Authorization": f"Bearer {TOOLS_ADMIN_TOKEN}"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        managed = response.json()["managed_processes"]
+
+        command_thread.join(timeout=10)
+        self.assertFalse(command_thread.is_alive(), "Terminated command request did not return")
+        self.assertNotIn("error", command_response)
+        self.assertIn(pid, managed["stopped"])
 
 
 if __name__ == "__main__":

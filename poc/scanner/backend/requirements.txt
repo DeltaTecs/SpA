@@ -1,0 +1,9 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+python-dotenv>=1.0.1
+# Used to signal the HexStrike bridge's authenticated admin stop endpoint.
+httpx>=0.27.0
+# Dependencies of the bundled `llm` package (see llm/requirements.txt).
+mcp>=1.2.0
+openai>=1.0.0
