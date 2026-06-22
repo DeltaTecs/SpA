@@ -90,4 +90,6 @@ Stages 4-8 are facilitated through a web client. After the Docker setup is runni
 A major downside of our approach is the reliance on old traffic data. Many exploits require modification of traffic in transit due to the short life of authentication tokens and specific application flows / state progression (e.g., OAuth).
 This could be improved by redesigning the tool chain and designing application-controlling MCP tools.
 
+### Application Protocol Analysis
+The tool mainly focuses on HTTP security at the moment, as it is not able to collect sufficient ideas for attack vectors on the custom application layer of many applications. The area of HTTP-based attacks is well researched as well as guarded. A high potential lies in understanding and tricking the propriatery application logic, which we are able to access with the traffic decryption. 
 
