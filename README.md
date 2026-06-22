@@ -66,7 +66,7 @@ Parsing and all following stages are integrated in a Docker setup, which can be 
 ```bash
 docker compose up -d
 ```
-Expect this to take a while on initial setup. The hexstrike container takes a long time to build due to pentest tool installs. Additionally, ca. 10GB of free storage is required.
+Expect this to take a while on initial setup. The hexstrike container takes a long time to build due to pentest tool installs. Additionally, ca. 20 GB of free storage is required.
 
 You can then run the parsing stage
 ```bash
