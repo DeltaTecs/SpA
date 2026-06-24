@@ -894,6 +894,31 @@ def find_dumps_in_timeframe(hints, start_time, end_time, dumps_dir):
     return matching_dumps
 
 
+def find_first_dump_after_timeframe(hints, start_time, end_time, dumps_dir):
+    """Find the existing dump with the earliest timestamp after a session window."""
+    if end_time is None:
+        return None
+
+    first_after = None
+    for hint in hints:
+        hint_ts = hint["timestamp_ms"] / 1000.0
+        if hint_ts <= end_time:
+            continue
+
+        dump_path = hint["file"]
+        if not os.path.isabs(dump_path):
+            dump_path = os.path.join(dumps_dir, dump_path)
+        if not os.path.exists(dump_path):
+            continue
+
+        distance = hint_ts - end_time
+
+        if first_after is None or hint_ts < first_after[1]:
+            first_after = (dump_path, hint_ts, distance)
+
+    return first_after
+
+
 # ==============================================================================
 # VOSES Integration for TLS 1.2
 # ==============================================================================
@@ -1068,6 +1093,14 @@ def get_args():
         default=os.path.join(os.getcwd(), "voses"),
         help="Path to voses binary (default: ./voses).",
     )
+    parser.add_argument(
+        "--use-closest-dump",
+        action="store_true",
+        help=(
+            "If no dump falls inside a session timeframe, search the first "
+            "existing dump after that session ends."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1209,13 +1242,34 @@ def main():
         
         # Find dumps within session timeframe
         dumps = find_dumps_in_timeframe(hints, session["start_time"], session["end_time"], args.dumps)
+        using_closest_dump = False
         
         if not dumps:
-            print(f"  [WARNING] No dumps found within session timeframe - skipping")
-            skipped_sessions.append(conn_str)
-            continue
+            if args.use_closest_dump:
+                first_after = find_first_dump_after_timeframe(
+                    hints,
+                    session["start_time"],
+                    session["end_time"],
+                    args.dumps,
+                )
+                if first_after:
+                    dump_path, dump_ts, distance = first_after
+                    dumps = [(dump_path, dump_ts)]
+                    using_closest_dump = True
+                    print(
+                        "  [WARNING] No dumps found within session timeframe; "
+                        f"using first dump after session end ({distance:.3f}s later)"
+                    )
+
+            if not dumps:
+                print(f"  [WARNING] No dumps found within session timeframe - skipping")
+                skipped_sessions.append(conn_str)
+                continue
         
-        print(f"  Found {len(dumps)} dump(s) in timeframe")
+        if using_closest_dump:
+            print("  Found 1 dump after the session timeframe")
+        else:
+            print(f"  Found {len(dumps)} dump(s) in timeframe")
         
         # Store algorithm and voses path in flow for the extraction function
         flow["algorithm"] = session["algorithm"]

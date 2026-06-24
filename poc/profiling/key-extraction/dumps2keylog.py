@@ -30,6 +30,7 @@ Arguments:
     --skip-tls12        Skip TLS 1.2/DTLS 1.2 extraction
     --skip-tls13        Skip TLS 1.3 extraction
     --skip-quic         Skip QUIC extraction
+    --use-closest-dump  If no in-session dump is available, try the next dump
     --max-seq-attempts-up    Maximum sequence number increment attempts for TLS 1.3 (default: 10)
     --max-seq-attempts-down  Maximum sequence number decrement attempts for TLS 1.3 (default: 5)
 
@@ -173,6 +174,14 @@ Examples:
         help="Skip QUIC extraction."
     )
     parser.add_argument(
+        "--use-closest-dump",
+        action="store_true",
+        help=(
+            "If no dump falls inside a session timeframe, search the first "
+            "existing dump after that session ends."
+        )
+    )
+    parser.add_argument(
         "--max-seq-attempts-up",
         type=int,
         default=10,
@@ -252,6 +261,8 @@ def main():
                 "--keylog", tls12_keylog,
                 "--voses", args.voses,
             ]
+            if args.use_closest_dump:
+                tls12_args.append("--use-closest-dump")
             
             success, output, code = run_extractor(
                 "dumps2keylog_tls12.py",
@@ -274,6 +285,8 @@ def main():
                 "--max-seq-attempts-up", str(args.max_seq_attempts_up),
                 "--max-seq-attempts-down", str(args.max_seq_attempts_down),
             ]
+            if args.use_closest_dump:
+                tls13_args.append("--use-closest-dump")
             
             success, output, code = run_extractor(
                 "dumps2keylog_tls13.py",
@@ -294,6 +307,8 @@ def main():
                 "--keylog", quic_keylog,
                 "--voses", args.voses,
             ]
+            if args.use_closest_dump:
+                quic_args.append("--use-closest-dump")
             
             success, output, code = run_extractor(
                 "dumps2keylog_quic.py",

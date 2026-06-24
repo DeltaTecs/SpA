@@ -929,6 +929,59 @@ def match_connection_by_hint(connections, hint):
     return min(candidates, key=lambda c: abs(time_for(c) - hint_ts))
 
 
+def get_connection_time_range(conn):
+    """Return the observed time range for a QUIC connection."""
+    packet_times = [
+        pkt["timestamp"]
+        for pkt in conn.get("packets", [])
+        if pkt.get("timestamp") is not None
+    ]
+    start_time = conn.get("client_hello_ts") or conn.get("first_seen")
+    if start_time is None and packet_times:
+        start_time = min(packet_times)
+
+    end_time = max(packet_times) if packet_times else start_time
+    return start_time, end_time
+
+
+def find_first_dump_after_timeframe(hints, start_time, end_time, dumps_dir):
+    """Find the existing dump with the earliest timestamp after a session window."""
+    if end_time is None:
+        return None
+
+    first_after = None
+    for hint in hints:
+        hint_ts = hint["timestamp_ms"] / 1000.0
+        if hint_ts <= end_time:
+            continue
+
+        dump_path = hint["file"]
+        if not os.path.isabs(dump_path):
+            dump_path = os.path.join(dumps_dir, dump_path)
+        if not os.path.exists(dump_path):
+            continue
+
+        distance = hint_ts - end_time
+
+        if first_after is None or hint_ts < first_after[1]:
+            first_after = (dump_path, hint_ts, distance)
+
+    return first_after
+
+
+def select_quic_algorithm(conn):
+    """Select a voses algorithm for a parsed QUIC connection."""
+    algorithm = QUIC_CIPHER_SUITES.get(conn.get("cipher_suite"))
+    if algorithm:
+        return algorithm
+
+    for suite in conn.get("offered_cipher_suites", []):
+        if suite in QUIC_CIPHER_SUITES:
+            return QUIC_CIPHER_SUITES[suite]
+
+    return "gcm_128_sha_256"
+
+
 def get_args():
     parser = argparse.ArgumentParser(
         description="Extract QUIC TLS 1.3 traffic secrets from memory dumps using voses."
@@ -941,6 +994,14 @@ def get_args():
         "--voses",
         default=os.path.join(os.getcwd(), "voses"),
         help="Path to voses binary (default: ./voses).",
+    )
+    parser.add_argument(
+        "--use-closest-dump",
+        action="store_true",
+        help=(
+            "If no endpoint-matched hint is available for a QUIC connection, "
+            "search the first existing dump after that connection ends."
+        ),
     )
     return parser.parse_args()
 
@@ -1002,17 +1063,8 @@ def main():
         conn_id = conn["client_random"]
         if conn_id in processed_connections:
             continue
-        processed_connections.add(conn_id)
 
-        # Determine algorithm from cipher suite
-        algorithm = QUIC_CIPHER_SUITES.get(conn.get("cipher_suite"))
-        if not algorithm:
-            for suite in conn.get("offered_cipher_suites", []):
-                if suite in QUIC_CIPHER_SUITES:
-                    algorithm = QUIC_CIPHER_SUITES[suite]
-                    break
-        if not algorithm:
-            algorithm = "gcm_128_sha_256"
+        algorithm = select_quic_algorithm(conn)
 
         dump_path = hint["file"]
         if not os.path.isabs(dump_path):
@@ -1026,13 +1078,43 @@ def main():
         client_src, client_dst = conn["client_dir"]
         conn_str = f"{client_src.ip}:{client_src.port} -> {client_dst.ip}:{client_dst.port}"
         
+        processed_connections.add(conn_id)
         sessions.append({
             "conn": conn,
             "dump_path": dump_path,
             "algorithm": algorithm,
             "conn_str": conn_str,
             "hint": hint,
+            "closest_dump": False,
         })
+
+    if args.use_closest_dump:
+        for conn in valid_connections:
+            conn_id = conn["client_random"]
+            if conn_id in processed_connections:
+                continue
+            if not conn["client_dir"] or not conn["server_dir"]:
+                continue
+
+            start_ts, end_ts = get_connection_time_range(conn)
+            first_after = find_first_dump_after_timeframe(hints, start_ts, end_ts, args.dumps)
+            if not first_after:
+                continue
+
+            dump_path, dump_ts, distance = first_after
+            client_src, client_dst = conn["client_dir"]
+            conn_str = f"{client_src.ip}:{client_src.port} -> {client_dst.ip}:{client_dst.port}"
+            processed_connections.add(conn_id)
+            sessions.append({
+                "conn": conn,
+                "dump_path": dump_path,
+                "algorithm": select_quic_algorithm(conn),
+                "conn_str": conn_str,
+                "hint": None,
+                "closest_dump": True,
+                "closest_distance": distance,
+                "closest_ts": dump_ts,
+            })
 
     if not sessions:
         print("No valid QUIC sessions to process.")
@@ -1055,6 +1137,11 @@ def main():
         print(f"\n[Session {idx+1}/{len(sessions)}] {conn_str}")
         print(f"  Algorithm: {algorithm}")
         print(f"  Dump: {os.path.basename(dump_path)}")
+        if session.get("closest_dump"):
+            print(
+                "  After-session fallback: "
+                f"{session['closest_distance']:.3f}s after observed connection end"
+            )
         print(f"  Client CID len: {conn.get('client_cid_len', 0)}, Server CID len: {conn.get('server_cid_len', 0)}")
 
         client_ok = attempt_quic_secret(
