@@ -83,13 +83,3 @@ Stages 4-8 are facilitated through a web client. After the Docker setup is runni
 3. Go to Analysis Queue and configure AI (recommended deepseek v4 pro, max effort, 50 iterations, few tools (packet_info, packet_payload_hexdump, conversation_packets, tavily_search, tavily_extract, gobuster_scan, create_file, modify_file, delete_file, python, dirb, sqlmap, ffuf, graphql, jwt analyzer, wafw00f, fierce_scan, dnsenum), automatic review deepseek v4 flash, default effort, 4 iterations). Make sure to specify tool use constraints of the application's bug bounty program (f.e, rate limit, user agent).
 3. If you are superstitious, enable manual tool review. Run a (parallel) exploitability analysis. After an item has finished, evaluate if you want to investigate further and press "send to Exploit Queue" if so.
 4. In Exploit Queue, run a similar analysis to Analysis Queue and investigate findings
-
-## Improvements and downsides
-
-### Agentic application control
-A major downside of our approach is the reliance on old traffic data. Many exploits require modification of traffic in transit due to the short life of authentication tokens and specific application flows / state progression (e.g., OAuth).
-This could be improved by redesigning the tool chain and designing application-controlling MCP tools.
-
-### Application Protocol Analysis
-The tool mainly focuses on HTTP security at the moment, as it is not able to collect sufficient ideas for attack vectors on the custom application layer of many applications. The area of HTTP-based attacks is well researched as well as guarded. A high potential lies in understanding and tricking the propriatery application logic, which we are able to access with the traffic decryption. 
-
