@@ -93,3 +93,8 @@ This could be improved by redesigning the tool chain and designing application-c
 ### Application Protocol Analysis
 The tool mainly focuses on HTTP security at the moment, as it is not able to collect sufficient ideas for attack vectors on the custom application layer of many applications. The area of HTTP-based attacks is well researched as well as guarded. A high potential lies in understanding and tricking the propriatery application logic, which we are able to access with the traffic decryption. 
 
+## License
+
+Unless otherwise noted, the original software in this repository is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). Commercial use is not permitted. This is a source-available license, not an open-source license as defined by the Open Source Initiative.
+
+Third-party software and dependencies remain subject to their respective licenses. In particular, the bundled VoSeS executable is distributed under GPL-3.0; its source is available from the [VoSeS repository](https://github.com/DeltaTecs/VoSeS).
