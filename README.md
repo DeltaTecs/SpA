@@ -68,6 +68,11 @@ docker compose up -d
 ```
 Expect this to take a while on initial setup. The hexstrike container takes a long time to build due to pentest tool installs. Additionally, ca. 20 GB of free storage is required.
 
+After a fresh install, run `./reset_db.sh` from the `poc` folder once the containers are running to initialize the database roles and permissions:
+```bash
+./reset_db.sh
+```
+
 You can then run the parsing stage
 ```bash
 poc/run_parsing.sh <traffic pcap file> <key log file>
